@@ -49,11 +49,21 @@ class DeviceDatabase {
         used_count INTEGER DEFAULT 0,
         is_active BOOLEAN DEFAULT TRUE,
         created_by TEXT,
-        username TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         notes TEXT
       )
     `);
+
+    try {
+      await this.query(`ALTER TABLE codes ADD COLUMN username TEXT`);
+      console.log('✅ Added username column to codes table');
+    } catch (err) {
+      if (err.code === '42701' || err.message.includes('already exists')) {
+        console.log('ℹ️ Username column already exists');
+      } else {
+        console.log('⚠️ Could not add username column:', err.message);
+      }
+    }
 
     await this.query(`
       CREATE TABLE IF NOT EXISTS devices (
@@ -109,6 +119,19 @@ class DeviceDatabase {
     console.log('✅ Tables created/verified');
   }
 
+  async usernameColumnExists() {
+    try {
+      const result = await this.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'codes' AND column_name = 'username'
+      `);
+      return result.rows.length > 0;
+    } catch (error) {
+      return false;
+    }
+  }
+
   async generateCode(maxDevices = 10, createdBy = 'admin', username = '', notes = '') {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let code = '';
@@ -118,10 +141,19 @@ class DeviceDatabase {
     code = code.slice(0, 4) + '-' + code.slice(4);
 
     try {
-      await this.run(
-        'INSERT INTO codes (code, max_devices, created_by, username, notes) VALUES ($1, $2, $3, $4, $5)',
-        [code, maxDevices, createdBy, username, notes || '']
-      );
+      const hasUsername = await this.usernameColumnExists();
+      
+      if (hasUsername) {
+        await this.run(
+          'INSERT INTO codes (code, max_devices, created_by, username, notes) VALUES ($1, $2, $3, $4, $5)',
+          [code, maxDevices, createdBy, username, notes || '']
+        );
+      } else {
+        await this.run(
+          'INSERT INTO codes (code, max_devices, created_by, notes) VALUES ($1, $2, $3, $4)',
+          [code, maxDevices, createdBy, notes || '']
+        );
+      }
       console.log(`✅ Code generated: ${code} (max: ${maxDevices} devices) for user: ${username}`);
       return code;
     } catch (error) {
@@ -131,17 +163,48 @@ class DeviceDatabase {
   }
 
   async getCodeInfo(code) {
-    return await this.get('SELECT * FROM codes WHERE code = $1', [code]);
+    try {
+      const hasUsername = await this.usernameColumnExists();
+      if (hasUsername) {
+        return await this.get('SELECT * FROM codes WHERE code = $1', [code]);
+      } else {
+        return await this.get('SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes WHERE code = $1', [code]);
+      }
+    } catch (error) {
+      return await this.get('SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes WHERE code = $1', [code]);
+    }
   }
 
   async getAllCodes() {
-    return await this.all('SELECT * FROM codes ORDER BY created_at DESC');
+    try {
+      const hasUsername = await this.usernameColumnExists();
+      if (hasUsername) {
+        return await this.all('SELECT * FROM codes ORDER BY created_at DESC');
+      } else {
+        return await this.all('SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes ORDER BY created_at DESC');
+      }
+    } catch (error) {
+      return await this.all('SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes ORDER BY created_at DESC');
+    }
   }
 
   async getActiveCodes() {
-    return await this.all(
-      'SELECT * FROM codes WHERE is_active = true ORDER BY created_at DESC'
-    );
+    try {
+      const hasUsername = await this.usernameColumnExists();
+      if (hasUsername) {
+        return await this.all(
+          'SELECT * FROM codes WHERE is_active = true ORDER BY created_at DESC'
+        );
+      } else {
+        return await this.all(
+          'SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes WHERE is_active = true ORDER BY created_at DESC'
+        );
+      }
+    } catch (error) {
+      return await this.all(
+        'SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes WHERE is_active = true ORDER BY created_at DESC'
+      );
+    }
   }
 
   async getPendingCodeRequests() {

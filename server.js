@@ -147,13 +147,36 @@ app.get('/api/status/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
   
   try {
-    const result = await db.getDeviceStatus(deviceId);
+    const device = await db.getDevice(deviceId);
     
-    if (!result.exists) {
-      return res.status(404).json({ 
+    if (!device) {
+      return res.json({ 
         exists: false, 
         status: 'not_found',
-        message: 'Device not found - Enter code again' 
+        message: 'Device not found - Please enter your code again',
+        needsCode: true
+      });
+    }
+
+    if (!device.code) {
+      return res.json({
+        exists: true,
+        status: 'invalid',
+        message: 'Device has no active code - Please enter your code again',
+        needsCode: true
+      });
+    }
+
+    const codeInfo = await db.getCodeInfo(device.code);
+    if (!codeInfo || !codeInfo.is_active) {
+      await db.run('DELETE FROM devices WHERE device_id = $1', [deviceId]);
+      await db.logUsage(deviceId, device.code, 'code_inactive', 'Device removed because code was deactivated');
+      
+      return res.json({
+        exists: false,
+        status: 'code_inactive',
+        message: 'Your activation code has been deactivated - Please enter a new code',
+        needsCode: true
       });
     }
 
@@ -161,9 +184,14 @@ app.get('/api/status/:deviceId', async (req, res) => {
 
     res.json({
       exists: true,
-      status: result.status,
-      code: result.code,
-      device: result.device
+      status: device.status,
+      code: device.code,
+      approved: device.status === 'approved',
+      device: {
+        id: device.device_id,
+        approved_at: device.approved_at,
+        revoked_at: device.revoked_at
+      }
     });
   } catch (error) {
     console.error('Status check error:', error);
@@ -616,17 +644,6 @@ app.get('/api/stats', isApiAuthenticated, async (req, res) => {
   }
 });
 
-app.get('/api/logs', isApiAuthenticated, async (req, res) => {
-  try {
-    const { deviceId, limit = 100 } = req.query;
-    const logs = await db.getUsageLogs(deviceId, parseInt(limit));
-    res.json(logs);
-  } catch (error) {
-    console.error('Logs error:', error);
-    res.status(500).json({ error: 'Failed to get logs' });
-  }
-});
-
 app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
   try {
     const devices = await db.getDevices();
@@ -644,6 +661,50 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
   } catch (error) {
     console.error('Dashboard data error:', error);
     res.status(500).json({ error: 'Failed to load dashboard data' });
+  }
+});
+
+app.post('/api/delete-all-devices', isApiAuthenticated, async (req, res) => {
+  try {
+    console.log('🗑️ Deleting all devices...');
+    const count = await db.get('SELECT COUNT(*) as count FROM devices');
+    await db.run('DELETE FROM devices');
+    await db.run('UPDATE codes SET used_count = 0');
+    await db.logUsage('admin', null, 'delete_all_devices', 
+      `Admin ${req.session.username} deleted all ${count.count} devices`);
+    res.json({ success: true, message: `All ${count.count} devices deleted!`, deleted: parseInt(count.count) });
+  } catch (error) {
+    console.error('Delete all devices error:', error);
+    res.status(500).json({ error: 'Failed to delete devices' });
+  }
+});
+
+app.post('/api/delete-all-requests', isApiAuthenticated, async (req, res) => {
+  try {
+    console.log('🗑️ Deleting all requests...');
+    const count = await db.get('SELECT COUNT(*) as count FROM requests');
+    await db.run('DELETE FROM requests');
+    await db.logUsage('admin', null, 'delete_all_requests', 
+      `Admin ${req.session.username} deleted all ${count.count} requests`);
+    res.json({ success: true, message: `All ${count.count} requests deleted!`, deleted: parseInt(count.count) });
+  } catch (error) {
+    console.error('Delete all requests error:', error);
+    res.status(500).json({ error: 'Failed to delete requests' });
+  }
+});
+
+app.post('/api/delete-all-codes', isApiAuthenticated, async (req, res) => {
+  try {
+    console.log('🗑️ Deleting all codes...');
+    await db.run('DELETE FROM devices');
+    const count = await db.get('SELECT COUNT(*) as count FROM codes');
+    await db.run('DELETE FROM codes');
+    await db.logUsage('admin', null, 'delete_all_codes', 
+      `Admin ${req.session.username} deleted all ${count.count} codes and all devices`);
+    res.json({ success: true, message: `All ${count.count} codes and all devices deleted!`, deleted: parseInt(count.count) });
+  } catch (error) {
+    console.error('Delete all codes error:', error);
+    res.status(500).json({ error: 'Failed to delete codes' });
   }
 });
 

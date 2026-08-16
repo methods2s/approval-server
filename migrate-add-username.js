@@ -9,26 +9,25 @@ async function migrate() {
   try {
     console.log('🔄 Adding username column to codes table...');
     
-    const checkResult = await pool.query(`
+    try {
+      await pool.query(`ALTER TABLE codes ADD COLUMN username TEXT`);
+      console.log('✅ Username column added successfully!');
+    } catch (err) {
+      if (err.message.includes('already exists') || err.code === '42701') {
+        console.log('ℹ️ Username column already exists');
+      } else {
+        throw err;
+      }
+    }
+    
+    const check = await pool.query(`
       SELECT column_name 
       FROM information_schema.columns 
       WHERE table_name = 'codes' AND column_name = 'username'
     `);
     
-    if (checkResult.rows.length === 0) {
-      await pool.query(`
-        ALTER TABLE codes ADD COLUMN username TEXT
-      `);
-      console.log('✅ Username column added successfully!');
-      
-      await pool.query(`
-        UPDATE codes 
-        SET username = SUBSTRING(notes FROM 'For user: (.*)$')
-        WHERE notes LIKE '%For user:%' AND username IS NULL
-      `);
-      console.log('✅ Updated existing records with username from notes');
-    } else {
-      console.log('ℹ️ Username column already exists');
+    if (check.rows.length > 0) {
+      console.log('✅ Username column verified!');
     }
     
     await pool.end();
