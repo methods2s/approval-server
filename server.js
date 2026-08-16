@@ -143,50 +143,72 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
+// ============================================
+// FIXED: STATUS CHECK - Forces re-login when code is deactivated
+// ============================================
 app.get('/api/status/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
   
   try {
+    // Get the device
     const device = await db.getDevice(deviceId);
     
+    // If device doesn't exist at all -> needs code
     if (!device) {
+      console.log(`📱 Device ${deviceId} not found - needs code`);
       return res.json({ 
-        exists: false, 
+        exists: false,
+        approved: false,
         status: 'not_found',
         message: 'Device not found - Please enter your code again',
-        needsCode: true
+        needsCode: true,
+        forceLogin: true
       });
     }
 
+    // If device exists but has NO code -> needs code
     if (!device.code) {
+      console.log(`📱 Device ${deviceId} has no code - needs code`);
       return res.json({
         exists: true,
-        status: 'invalid',
+        approved: false,
+        status: 'no_code',
         message: 'Device has no active code - Please enter your code again',
-        needsCode: true
+        needsCode: true,
+        forceLogin: true
       });
     }
 
+    // Check if the code is still active
     const codeInfo = await db.getCodeInfo(device.code);
+    
+    // If code is inactive or doesn't exist -> DELETE device and force re-login
     if (!codeInfo || !codeInfo.is_active) {
+      console.log(`📱 Code ${device.code} is inactive - removing device ${deviceId}`);
+      
+      // Delete the device from database
       await db.run('DELETE FROM devices WHERE device_id = $1', [deviceId]);
       await db.logUsage(deviceId, device.code, 'code_inactive', 'Device removed because code was deactivated');
       
       return res.json({
         exists: false,
+        approved: false,
         status: 'code_inactive',
         message: 'Your activation code has been deactivated - Please enter a new code',
-        needsCode: true
+        needsCode: true,
+        forceLogin: true,
+        codeRemoved: true
       });
     }
 
+    // Device is valid - update ping and return success
     await db.updatePing(deviceId);
 
     res.json({
       exists: true,
+      approved: true,
       status: device.status,
       code: device.code,
-      approved: device.status === 'approved',
       device: {
         id: device.device_id,
         approved_at: device.approved_at,
@@ -195,7 +217,13 @@ app.get('/api/status/:deviceId', async (req, res) => {
     });
   } catch (error) {
     console.error('Status check error:', error);
-    res.status(500).json({ error: 'Failed to check status' });
+    res.status(500).json({ 
+      error: 'Failed to check status',
+      exists: false,
+      approved: false,
+      needsCode: true,
+      forceLogin: true
+    });
   }
 });
 
