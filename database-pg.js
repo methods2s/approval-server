@@ -42,14 +42,6 @@ class DeviceDatabase {
   }
 
   async initTables() {
-    // Drop existing tables if they have constraints (optional - uncomment if needed)
-    // await this.query(`DROP TABLE IF EXISTS usage_logs CASCADE`);
-    // await this.query(`DROP TABLE IF EXISTS requests CASCADE`);
-    // await this.query(`DROP TABLE IF EXISTS devices CASCADE`);
-    // await this.query(`DROP TABLE IF EXISTS codes CASCADE`);
-    // await this.query(`DROP TABLE IF EXISTS admins CASCADE`);
-
-    // Create codes table FIRST
     await this.query(`
       CREATE TABLE IF NOT EXISTS codes (
         code TEXT PRIMARY KEY,
@@ -57,12 +49,12 @@ class DeviceDatabase {
         used_count INTEGER DEFAULT 0,
         is_active BOOLEAN DEFAULT TRUE,
         created_by TEXT,
+        username TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         notes TEXT
       )
     `);
 
-    // Create devices table (NO foreign key constraints)
     await this.query(`
       CREATE TABLE IF NOT EXISTS devices (
         id SERIAL PRIMARY KEY,
@@ -81,7 +73,6 @@ class DeviceDatabase {
       )
     `);
 
-    // Create requests table (NO foreign key constraints)
     await this.query(`
       CREATE TABLE IF NOT EXISTS requests (
         id SERIAL PRIMARY KEY,
@@ -95,7 +86,6 @@ class DeviceDatabase {
       )
     `);
 
-    // Create usage_logs table (NO foreign key constraints)
     await this.query(`
       CREATE TABLE IF NOT EXISTS usage_logs (
         id SERIAL PRIMARY KEY,
@@ -107,7 +97,6 @@ class DeviceDatabase {
       )
     `);
 
-    // Create admins table
     await this.query(`
       CREATE TABLE IF NOT EXISTS admins (
         id SERIAL PRIMARY KEY,
@@ -120,11 +109,7 @@ class DeviceDatabase {
     console.log('✅ Tables created/verified');
   }
 
-  // ============================================
-  // CODE MANAGEMENT
-  // ============================================
-
-  async generateCode(maxDevices = 10, createdBy = 'admin', notes = '') {
+  async generateCode(maxDevices = 10, createdBy = 'admin', username = '', notes = '') {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let code = '';
     for (let i = 0; i < 8; i++) {
@@ -134,10 +119,10 @@ class DeviceDatabase {
 
     try {
       await this.run(
-        'INSERT INTO codes (code, max_devices, created_by, notes) VALUES ($1, $2, $3, $4)',
-        [code, maxDevices, createdBy, notes || '']
+        'INSERT INTO codes (code, max_devices, created_by, username, notes) VALUES ($1, $2, $3, $4, $5)',
+        [code, maxDevices, createdBy, username, notes || '']
       );
-      console.log(`✅ Code generated: ${code} (max: ${maxDevices} devices)`);
+      console.log(`✅ Code generated: ${code} (max: ${maxDevices} devices) for user: ${username}`);
       return code;
     } catch (error) {
       console.error('Generate code error:', error);
@@ -181,10 +166,18 @@ class DeviceDatabase {
   }
 
   async deactivateCode(code) {
-    await this.run(
-      'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE code = $2 AND status != $3',
-      ['revoked', code, 'revoked']
+    const devices = await this.all(
+      'SELECT device_id FROM devices WHERE code = $1 AND status != $2',
+      [code, 'revoked']
     );
+    
+    for (const device of devices) {
+      await this.run(
+        'DELETE FROM devices WHERE device_id = $1',
+        [device.device_id]
+      );
+      console.log(`🗑️ Removed device: ${device.device_id}`);
+    }
     
     const result = await this.run(
       'UPDATE codes SET is_active = false, used_count = 0 WHERE code = $1',
@@ -192,16 +185,16 @@ class DeviceDatabase {
     );
     
     if (result.changes > 0) {
-      console.log(`✅ Code deactivated: ${code}`);
-      return true;
+      console.log(`✅ Code deactivated: ${code} - ${devices.length} devices removed`);
+      return { success: true, devicesRemoved: devices.length };
     }
-    return false;
+    return { success: false, devicesRemoved: 0 };
   }
 
   async deleteCode(code) {
     await this.run(
-      'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE code = $2 AND status != $3',
-      ['revoked', code, 'revoked']
+      'DELETE FROM devices WHERE code = $1',
+      [code]
     );
     
     const result = await this.run('DELETE FROM codes WHERE code = $1', [code]);
@@ -215,7 +208,7 @@ class DeviceDatabase {
 
   async extendCode(code, maxDevices) {
     const result = await this.run(
-      'UPDATE codes SET max_devices = $1 WHERE code = $2',
+      'UPDATE codes SET max_devices = $1, is_active = true WHERE code = $2',
       [maxDevices, code]
     );
     if (result.changes > 0) {
@@ -224,10 +217,6 @@ class DeviceDatabase {
     }
     return false;
   }
-
-  // ============================================
-  // DEVICE REGISTRATION
-  // ============================================
 
   async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code) {
     const codeInfo = await this.getCodeInfo(code);
@@ -267,10 +256,6 @@ class DeviceDatabase {
     await this.logUsage(deviceId, code, 'register', 'Device registered and auto-approved');
     return { success: true, status: 'approved', code: code };
   }
-
-  // ============================================
-  // DEVICE MANAGEMENT
-  // ============================================
 
   async getDevice(deviceId) {
     return await this.get('SELECT * FROM devices WHERE device_id = $1', [deviceId]);
@@ -385,10 +370,6 @@ class DeviceDatabase {
     };
   }
 
-  // ============================================
-  // REQUEST MANAGEMENT
-  // ============================================
-
   async createRequest(deviceId, code, reason = '') {
     const device = await this.getDevice(deviceId);
     if (!device) {
@@ -463,10 +444,6 @@ class DeviceDatabase {
     );
   }
 
-  // ============================================
-  // LOGGING AND STATS
-  // ============================================
-
   async logUsage(deviceId, code, action, details = '') {
     try {
       await this.run(
@@ -475,15 +452,6 @@ class DeviceDatabase {
       );
     } catch (error) {
       console.error('Logging error:', error);
-      // Try without device_id if it fails
-      try {
-        await this.run(
-          'INSERT INTO usage_logs (code, action, details) VALUES ($1, $2, $3)',
-          [code || null, action, details]
-        );
-      } catch (err2) {
-        console.error('Logging failed completely:', err2);
-      }
     }
   }
 

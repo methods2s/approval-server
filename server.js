@@ -57,10 +57,6 @@ function isApiAuthenticated(req, res, next) {
   res.status(401).json({ error: 'Unauthorized', message: 'Please log in' });
 }
 
-// ============================================
-// WEB ROUTES
-// ============================================
-
 app.get('/login', (req, res) => {
   if (req.session && req.session.isAuthenticated) {
     return res.redirect('/dashboard');
@@ -97,27 +93,19 @@ app.get('/dashboard', isAuthenticated, async (req, res) => {
   const stats = await db.getStats();
   const codes = await db.getActiveCodes();
   const pendingRequests = await db.getPendingRequests();
-  const codeRequests = await db.getPendingCodeRequests();
   
   res.render('dashboard', { 
     username: req.session.username,
     devices: devices,
     stats: stats,
     codes: codes,
-    requests: pendingRequests,
-    codeRequests: codeRequests
+    requests: pendingRequests
   });
 });
 
 app.get('/', (req, res) => {
   res.redirect('/dashboard');
 });
-
-// ============================================
-// API ROUTES
-// ============================================
-
-// ---------- REGISTRATION WITH AUTO-APPROVAL ----------
 
 app.post('/api/register', async (req, res) => {
   const { deviceId, userAgent, browserInfo, code } = req.body;
@@ -155,8 +143,6 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// ---------- STATUS CHECK ----------
-
 app.get('/api/status/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
   
@@ -184,8 +170,6 @@ app.get('/api/status/:deviceId', async (req, res) => {
     res.status(500).json({ error: 'Failed to check status' });
   }
 });
-
-// ---------- FORCE DEVICE STATUS CHECK ----------
 
 app.get('/api/device-status/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
@@ -217,8 +201,6 @@ app.get('/api/device-status/:deviceId', async (req, res) => {
     res.status(500).json({ error: 'Failed to check device status' });
   }
 });
-
-// ---------- REQUEST CODE ----------
 
 app.post('/api/request-code', async (req, res) => {
   const { deviceId } = req.body;
@@ -257,8 +239,6 @@ app.post('/api/request-code', async (req, res) => {
   }
 });
 
-// ---------- GENERATE CODE ----------
-
 app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
   const { username } = req.body;
   
@@ -267,9 +247,8 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
   }
   
   try {
-    const code = await db.generateCode(10, req.session.username, `For user: ${username}`);
+    const code = await db.generateCode(10, req.session.username, username.trim(), `For user: ${username}`);
     
-    // Try to delete pending request - use try/catch to handle errors
     try {
       await db.query(
         `DELETE FROM requests WHERE device_id = $1 AND code IS NULL AND status = 'pending'`,
@@ -280,7 +259,6 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
       console.log(`No pending request to delete for ${username}`);
     }
     
-    // Update device with the code
     try {
       await db.query(
         `UPDATE devices 
@@ -307,8 +285,6 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
   }
 });
 
-// ---------- GET ACTIVE CODES ----------
-
 app.get('/api/codes', isApiAuthenticated, async (req, res) => {
   try {
     const codes = await db.getActiveCodes();
@@ -319,8 +295,6 @@ app.get('/api/codes', isApiAuthenticated, async (req, res) => {
   }
 });
 
-// ---------- GET ALL CODES ----------
-
 app.get('/api/codes/all', isApiAuthenticated, async (req, res) => {
   try {
     const codes = await db.getAllCodes();
@@ -330,8 +304,6 @@ app.get('/api/codes/all', isApiAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to get codes' });
   }
 });
-
-// ---------- GET CODE USAGE ----------
 
 app.get('/api/code/:code/usage', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
@@ -345,74 +317,43 @@ app.get('/api/code/:code/usage', isApiAuthenticated, async (req, res) => {
   }
 });
 
-// ---------- DEACTIVATE CODE ----------
-
 app.post('/api/code/:code/deactivate', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
   
   try {
-    const devices = await db.all(
-      `SELECT device_id FROM devices WHERE code = $1 AND status != 'revoked'`,
-      [code]
-    );
+    const result = await db.deactivateCode(code);
     
-    for (const device of devices) {
-      await db.run(
-        `UPDATE devices 
-         SET status = 'revoked', 
-             revoked_at = CURRENT_TIMESTAMP,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE device_id = $1`,
-        [device.device_id]
-      );
+    if (result.success) {
+      await db.logUsage('admin', code, 'code_deactivated', 
+        `Code ${code} deactivated by ${req.session.username}, ${result.devicesRemoved} devices removed`);
+      
+      res.json({ 
+        success: true, 
+        message: `Code deactivated and ${result.devicesRemoved} devices removed`,
+        devicesRemoved: result.devicesRemoved
+      });
+    } else {
+      res.status(404).json({ error: 'Code not found' });
     }
-    
-    await db.run(
-      `UPDATE codes SET used_count = 0, is_active = false WHERE code = $1`,
-      [code]
-    );
-    
-    await db.logUsage('admin', code, 'code_deactivated', 
-      `Code ${code} deactivated by ${req.session.username}, ${devices.length} devices revoked`);
-    
-    res.json({ 
-      success: true, 
-      message: `Code deactivated and ${devices.length} devices revoked`,
-      devicesRevoked: devices.length
-    });
   } catch (error) {
     console.error('Deactivate code error:', error);
     res.status(500).json({ error: 'Failed to deactivate code' });
   }
 });
 
-// ---------- DELETE CODE ----------
-
 app.delete('/api/code/:code', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
   
   try {
-    await db.run(
-      `UPDATE devices 
-       SET status = 'revoked', 
-           revoked_at = CURRENT_TIMESTAMP,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE code = $1 AND status != 'revoked'`,
-      [code]
-    );
+    const success = await db.deleteCode(code);
     
-    const result = await db.run(
-      `DELETE FROM codes WHERE code = $1`,
-      [code]
-    );
-    
-    if (result.changes > 0) {
+    if (success) {
       await db.logUsage('admin', code, 'code_deleted', 
         `Code ${code} deleted by ${req.session.username}`);
       
       res.json({ 
         success: true, 
-        message: `Code ${code} deleted and all associated devices revoked` 
+        message: `Code ${code} deleted and all associated devices removed` 
       });
     } else {
       res.status(404).json({ error: 'Code not found' });
@@ -422,8 +363,6 @@ app.delete('/api/code/:code', isApiAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to delete code' });
   }
 });
-
-// ---------- REACTIVATE CODE ----------
 
 app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
@@ -444,8 +383,6 @@ app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
   }
 });
 
-// ---------- EXTEND CODE ----------
-
 app.post('/api/code/:code/extend', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
   const { maxDevices } = req.body;
@@ -455,11 +392,6 @@ app.post('/api/code/:code/extend', isApiAuthenticated, async (req, res) => {
   }
   
   try {
-    await db.run(
-      `UPDATE codes SET is_active = true WHERE code = $1`,
-      [code]
-    );
-    
     const success = await db.extendCode(code, maxDevices);
     if (success) {
       await db.logUsage('admin', code, 'code_extended', 
@@ -474,8 +406,6 @@ app.post('/api/code/:code/extend', isApiAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to extend code' });
   }
 });
-
-// ---------- DELETE DEVICE ----------
 
 app.delete('/api/device/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
@@ -525,8 +455,6 @@ app.delete('/api/device/:deviceId', async (req, res) => {
   }
 });
 
-// ---------- REACTIVATE DEVICE ----------
-
 app.post('/api/reactivate/:deviceId', isApiAuthenticated, async (req, res) => {
   const { deviceId } = req.params;
   
@@ -546,8 +474,6 @@ app.post('/api/reactivate/:deviceId', isApiAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to reactivate device' });
   }
 });
-
-// ---------- ASSIGN DEVICE TO CODE ----------
 
 app.post('/api/device/:deviceId/assign-code', isApiAuthenticated, async (req, res) => {
   const { deviceId } = req.params;
@@ -612,8 +538,6 @@ app.post('/api/device/:deviceId/assign-code', isApiAuthenticated, async (req, re
   }
 });
 
-// ---------- REQUEST MORE SLOTS ----------
-
 app.post('/api/request', async (req, res) => {
   const { deviceId, code, reason } = req.body;
   
@@ -638,8 +562,6 @@ app.post('/api/request', async (req, res) => {
   }
 });
 
-// ---------- GET ALL REQUESTS ----------
-
 app.get('/api/requests', isApiAuthenticated, async (req, res) => {
   try {
     const requests = await db.getAllRequests();
@@ -650,8 +572,6 @@ app.get('/api/requests', isApiAuthenticated, async (req, res) => {
   }
 });
 
-// ---------- GET PENDING REQUESTS ----------
-
 app.get('/api/requests/pending', isApiAuthenticated, async (req, res) => {
   try {
     const requests = await db.getPendingRequests();
@@ -661,20 +581,6 @@ app.get('/api/requests/pending', isApiAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to get pending requests' });
   }
 });
-
-// ---------- GET PENDING CODE REQUESTS ----------
-
-app.get('/api/requests/code', isApiAuthenticated, async (req, res) => {
-  try {
-    const requests = await db.getPendingCodeRequests();
-    res.json(requests);
-  } catch (error) {
-    console.error('Get code requests error:', error);
-    res.status(500).json({ error: 'Failed to get code requests' });
-  }
-});
-
-// ---------- RESPOND TO REQUEST ----------
 
 app.post('/api/request/:requestId/respond', isApiAuthenticated, async (req, res) => {
   const { requestId } = req.params;
@@ -700,8 +606,6 @@ app.post('/api/request/:requestId/respond', isApiAuthenticated, async (req, res)
   }
 });
 
-// ---------- GET STATS ----------
-
 app.get('/api/stats', isApiAuthenticated, async (req, res) => {
   try {
     const stats = await db.getStats();
@@ -711,8 +615,6 @@ app.get('/api/stats', isApiAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to get stats' });
   }
 });
-
-// ---------- GET LOGS ----------
 
 app.get('/api/logs', isApiAuthenticated, async (req, res) => {
   try {
@@ -725,22 +627,18 @@ app.get('/api/logs', isApiAuthenticated, async (req, res) => {
   }
 });
 
-// ---------- GET DASHBOARD DATA ----------
-
 app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
   try {
     const devices = await db.getDevices();
     const stats = await db.getStats();
     const codes = await db.getActiveCodes();
     const pendingRequests = await db.getPendingRequests();
-    const codeRequests = await db.getPendingCodeRequests();
     
     res.json({
       stats,
       devices,
       codes,
       requests: pendingRequests,
-      codeRequests: codeRequests,
       username: req.session.username
     });
   } catch (error) {
@@ -748,10 +646,6 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to load dashboard data' });
   }
 });
-
-// ============================================
-// CREATE DEFAULT ADMIN
-// ============================================
 
 async function createDefaultAdmin() {
   try {
@@ -771,10 +665,6 @@ async function createDefaultAdmin() {
     console.error('Failed to create default admin:', error);
   }
 }
-
-// ============================================
-// START SERVER
-// ============================================
 
 createDefaultAdmin().then(() => {
   app.listen(PORT, () => {
