@@ -277,6 +277,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const statsRes = await fetch('/api/stats');
       const stats = await statsRes.json();
       
+      // Get ONLY active codes (not all codes)
       const codesRes = await fetch('/api/codes');
       const codes = await codesRes.json();
       
@@ -302,14 +303,18 @@ document.addEventListener('DOMContentLoaded', function() {
     
     const { stats, codes, devices, requests } = data;
     
+    // Update stat cards
     document.getElementById('totalDevices').textContent = stats.total || 0;
     document.getElementById('approvedDevices').textContent = stats.approved || 0;
     document.getElementById('activeCodes').textContent = stats.activeCodes || 0;
-    document.getElementById('codeCountBadge').textContent = stats.totalCodes || 0;
+    
+    // Update badges - IMPORTANT: Use active codes count, not total codes
+    const activeCodeCount = codes ? codes.length : 0;
+    document.getElementById('codeCountBadge').textContent = activeCodeCount;
     document.getElementById('deviceCountBadge').textContent = stats.total || 0;
     document.getElementById('requestCountBadge').textContent = requests ? requests.length : 0;
     
-    // Codes Table
+    // Update codes table - ONLY show active codes
     const codesBody = document.getElementById('codesTableBody');
     if (codes && codes.length > 0) {
       let html = '';
@@ -347,7 +352,7 @@ document.addEventListener('DOMContentLoaded', function() {
       codesBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No codes generated yet</td></tr>';
     }
     
-    // Devices Table
+    // Update devices table
     const devicesBody = document.getElementById('devicesTableBody');
     if (devices && devices.length > 0) {
       let html = '';
@@ -376,7 +381,7 @@ document.addEventListener('DOMContentLoaded', function() {
       devicesBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No devices registered</td></tr>';
     }
     
-    // Requests Table
+    // Update requests table
     const requestsBody = document.getElementById('requestsTableBody');
     if (requests && requests.length > 0) {
       let html = '';
