@@ -66,6 +66,41 @@ function isApiAuthenticated(req, res, next) {
 }
 
 // ============================================
+// SERVE AUTOMATION SCRIPT (Level 1 Protection)
+// ============================================
+app.get('/real_automation.js', (req, res) => {
+    // 1. Verify the device ID is passed in the URL
+    const deviceId = req.query.deviceId;
+    
+    if (!deviceId) {
+        return res.status(403).send('Access Denied: Missing Device ID');
+    }
+
+    // 2. Check the database to ensure this device is actually approved
+    db.getDevice(deviceId).then(device => {
+        // If the device is not in the database OR has no active code
+        if (!device || !device.code) {
+            return res.status(403).send('Access Denied: Unapproved Device');
+        }
+        
+        // 3. Verify the code itself is still active
+        db.getCodeInfo(device.code).then(codeInfo => {
+            if (!codeInfo || !codeInfo.is_active) {
+                return res.status(403).send('Access Denied: Code Deactivated');
+            }
+
+            // 4. Serve the real file to the approved device
+            res.setHeader('Content-Type', 'application/javascript');
+            res.sendFile(path.join(__dirname, 'real_automation.js'));
+        }).catch(() => {
+            res.status(403).send('Access Denied');
+        });
+    }).catch(() => {
+        res.status(403).send('Access Denied');
+    });
+});
+
+// ============================================
 // LOGIN ROUTES
 // ============================================
 app.get('/login', (req, res) => {
@@ -536,45 +571,6 @@ app.post('/api/delete-all-codes', isApiAuthenticated, async (req, res) => {
   } catch (error) {
     console.error('Delete all codes error:', error);
     res.status(500).json({ error: 'Failed to delete codes' });
-  }
-});
-
-// ============================================
-// SERVE THE AUTOMATION SCRIPT (LEVEL 1 SECURITY)
-// ============================================
-app.get('/real_automation.js', async (req, res) => {
-  const deviceId = req.query.deviceId;
-
-  // Security Check 1: Must have a deviceId
-  if (!deviceId) {
-    return res.status(403).send('Access Denied: Missing Device ID');
-  }
-
-  try {
-    // Security Check 2: Verify this device is approved in the database
-    const device = await db.getDevice(deviceId);
-    
-    // If the device doesn't exist, is not approved, or has no active code -> BLOCK
-    if (!device || device.status !== 'approved' || !device.code) {
-      console.log('⛔ Unauthorized request for script from:', deviceId);
-      return res.status(403).send('Access Denied: Unauthorized Device');
-    }
-
-    // Security Check 3: Verify the assigned code is still active
-    const codeInfo = await db.getCodeInfo(device.code);
-    if (!codeInfo || !codeInfo.is_active) {
-      console.log('⛔ Code for device', deviceId, 'is no longer active.');
-      return res.status(403).send('Access Denied: License Inactive');
-    }
-
-    // === ALL CHECKS PASSED. SERVE THE FILE ===
-    res.setHeader('Content-Type', 'application/javascript');
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.sendFile(path.join(__dirname, 'real_automation.js'));
-
-  } catch (error) {
-    console.error('Error serving real_automation.js:', error);
-    res.status(500).send('Server Error');
   }
 });
 
