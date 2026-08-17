@@ -12,11 +12,14 @@ const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', 1);
 
-// Disable cache for all API responses
+// ============================================
+// FIX: DISABLE ALL CACHING
+// ============================================
 app.use((req, res, next) => {
-  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-  res.set('Pragma', 'no-cache');
-  res.set('Expires', '0');
+  res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.header('Pragma', 'no-cache');
+  res.header('Expires', '0');
+  res.header('Surrogate-Control', 'no-store');
   next();
 });
 
@@ -65,6 +68,9 @@ function isApiAuthenticated(req, res, next) {
   res.status(401).json({ error: 'Unauthorized', message: 'Please log in' });
 }
 
+// ============================================
+// LOGIN ROUTES
+// ============================================
 app.get('/login', (req, res) => {
   if (req.session && req.session.isAuthenticated) {
     return res.redirect('/dashboard');
@@ -96,8 +102,12 @@ app.get('/logout', (req, res) => {
   res.redirect('/login');
 });
 
+// ============================================
+// DASHBOARD - FORCE FRESH DATA
+// ============================================
 app.get('/dashboard', isAuthenticated, async (req, res) => {
   try {
+    // Force fresh data from database
     const devices = await db.getDevices();
     const stats = await db.getStats();
     const codes = await db.getActiveCodes();
@@ -127,6 +137,9 @@ app.get('/', (req, res) => {
   res.redirect('/dashboard');
 });
 
+// ============================================
+// REGISTER DEVICE
+// ============================================
 app.post('/api/register', async (req, res) => {
   const { deviceId, userAgent, browserInfo, code } = req.body;
   
@@ -163,14 +176,18 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
+// ============================================
+// STATUS CHECK - NEVER DELETES DEVICES
+// ============================================
 app.get('/api/status/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
   
   try {
+    // Get the device
     const device = await db.getDevice(deviceId);
     
+    // If device doesn't exist -> needs code
     if (!device) {
-      console.log(`📱 Device ${deviceId} not found - needs code`);
       return res.json({ 
         exists: false,
         approved: false,
@@ -180,8 +197,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
       });
     }
 
+    // If device has no code -> needs code
     if (!device.code) {
-      console.log(`📱 Device ${deviceId} has no code - needs code`);
       return res.json({
         exists: true,
         approved: false,
@@ -191,11 +208,11 @@ app.get('/api/status/:deviceId', async (req, res) => {
       });
     }
 
+    // Check if the code is still active
     const codeInfo = await db.getCodeInfo(device.code);
     
+    // If code is inactive -> report it, DO NOT delete
     if (!codeInfo || !codeInfo.is_active) {
-      console.log(`📱 Code ${device.code} is inactive for device ${deviceId}`);
-      
       return res.json({
         exists: true,
         approved: false,
@@ -206,6 +223,7 @@ app.get('/api/status/:deviceId', async (req, res) => {
       });
     }
 
+    // Device is valid - update ping
     await db.updatePing(deviceId);
 
     res.json({
@@ -230,43 +248,247 @@ app.get('/api/status/:deviceId', async (req, res) => {
   }
 });
 
-app.get('/api/device-status/:deviceId', async (req, res) => {
+// ============================================
+// GENERATE CODE
+// ============================================
+app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
+  const { username } = req.body;
+  
+  if (!username || username.trim() === '') {
+    return res.status(400).json({ error: 'Username is required' });
+  }
+  
+  try {
+    const code = await db.generateCode(10, req.session.username, username.trim(), `For user: ${username}`);
+    
+    try {
+      await db.query(
+        `DELETE FROM requests WHERE device_id = $1 AND code IS NULL AND status = 'pending'`,
+        [username.trim()]
+      );
+    } catch (deleteError) {
+      // Ignore
+    }
+    
+    try {
+      await db.query(
+        `UPDATE devices 
+         SET code = $1, status = 'approved', approved_at = CURRENT_TIMESTAMP
+         WHERE device_id = $2`,
+        [code, username.trim()]
+      );
+    } catch (updateError) {
+      // Ignore
+    }
+    
+    await db.logUsage(username, code, 'code_generated', 
+      `Code ${code} generated for ${username} by ${req.session.username}`);
+    
+    res.json({ 
+      success: true, 
+      code: code,
+      username: username,
+      message: `Code ${code} generated for ${username}`
+    });
+  } catch (error) {
+    console.error('Generate code error:', error);
+    res.status(500).json({ error: 'Failed to generate code' });
+  }
+});
+
+// ============================================
+// GET ACTIVE CODES - FORCE FRESH
+// ============================================
+app.get('/api/codes', isApiAuthenticated, async (req, res) => {
+  try {
+    const codes = await db.getActiveCodes();
+    res.json(codes || []);
+  } catch (error) {
+    console.error('Get codes error:', error);
+    res.status(500).json({ error: 'Failed to get codes' });
+  }
+});
+
+// ============================================
+// GET ALL CODES
+// ============================================
+app.get('/api/codes/all', isApiAuthenticated, async (req, res) => {
+  try {
+    const codes = await db.getAllCodes();
+    res.json(codes || []);
+  } catch (error) {
+    console.error('Get all codes error:', error);
+    res.status(500).json({ error: 'Failed to get codes' });
+  }
+});
+
+// ============================================
+// DEACTIVATE CODE - ONLY THIS DELETES DEVICES
+// ============================================
+app.post('/api/code/:code/deactivate', isApiAuthenticated, async (req, res) => {
+  const { code } = req.params;
+  
+  try {
+    const result = await db.deactivateCode(code);
+    
+    if (result.success) {
+      await db.logUsage('admin', code, 'code_deactivated', 
+        `Code ${code} deactivated by ${req.session.username}, ${result.devicesRemoved} devices removed`);
+      
+      res.json({ 
+        success: true, 
+        message: `Code deactivated and ${result.devicesRemoved} devices removed`,
+        devicesRemoved: result.devicesRemoved
+      });
+    } else {
+      res.status(404).json({ error: 'Code not found' });
+    }
+  } catch (error) {
+    console.error('Deactivate code error:', error);
+    res.status(500).json({ error: 'Failed to deactivate code' });
+  }
+});
+
+// ============================================
+// DELETE CODE
+// ============================================
+app.delete('/api/code/:code', isApiAuthenticated, async (req, res) => {
+  const { code } = req.params;
+  
+  try {
+    const success = await db.deleteCode(code);
+    
+    if (success) {
+      await db.logUsage('admin', code, 'code_deleted', 
+        `Code ${code} deleted by ${req.session.username}`);
+      
+      res.json({ 
+        success: true, 
+        message: `Code ${code} deleted and all associated devices removed` 
+      });
+    } else {
+      res.status(404).json({ error: 'Code not found' });
+    }
+  } catch (error) {
+    console.error('Delete code error:', error);
+    res.status(500).json({ error: 'Failed to delete code' });
+  }
+});
+
+// ============================================
+// EXTEND CODE
+// ============================================
+app.post('/api/code/:code/extend', isApiAuthenticated, async (req, res) => {
+  const { code } = req.params;
+  const { maxDevices } = req.body;
+  
+  if (!maxDevices || maxDevices < 1) {
+    return res.status(400).json({ error: 'maxDevices is required and must be > 0' });
+  }
+  
+  try {
+    const success = await db.extendCode(code, maxDevices);
+    if (success) {
+      await db.logUsage('admin', code, 'code_extended', 
+        `Code ${code} extended to ${maxDevices} devices by ${req.session.username}`);
+      
+      res.json({ success: true, message: `Code extended to ${maxDevices} devices` });
+    } else {
+      res.status(404).json({ error: 'Code not found' });
+    }
+  } catch (error) {
+    console.error('Extend code error:', error);
+    res.status(500).json({ error: 'Failed to extend code' });
+  }
+});
+
+// ============================================
+// REMOVE DEVICE
+// ============================================
+app.delete('/api/device/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
   
   try {
     const device = await db.getDevice(deviceId);
-    
     if (!device) {
-      return res.json({ 
-        exists: false, 
-        status: 'not_found',
-        message: 'Device not found' 
-      });
+      return res.status(404).json({ error: 'Device not found' });
     }
     
-    res.json({
-      exists: true,
-      status: device.status,
-      code: device.code,
-      device: {
-        id: device.device_id,
-        approved_at: device.approved_at,
-        revoked_at: device.revoked_at,
-        created_at: device.created_at
+    const code = device.code;
+    
+    const result = await db.run(
+      `DELETE FROM devices WHERE device_id = $1`,
+      [deviceId]
+    );
+    
+    if (result.changes > 0) {
+      if (code) {
+        await db.run(
+          `UPDATE codes SET used_count = used_count - 1 WHERE code = $1`,
+          [code]
+        );
       }
-    });
+      
+      await db.logUsage(deviceId, code, 'remove_user', 'User removed from extension');
+      
+      res.json({ 
+        success: true, 
+        message: `User removed, slot freed.`,
+        deviceId: deviceId,
+        code: code
+      });
+    } else {
+      res.status(404).json({ error: 'Failed to remove device' });
+    }
   } catch (error) {
-    console.error('Device status error:', error);
-    res.status(500).json({ error: 'Failed to check device status' });
+    console.error('Remove user error:', error);
+    res.status(500).json({ error: 'Failed to remove user' });
   }
 });
 
+// ============================================
+// GET STATS
+// ============================================
+app.get('/api/stats', isApiAuthenticated, async (req, res) => {
+  try {
+    const stats = await db.getStats();
+    res.json(stats || {});
+  } catch (error) {
+    console.error('Stats error:', error);
+    res.status(500).json({ error: 'Failed to get stats' });
+  }
+});
+
+// ============================================
+// GET DASHBOARD DATA
+// ============================================
+app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
+  try {
+    const devices = await db.getDevices();
+    const stats = await db.getStats();
+    const codes = await db.getActiveCodes();
+    const pendingRequests = await db.getPendingRequests();
+    
+    res.json({
+      stats: stats || {},
+      devices: devices || [],
+      codes: codes || [],
+      requests: pendingRequests || [],
+      username: req.session.username
+    });
+  } catch (error) {
+    console.error('Dashboard data error:', error);
+    res.status(500).json({ error: 'Failed to load dashboard data' });
+  }
+});
+
+// ============================================
+// REQUEST MANAGEMENT
+// ============================================
 app.post('/api/request-code', async (req, res) => {
   const { deviceId } = req.body;
   
   try {
-    console.log(`📨 Code request from device: ${deviceId || 'unknown'}`);
-    
     const existing = await db.get(
       `SELECT * FROM requests WHERE device_id = $1 AND code IS NULL AND status = 'pending'`,
       [deviceId || 'unknown']
@@ -295,339 +517,6 @@ app.post('/api/request-code', async (req, res) => {
   } catch (error) {
     console.error('Code request error:', error);
     res.status(500).json({ error: 'Failed to process request' });
-  }
-});
-
-app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
-  const { username } = req.body;
-  
-  if (!username || username.trim() === '') {
-    return res.status(400).json({ error: 'Username is required' });
-  }
-  
-  try {
-    const code = await db.generateCode(10, req.session.username, username.trim(), `For user: ${username}`);
-    
-    try {
-      await db.query(
-        `DELETE FROM requests WHERE device_id = $1 AND code IS NULL AND status = 'pending'`,
-        [username.trim()]
-      );
-      console.log(`🗑️ Deleted pending request(s) for ${username}`);
-    } catch (deleteError) {
-      console.log(`No pending request to delete for ${username}`);
-    }
-    
-    try {
-      await db.query(
-        `UPDATE devices 
-         SET code = $1, status = 'approved', approved_at = CURRENT_TIMESTAMP
-         WHERE device_id = $2`,
-        [code, username.trim()]
-      );
-    } catch (updateError) {
-      console.log(`No existing device found for ${username}`);
-    }
-    
-    await db.logUsage(username, code, 'code_generated', 
-      `Code ${code} generated for ${username} by ${req.session.username}`);
-    
-    res.json({ 
-      success: true, 
-      code: code,
-      username: username,
-      message: `Code ${code} generated for ${username}`
-    });
-  } catch (error) {
-    console.error('Generate code error:', error);
-    res.status(500).json({ error: 'Failed to generate code' });
-  }
-});
-
-app.get('/api/codes', isApiAuthenticated, async (req, res) => {
-  try {
-    const codes = await db.getActiveCodes();
-    res.json(codes || []);
-  } catch (error) {
-    console.error('Get codes error:', error);
-    res.status(500).json({ error: 'Failed to get codes' });
-  }
-});
-
-app.get('/api/codes/all', isApiAuthenticated, async (req, res) => {
-  try {
-    const codes = await db.getAllCodes();
-    res.json(codes || []);
-  } catch (error) {
-    console.error('Get all codes error:', error);
-    res.status(500).json({ error: 'Failed to get codes' });
-  }
-});
-
-app.get('/api/code/:code/usage', isApiAuthenticated, async (req, res) => {
-  const { code } = req.params;
-  
-  try {
-    const usage = await db.getCodeUsage(code);
-    res.json(usage || {});
-  } catch (error) {
-    console.error('Code usage error:', error);
-    res.status(500).json({ error: 'Failed to get code usage' });
-  }
-});
-
-app.post('/api/code/:code/deactivate', isApiAuthenticated, async (req, res) => {
-  const { code } = req.params;
-  
-  try {
-    const result = await db.deactivateCode(code);
-    
-    if (result.success) {
-      await db.logUsage('admin', code, 'code_deactivated', 
-        `Code ${code} deactivated by ${req.session.username}, ${result.devicesRemoved} devices removed`);
-      
-      res.json({ 
-        success: true, 
-        message: `Code deactivated and ${result.devicesRemoved} devices removed`,
-        devicesRemoved: result.devicesRemoved
-      });
-    } else {
-      res.status(404).json({ error: 'Code not found' });
-    }
-  } catch (error) {
-    console.error('Deactivate code error:', error);
-    res.status(500).json({ error: 'Failed to deactivate code' });
-  }
-});
-
-app.delete('/api/code/:code', isApiAuthenticated, async (req, res) => {
-  const { code } = req.params;
-  
-  try {
-    const success = await db.deleteCode(code);
-    
-    if (success) {
-      await db.logUsage('admin', code, 'code_deleted', 
-        `Code ${code} deleted by ${req.session.username}`);
-      
-      res.json({ 
-        success: true, 
-        message: `Code ${code} deleted and all associated devices removed` 
-      });
-    } else {
-      res.status(404).json({ error: 'Code not found' });
-    }
-  } catch (error) {
-    console.error('Delete code error:', error);
-    res.status(500).json({ error: 'Failed to delete code' });
-  }
-});
-
-app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
-  const { code } = req.params;
-  
-  try {
-    await db.run(
-      `UPDATE codes SET is_active = true WHERE code = $1`,
-      [code]
-    );
-    
-    res.json({ 
-      success: true, 
-      message: `Code ${code} reactivated` 
-    });
-  } catch (error) {
-    console.error('Reactivate code error:', error);
-    res.status(500).json({ error: 'Failed to reactivate code' });
-  }
-});
-
-app.post('/api/code/:code/extend', isApiAuthenticated, async (req, res) => {
-  const { code } = req.params;
-  const { maxDevices } = req.body;
-  
-  if (!maxDevices || maxDevices < 1) {
-    return res.status(400).json({ error: 'maxDevices is required and must be > 0' });
-  }
-  
-  try {
-    const success = await db.extendCode(code, maxDevices);
-    if (success) {
-      await db.logUsage('admin', code, 'code_extended', 
-        `Code ${code} extended to ${maxDevices} devices by ${req.session.username}`);
-      
-      res.json({ success: true, message: `Code extended to ${maxDevices} devices` });
-    } else {
-      res.status(404).json({ error: 'Code not found' });
-    }
-  } catch (error) {
-    console.error('Extend code error:', error);
-    res.status(500).json({ error: 'Failed to extend code' });
-  }
-});
-
-app.delete('/api/device/:deviceId', async (req, res) => {
-  const { deviceId } = req.params;
-  
-  console.log(`🗑️ DELETE request for device: ${deviceId}`);
-  
-  try {
-    const device = await db.getDevice(deviceId);
-    if (!device) {
-      console.log(`❌ Device not found: ${deviceId}`);
-      return res.status(404).json({ error: 'Device not found' });
-    }
-    
-    const code = device.code;
-    console.log(`📋 Device found with code: ${code}`);
-    
-    const result = await db.run(
-      `DELETE FROM devices WHERE device_id = $1`,
-      [deviceId]
-    );
-    
-    if (result.changes > 0) {
-      if (code) {
-        await db.run(
-          `UPDATE codes SET used_count = used_count - 1 WHERE code = $1`,
-          [code]
-        );
-        console.log(`✅ Updated code ${code} used_count`);
-      }
-      
-      await db.logUsage(deviceId, code, 'remove_user', 'User removed from extension');
-      
-      console.log(`✅ Device ${deviceId} removed successfully`);
-      
-      res.json({ 
-        success: true, 
-        message: `User removed, slot freed. Device will need to re-enter code.`,
-        deviceId: deviceId,
-        code: code
-      });
-    } else {
-      res.status(404).json({ error: 'Failed to remove device' });
-    }
-  } catch (error) {
-    console.error('Remove user error:', error);
-    res.status(500).json({ error: 'Failed to remove user' });
-  }
-});
-
-app.post('/api/reactivate/:deviceId', isApiAuthenticated, async (req, res) => {
-  const { deviceId } = req.params;
-  
-  try {
-    const result = await db.reactivateDevice(deviceId);
-    if (result && result.success !== false) {
-      await db.logUsage(deviceId, null, 'reactivate', 
-        `Device reactivated by admin ${req.session.username}`);
-      res.json({ success: true, message: `Device reactivated` });
-    } else if (result && result.error) {
-      res.status(400).json({ error: result.error });
-    } else {
-      res.status(404).json({ error: 'Device not found' });
-    }
-  } catch (error) {
-    console.error('Reactivate error:', error);
-    res.status(500).json({ error: 'Failed to reactivate device' });
-  }
-});
-
-app.post('/api/device/:deviceId/assign-code', isApiAuthenticated, async (req, res) => {
-  const { deviceId } = req.params;
-  const { code } = req.body;
-  
-  if (!code) {
-    return res.status(400).json({ error: 'Code is required' });
-  }
-  
-  try {
-    const codeInfo = await db.getCodeInfo(code);
-    if (!codeInfo) {
-      return res.status(404).json({ error: 'Code not found' });
-    }
-    
-    if (!codeInfo.is_active) {
-      return res.status(400).json({ error: 'Code is inactive' });
-    }
-    
-    const device = await db.getDevice(deviceId);
-    if (!device) {
-      return res.status(404).json({ error: 'Device not found' });
-    }
-    
-    const usage = await db.getCodeUsage(code);
-    if (usage.used >= usage.max) {
-      return res.status(400).json({ error: 'Code limit reached' });
-    }
-    
-    if (device.code && device.code !== code) {
-      await db.run(
-        `UPDATE codes SET used_count = used_count - 1 WHERE code = $1`,
-        [device.code]
-      );
-    }
-    
-    await db.run(
-      `UPDATE devices 
-       SET code = $1, 
-           status = 'approved',
-           approved_at = CURRENT_TIMESTAMP,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE device_id = $2`,
-      [code, deviceId]
-    );
-    
-    await db.run(
-      `UPDATE codes SET used_count = used_count + 1 WHERE code = $1`,
-      [code]
-    );
-    
-    await db.logUsage(deviceId, code, 'assign_code', 
-      `Device assigned to code by admin ${req.session.username}`);
-    
-    res.json({ 
-      success: true, 
-      message: `Device assigned to code: ${code}` 
-    });
-  } catch (error) {
-    console.error('Assign device error:', error);
-    res.status(500).json({ error: 'Failed to assign device' });
-  }
-});
-
-app.post('/api/request', async (req, res) => {
-  const { deviceId, code, reason } = req.body;
-  
-  if (!deviceId) {
-    return res.status(400).json({ error: 'Device ID is required' });
-  }
-  
-  try {
-    const result = await db.createRequest(deviceId, code || null, reason || '');
-    if (result.success) {
-      res.json({ 
-        success: true, 
-        requestId: result.id,
-        message: 'Request submitted successfully'
-      });
-    } else {
-      res.status(400).json({ error: result.error });
-    }
-  } catch (error) {
-    console.error('Request error:', error);
-    res.status(500).json({ error: 'Failed to submit request' });
-  }
-});
-
-app.get('/api/requests', isApiAuthenticated, async (req, res) => {
-  try {
-    const requests = await db.getAllRequests();
-    res.json(requests || []);
-  } catch (error) {
-    console.error('Get requests error:', error);
-    res.status(500).json({ error: 'Failed to get requests' });
   }
 });
 
@@ -665,39 +554,11 @@ app.post('/api/request/:requestId/respond', isApiAuthenticated, async (req, res)
   }
 });
 
-app.get('/api/stats', isApiAuthenticated, async (req, res) => {
-  try {
-    const stats = await db.getStats();
-    res.json(stats || {});
-  } catch (error) {
-    console.error('Stats error:', error);
-    res.status(500).json({ error: 'Failed to get stats' });
-  }
-});
-
-app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
-  try {
-    const devices = await db.getDevices();
-    const stats = await db.getStats();
-    const codes = await db.getActiveCodes();
-    const pendingRequests = await db.getPendingRequests();
-    
-    res.json({
-      stats: stats || {},
-      devices: devices || [],
-      codes: codes || [],
-      requests: pendingRequests || [],
-      username: req.session.username
-    });
-  } catch (error) {
-    console.error('Dashboard data error:', error);
-    res.status(500).json({ error: 'Failed to load dashboard data' });
-  }
-});
-
+// ============================================
+// DELETE ALL
+// ============================================
 app.post('/api/delete-all-devices', isApiAuthenticated, async (req, res) => {
   try {
-    console.log('🗑️ Deleting all devices...');
     const count = await db.get('SELECT COUNT(*) as count FROM devices');
     await db.run('DELETE FROM devices');
     await db.run('UPDATE codes SET used_count = 0');
@@ -712,7 +573,6 @@ app.post('/api/delete-all-devices', isApiAuthenticated, async (req, res) => {
 
 app.post('/api/delete-all-requests', isApiAuthenticated, async (req, res) => {
   try {
-    console.log('🗑️ Deleting all requests...');
     const count = await db.get('SELECT COUNT(*) as count FROM requests');
     await db.run('DELETE FROM requests');
     await db.logUsage('admin', null, 'delete_all_requests', 
@@ -726,7 +586,6 @@ app.post('/api/delete-all-requests', isApiAuthenticated, async (req, res) => {
 
 app.post('/api/delete-all-codes', isApiAuthenticated, async (req, res) => {
   try {
-    console.log('🗑️ Deleting all codes...');
     await db.run('DELETE FROM devices');
     const count = await db.get('SELECT COUNT(*) as count FROM codes');
     await db.run('DELETE FROM codes');
@@ -739,6 +598,9 @@ app.post('/api/delete-all-codes', isApiAuthenticated, async (req, res) => {
   }
 });
 
+// ============================================
+// CREATE DEFAULT ADMIN
+// ============================================
 async function createDefaultAdmin() {
   try {
     const username = process.env.ADMIN_USERNAME || 'admin';

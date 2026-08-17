@@ -92,6 +92,11 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+    .last-updated {
+      color: #888;
+      font-size: 12px;
+      margin-left: 10px;
+    }
   </style>
 </head>
 <body>
@@ -174,6 +179,7 @@
       <button class="nav-link active" id="codes-tab" data-bs-toggle="tab" data-bs-target="#codes" type="button" role="tab">
         <i class="fas fa-key me-1"></i>Codes
         <span class="badge bg-secondary ms-1" id="codeCountBadge">0</span>
+        <span class="last-updated" id="codesLastUpdated"></span>
       </button>
     </li>
     <li class="nav-item" role="presentation">
@@ -319,12 +325,20 @@ document.addEventListener('DOMContentLoaded', function() {
     
     const { stats, codes, devices, requests } = data;
     
+    // Update stat cards
     document.getElementById('totalDevices').textContent = stats.total || 0;
     document.getElementById('approvedDevices').textContent = stats.approved || 0;
     document.getElementById('activeCodes').textContent = stats.activeCodes || 0;
-    document.getElementById('codeCountBadge').textContent = codes ? codes.length : 0;
+    
+    // Update badges
+    const activeCodeCount = codes ? codes.length : 0;
+    document.getElementById('codeCountBadge').textContent = activeCodeCount;
     document.getElementById('deviceCountBadge').textContent = stats.total || 0;
     document.getElementById('requestCountBadge').textContent = requests ? requests.length : 0;
+    
+    // Show last updated time
+    const now = new Date();
+    document.getElementById('codesLastUpdated').textContent = 'Updated: ' + now.toLocaleTimeString();
     
     // Codes Table
     const codesBody = document.getElementById('codesTableBody');
@@ -515,7 +529,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   async function handleRemoveDevice(e) {
     const deviceId = e.currentTarget.dataset.device;
-    if (!confirm(`⚠️ Remove this device?\n\nDevice ID: ${deviceId.substring(0, 20)}...`)) return;
+    if (!confirm(`⚠️ Remove this device?`)) return;
     
     try {
       const response = await fetch(`/api/device/${encodeURIComponent(deviceId)}`, {
@@ -692,8 +706,8 @@ document.addEventListener('DOMContentLoaded', function() {
   // ============================================
   refreshAllData();
   
-  // Auto refresh every 5 seconds (more frequent)
-  setInterval(refreshAllData, 5000);
+  // Auto refresh every 3 seconds (very frequent to prevent stale data)
+  setInterval(refreshAllData, 3000);
 
 });
 </script>
