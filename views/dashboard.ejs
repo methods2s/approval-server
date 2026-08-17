@@ -107,23 +107,16 @@
 
 <div class="container mt-4">
   
-  <!-- Stats Cards -->
+  <!-- Stats Cards - Only Codes and Devices -->
   <div class="row g-3 mb-4">
-    <div class="col-md-4">
+    <div class="col-md-6">
       <div class="stat-card">
         <div class="icon"><i class="fas fa-laptop"></i></div>
         <div class="number" id="totalDevices">0</div>
         <div class="label">Total Devices</div>
       </div>
     </div>
-    <div class="col-md-4">
-      <div class="stat-card" style="border-left-color: #28a745;">
-        <div class="icon"><i class="fas fa-check-circle"></i></div>
-        <div class="number" id="approvedDevices">0</div>
-        <div class="label">Approved</div>
-      </div>
-    </div>
-    <div class="col-md-4">
+    <div class="col-md-6">
       <div class="stat-card codes">
         <div class="icon"><i class="fas fa-key"></i></div>
         <div class="number" id="totalCodes">0</div>
@@ -308,7 +301,6 @@ document.addEventListener('DOMContentLoaded', function() {
       const stats = await response.json();
       
       document.getElementById('totalDevices').textContent = stats.total || 0;
-      document.getElementById('approvedDevices').textContent = stats.approved || 0;
       document.getElementById('totalCodes').textContent = stats.totalCodes || 0;
       document.getElementById('codeCountBadge').textContent = stats.totalCodes || 0;
       document.getElementById('deviceCountBadge').textContent = stats.total || 0;
@@ -359,7 +351,6 @@ document.addEventListener('DOMContentLoaded', function() {
       const devices = dashboardData.devices || [];
       
       document.getElementById('totalDevices').textContent = stats.total || 0;
-      document.getElementById('approvedDevices').textContent = stats.approved || 0;
       document.getElementById('totalCodes').textContent = stats.totalCodes || 0;
       document.getElementById('codeCountBadge').textContent = codes ? codes.length : 0;
       document.getElementById('deviceCountBadge').textContent = stats.total || 0;
