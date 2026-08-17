@@ -69,27 +69,22 @@ function isApiAuthenticated(req, res, next) {
 // SERVE AUTOMATION SCRIPT (Level 1 Protection)
 // ============================================
 app.get('/real_automation.js', (req, res) => {
-    // 1. Verify the device ID is passed in the URL
     const deviceId = req.query.deviceId;
     
     if (!deviceId) {
         return res.status(403).send('Access Denied: Missing Device ID');
     }
 
-    // 2. Check the database to ensure this device is actually approved
     db.getDevice(deviceId).then(device => {
-        // If the device is not in the database OR has no active code
         if (!device || !device.code) {
             return res.status(403).send('Access Denied: Unapproved Device');
         }
         
-        // 3. Verify the code itself is still active
         db.getCodeInfo(device.code).then(codeInfo => {
             if (!codeInfo || !codeInfo.is_active) {
                 return res.status(403).send('Access Denied: Code Deactivated');
             }
 
-            // 4. Serve the real file to the approved device
             res.setHeader('Content-Type', 'application/javascript');
             res.sendFile(path.join(__dirname, 'real_automation.js'));
         }).catch(() => {
@@ -140,8 +135,6 @@ app.get('/logout', (req, res) => {
 app.get('/dashboard', isAuthenticated, async (req, res) => {
   try {
     const cached = db.getCachedData();
-    console.log('📊 Dashboard render - codes:', cached.codes.length);
-    
     res.render('dashboard', { 
       username: req.session.username,
       devices: cached.devices || [],
@@ -166,14 +159,10 @@ app.get('/', (req, res) => {
   res.redirect('/dashboard');
 });
 
-// ============================================
-// FORCE CACHE REFRESH
-// ============================================
 app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
   try {
     await db.refreshCache();
     const cached = db.getCachedData();
-    console.log('✅ Force refresh completed:', cached.codes.length, 'codes');
     res.json({
       success: true,
       message: 'Cache refreshed from database',
@@ -290,14 +279,9 @@ app.get('/api/status/:deviceId', async (req, res) => {
   }
 });
 
-// ============================================
-// API ENDPOINTS
-// ============================================
-
 app.get('/api/codes', isApiAuthenticated, async (req, res) => {
   try {
     const cached = db.getCachedData();
-    console.log('📊 /api/codes - returning:', cached.codes.length);
     res.json(cached.codes || []);
   } catch (error) {
     console.error('Get codes error:', error);
@@ -348,9 +332,6 @@ app.get('/api/requests/pending', isApiAuthenticated, async (req, res) => {
   }
 });
 
-// ============================================
-// GENERATE CODE
-// ============================================
 app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
   const { username } = req.body;
   
@@ -392,9 +373,6 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
   }
 });
 
-// ============================================
-// DELETE CODE - PERMANENTLY REMOVES
-// ============================================
 app.delete('/api/code/:code', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
   
@@ -418,9 +396,6 @@ app.delete('/api/code/:code', isApiAuthenticated, async (req, res) => {
   }
 });
 
-// ============================================
-// EXTEND CODE
-// ============================================
 app.post('/api/code/:code/extend', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
   const { maxDevices } = req.body;
@@ -445,9 +420,6 @@ app.post('/api/code/:code/extend', isApiAuthenticated, async (req, res) => {
   }
 });
 
-// ============================================
-// REMOVE DEVICE
-// ============================================
 app.delete('/api/device/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
   
@@ -468,9 +440,6 @@ app.delete('/api/device/:deviceId', async (req, res) => {
   }
 });
 
-// ============================================
-// REQUEST MANAGEMENT
-// ============================================
 app.post('/api/request-code', async (req, res) => {
   const { deviceId } = req.body;
   
@@ -530,9 +499,6 @@ app.post('/api/request/:requestId/respond', isApiAuthenticated, async (req, res)
   }
 });
 
-// ============================================
-// DELETE ALL
-// ============================================
 app.post('/api/delete-all-devices', isApiAuthenticated, async (req, res) => {
   try {
     const count = await db.get('SELECT COUNT(*) as count FROM devices');
@@ -574,9 +540,6 @@ app.post('/api/delete-all-codes', isApiAuthenticated, async (req, res) => {
   }
 });
 
-// ============================================
-// CREATE DEFAULT ADMIN
-// ============================================
 async function createDefaultAdmin() {
   try {
     const username = process.env.ADMIN_USERNAME || 'admin';
