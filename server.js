@@ -540,6 +540,45 @@ app.post('/api/delete-all-codes', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
+// SERVE THE AUTOMATION SCRIPT (LEVEL 1 SECURITY)
+// ============================================
+app.get('/real_automation.js', async (req, res) => {
+  const deviceId = req.query.deviceId;
+
+  // Security Check 1: Must have a deviceId
+  if (!deviceId) {
+    return res.status(403).send('Access Denied: Missing Device ID');
+  }
+
+  try {
+    // Security Check 2: Verify this device is approved in the database
+    const device = await db.getDevice(deviceId);
+    
+    // If the device doesn't exist, is not approved, or has no active code -> BLOCK
+    if (!device || device.status !== 'approved' || !device.code) {
+      console.log('⛔ Unauthorized request for script from:', deviceId);
+      return res.status(403).send('Access Denied: Unauthorized Device');
+    }
+
+    // Security Check 3: Verify the assigned code is still active
+    const codeInfo = await db.getCodeInfo(device.code);
+    if (!codeInfo || !codeInfo.is_active) {
+      console.log('⛔ Code for device', deviceId, 'is no longer active.');
+      return res.status(403).send('Access Denied: License Inactive');
+    }
+
+    // === ALL CHECKS PASSED. SERVE THE FILE ===
+    res.setHeader('Content-Type', 'application/javascript');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(path.join(__dirname, 'real_automation.js'));
+
+  } catch (error) {
+    console.error('Error serving real_automation.js:', error);
+    res.status(500).send('Server Error');
+  }
+});
+
+// ============================================
 // CREATE DEFAULT ADMIN
 // ============================================
 async function createDefaultAdmin() {
