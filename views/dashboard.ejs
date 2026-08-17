@@ -97,6 +97,11 @@
       font-size: 12px;
       margin-left: 10px;
     }
+    .status-badge {
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+    }
   </style>
 </head>
 <body>
@@ -179,7 +184,6 @@
       <button class="nav-link active" id="codes-tab" data-bs-toggle="tab" data-bs-target="#codes" type="button" role="tab">
         <i class="fas fa-key me-1"></i>Codes
         <span class="badge bg-secondary ms-1" id="codeCountBadge">0</span>
-        <span class="last-updated" id="codesLastUpdated"></span>
       </button>
     </li>
     <li class="nav-item" role="presentation">
@@ -292,25 +296,28 @@
 document.addEventListener('DOMContentLoaded', function() {
 
   // ============================================
-  // LOAD ALL DATA FROM SERVER WITH CACHE BUSTING
+  // LOAD ALL DATA FROM SERVER
   // ============================================
   async function loadAllData() {
-    const cacheBuster = Date.now();
     try {
-      const statsRes = await fetch('/api/stats?_=' + cacheBuster);
+      const [statsRes, codesRes, devicesRes, requestsRes] = await Promise.all([
+        fetch('/api/stats?_=' + Date.now()),
+        fetch('/api/codes?_=' + Date.now()),
+        fetch('/api/dashboard-data?_=' + Date.now()),
+        fetch('/api/requests/pending?_=' + Date.now())
+      ]);
+      
       const stats = await statsRes.json();
-      
-      const codesRes = await fetch('/api/codes?_=' + cacheBuster);
       const codes = await codesRes.json();
-      
-      const devicesRes = await fetch('/api/dashboard-data?_=' + cacheBuster);
       const dashboardData = await devicesRes.json();
-      const devices = dashboardData.devices || [];
-      
-      const requestsRes = await fetch('/api/requests/pending?_=' + cacheBuster);
       const requests = await requestsRes.json();
       
-      return { stats, codes, devices, requests };
+      return { 
+        stats: stats || {}, 
+        codes: codes || [], 
+        devices: dashboardData.devices || [], 
+        requests: requests || [] 
+      };
     } catch (error) {
       console.error('Error loading data:', error);
       return null;
@@ -331,14 +338,9 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('activeCodes').textContent = stats.activeCodes || 0;
     
     // Update badges
-    const activeCodeCount = codes ? codes.length : 0;
-    document.getElementById('codeCountBadge').textContent = activeCodeCount;
+    document.getElementById('codeCountBadge').textContent = codes ? codes.length : 0;
     document.getElementById('deviceCountBadge').textContent = stats.total || 0;
     document.getElementById('requestCountBadge').textContent = requests ? requests.length : 0;
-    
-    // Show last updated time
-    const now = new Date();
-    document.getElementById('codesLastUpdated').textContent = 'Updated: ' + now.toLocaleTimeString();
     
     // Codes Table
     const codesBody = document.getElementById('codesTableBody');
@@ -349,12 +351,12 @@ document.addEventListener('DOMContentLoaded', function() {
           <tr id="code-row-${code.code}">
             <td><strong class="code-text">${code.code}</strong></td>
             <td>
-              <span class="badge bg-primary used-count" data-code="${code.code}">${code.used_count || 0}</span>
+              <span class="badge bg-primary">${code.used_count || 0}</span>
               /
               <span class="badge bg-secondary">${code.max_devices}</span>
             </td>
             <td>
-              <span class="badge ${code.is_active ? 'bg-success' : 'bg-danger'} badge-status">
+              <span class="badge ${code.is_active ? 'bg-success' : 'bg-danger'}">
                 ${code.is_active ? 'Active' : 'Inactive'}
               </span>
             </td>
@@ -362,10 +364,10 @@ document.addEventListener('DOMContentLoaded', function() {
             <td>${new Date(code.created_at).toLocaleDateString()}</td>
             <td>
               <div class="btn-group btn-group-sm">
-                <button class="btn btn-outline-danger deactivate-code" data-code="${code.code}" title="Deactivate - Removes all devices">
+                <button class="btn btn-outline-danger deactivate-code" data-code="${code.code}">
                   <i class="fas fa-ban"></i>
                 </button>
-                <button class="btn btn-outline-primary extend-code" data-code="${code.code}" title="Extend">
+                <button class="btn btn-outline-primary extend-code" data-code="${code.code}">
                   <i class="fas fa-plus"></i>
                 </button>
               </div>
@@ -388,14 +390,14 @@ document.addEventListener('DOMContentLoaded', function() {
             <td><small>${device.device_id.substring(0, 20)}...</small></td>
             <td><span class="code-text">${device.code || 'N/A'}</span></td>
             <td>
-              <span class="badge ${device.status === 'approved' ? 'bg-success' : 'bg-danger'} badge-status">
+              <span class="badge ${device.status === 'approved' ? 'bg-success' : 'bg-danger'}">
                 ${device.status}
               </span>
             </td>
             <td>${device.ip_address || 'N/A'}</td>
             <td>${device.last_ping ? new Date(device.last_ping).toLocaleString() : 'Never'}</td>
             <td>
-              <button class="btn btn-outline-danger btn-sm remove-device" data-device="${device.device_id}" title="Remove device">
+              <button class="btn btn-outline-danger btn-sm remove-device" data-device="${device.device_id}">
                 <i class="fas fa-trash"></i>
               </button>
             </td>
@@ -424,10 +426,10 @@ document.addEventListener('DOMContentLoaded', function() {
             <td>${new Date(req.requested_at).toLocaleString()}</td>
             <td>
               ${req.status === 'pending' ? `
-                <button class="btn btn-success btn-sm approve-request" data-id="${req.id}" title="Approve">
+                <button class="btn btn-success btn-sm approve-request" data-id="${req.id}">
                   <i class="fas fa-check"></i>
                 </button>
-                <button class="btn btn-danger btn-sm reject-request" data-id="${req.id}" title="Reject">
+                <button class="btn btn-danger btn-sm reject-request" data-id="${req.id}">
                   <i class="fas fa-times"></i>
                 </button>
               ` : '<span class="text-muted">Processed</span>'}
@@ -475,134 +477,115 @@ document.addEventListener('DOMContentLoaded', function() {
   // BIND EVENT LISTENERS
   // ============================================
   function bindEventListeners() {
-    
+    // Deactivate Code
     document.querySelectorAll('.deactivate-code').forEach(btn => {
-      btn.removeEventListener('click', handleDeactivate);
-      btn.addEventListener('click', handleDeactivate);
-    });
-    
-    document.querySelectorAll('.remove-device').forEach(btn => {
-      btn.removeEventListener('click', handleRemoveDevice);
-      btn.addEventListener('click', handleRemoveDevice);
-    });
-    
-    document.querySelectorAll('.approve-request').forEach(btn => {
-      btn.removeEventListener('click', handleApprove);
-      btn.addEventListener('click', handleApprove);
-    });
-    
-    document.querySelectorAll('.reject-request').forEach(btn => {
-      btn.removeEventListener('click', handleReject);
-      btn.addEventListener('click', handleReject);
-    });
-    
-    document.querySelectorAll('.extend-code').forEach(btn => {
-      btn.removeEventListener('click', handleExtend);
-      btn.addEventListener('click', handleExtend);
-    });
-  }
-
-  // ============================================
-  // HANDLERS
-  // ============================================
-  
-  async function handleDeactivate(e) {
-    const code = e.currentTarget.dataset.code;
-    if (!confirm(`⚠️ Deactivate code: ${code}?\n\nThis will REMOVE all devices using this code.`)) return;
-    
-    try {
-      const response = await fetch(`/api/code/${code}/deactivate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const data = await response.json();
-      if (data.success) {
-        showToast(`Code ${code} deactivated! ${data.devicesRemoved} devices removed.`, 'success');
-        await refreshAllData();
-      } else {
-        showToast(data.error || 'Failed to deactivate code', 'error');
-      }
-    } catch (error) {
-      showToast('Error deactivating code', 'error');
-    }
-  }
-
-  async function handleRemoveDevice(e) {
-    const deviceId = e.currentTarget.dataset.device;
-    if (!confirm(`⚠️ Remove this device?`)) return;
-    
-    try {
-      const response = await fetch(`/api/device/${encodeURIComponent(deviceId)}`, {
-        method: 'DELETE'
-      });
-      const data = await response.json();
-      if (data.success) {
-        showToast(`Device removed successfully!`, 'success');
-        await refreshAllData();
-      } else {
-        showToast(data.error || 'Failed to remove device', 'error');
-      }
-    } catch (error) {
-      showToast('Error removing device', 'error');
-    }
-  }
-
-  async function handleApprove(e) {
-    const id = e.currentTarget.dataset.id;
-    if (!confirm('Approve this request?')) return;
-    
-    try {
-      const response = await fetch(`/api/request/${id}/respond`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'approved', response: 'Approved by admin' })
-      });
-      if (response.ok) {
-        showToast('Request approved!', 'success');
-        await refreshAllData();
-      }
-    } catch (error) {
-      showToast('Error approving request', 'error');
-    }
-  }
-
-  async function handleReject(e) {
-    const id = e.currentTarget.dataset.id;
-    if (!confirm('Reject this request?')) return;
-    
-    try {
-      const response = await fetch(`/api/request/${id}/respond`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'rejected', response: 'Rejected by admin' })
-      });
-      if (response.ok) {
-        showToast('Request rejected', 'info');
-        await refreshAllData();
-      }
-    } catch (error) {
-      showToast('Error rejecting request', 'error');
-    }
-  }
-
-  async function handleExtend(e) {
-    const code = e.currentTarget.dataset.code;
-    const newLimit = prompt(`Enter new max devices for code: ${code}`, '15');
-    if (newLimit && parseInt(newLimit) > 0) {
-      try {
-        const response = await fetch(`/api/code/${code}/extend`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ maxDevices: parseInt(newLimit) })
-        });
-        if (response.ok) {
-          showToast(`Code ${code} extended to ${newLimit} devices`, 'success');
-          await refreshAllData();
+      btn.onclick = async function() {
+        const code = this.dataset.code;
+        if (!confirm(`⚠️ Deactivate code: ${code}?`)) return;
+        
+        try {
+          const response = await fetch(`/api/code/${code}/deactivate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+          });
+          const data = await response.json();
+          if (data.success) {
+            showToast(`Code ${code} deactivated!`, 'success');
+            await refreshAllData();
+          } else {
+            showToast(data.error || 'Failed', 'error');
+          }
+        } catch (error) {
+          showToast('Error', 'error');
         }
-      } catch (error) {
-        showToast('Error extending code', 'error');
-      }
-    }
+      };
+    });
+
+    // Remove Device
+    document.querySelectorAll('.remove-device').forEach(btn => {
+      btn.onclick = async function() {
+        const deviceId = this.dataset.device;
+        if (!confirm(`⚠️ Remove this device?`)) return;
+        
+        try {
+          const response = await fetch(`/api/device/${encodeURIComponent(deviceId)}`, {
+            method: 'DELETE'
+          });
+          const data = await response.json();
+          if (data.success) {
+            showToast(`Device removed!`, 'success');
+            await refreshAllData();
+          } else {
+            showToast(data.error || 'Failed', 'error');
+          }
+        } catch (error) {
+          showToast('Error', 'error');
+        }
+      };
+    });
+
+    // Approve Request
+    document.querySelectorAll('.approve-request').forEach(btn => {
+      btn.onclick = async function() {
+        const id = this.dataset.id;
+        try {
+          const response = await fetch(`/api/request/${id}/respond`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'approved', response: 'Approved by admin' })
+          });
+          if (response.ok) {
+            showToast('Request approved!', 'success');
+            await refreshAllData();
+          }
+        } catch (error) {
+          showToast('Error', 'error');
+        }
+      };
+    });
+
+    // Reject Request
+    document.querySelectorAll('.reject-request').forEach(btn => {
+      btn.onclick = async function() {
+        const id = this.dataset.id;
+        try {
+          const response = await fetch(`/api/request/${id}/respond`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'rejected', response: 'Rejected by admin' })
+          });
+          if (response.ok) {
+            showToast('Request rejected', 'info');
+            await refreshAllData();
+          }
+        } catch (error) {
+          showToast('Error', 'error');
+        }
+      };
+    });
+
+    // Extend Code
+    document.querySelectorAll('.extend-code').forEach(btn => {
+      btn.onclick = async function() {
+        const code = this.dataset.code;
+        const newLimit = prompt(`Enter new max devices for code: ${code}`, '15');
+        if (newLimit && parseInt(newLimit) > 0) {
+          try {
+            const response = await fetch(`/api/code/${code}/extend`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ maxDevices: parseInt(newLimit) })
+            });
+            if (response.ok) {
+              showToast(`Code extended!`, 'success');
+              await refreshAllData();
+            }
+          } catch (error) {
+            showToast('Error', 'error');
+          }
+        }
+      };
+    });
   }
 
   // ============================================
@@ -636,15 +619,15 @@ document.addEventListener('DOMContentLoaded', function() {
           </div>
         `;
         document.getElementById('generateUsername').value = '';
-        showToast(`Code ${data.code} generated for ${username}`, 'success');
+        showToast(`Code generated!`, 'success');
         await refreshAllData();
       } else {
-        resultDiv.innerHTML = `<div class="alert alert-danger">❌ ${data.error || 'Failed to generate code'}</div>`;
-        showToast(data.error || 'Failed to generate code', 'error');
+        resultDiv.innerHTML = `<div class="alert alert-danger">❌ ${data.error || 'Failed'}</div>`;
+        showToast(data.error || 'Failed', 'error');
       }
     } catch (error) {
       resultDiv.innerHTML = '<div class="alert alert-danger">❌ Error generating code</div>';
-      showToast('Error generating code', 'error');
+      showToast('Error', 'error');
     }
   });
 
@@ -669,7 +652,7 @@ document.addEventListener('DOMContentLoaded', function() {
         await refreshAllData();
       }
     } catch (error) {
-      showToast('Error deleting all codes', 'error');
+      showToast('Error', 'error');
     }
   });
 
@@ -683,7 +666,7 @@ document.addEventListener('DOMContentLoaded', function() {
         await refreshAllData();
       }
     } catch (error) {
-      showToast('Error deleting all devices', 'error');
+      showToast('Error', 'error');
     }
   });
 
@@ -697,7 +680,7 @@ document.addEventListener('DOMContentLoaded', function() {
         await refreshAllData();
       }
     } catch (error) {
-      showToast('Error deleting all requests', 'error');
+      showToast('Error', 'error');
     }
   });
 
@@ -706,8 +689,8 @@ document.addEventListener('DOMContentLoaded', function() {
   // ============================================
   refreshAllData();
   
-  // Auto refresh every 3 seconds (very frequent to prevent stale data)
-  setInterval(refreshAllData, 3000);
+  // Auto refresh every 2 seconds (very frequent)
+  setInterval(refreshAllData, 2000);
 
 });
 </script>
