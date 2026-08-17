@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', 1);
 
 // ============================================
-// FIX: DISABLE ALL CACHING
+// DISABLE ALL CACHING
 // ============================================
 app.use((req, res, next) => {
   res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
@@ -103,22 +103,22 @@ app.get('/logout', (req, res) => {
 });
 
 // ============================================
-// DASHBOARD - FORCE FRESH DATA
+// DASHBOARD - USES CACHED DATA
 // ============================================
 app.get('/dashboard', isAuthenticated, async (req, res) => {
   try {
-    // Force fresh data from database
-    const devices = await db.getDevices();
-    const stats = await db.getStats();
-    const codes = await db.getActiveCodes();
-    const pendingRequests = await db.getPendingRequests();
+    // Get cached data (no flickering)
+    const cached = db.getCachedData();
+    
+    // Refresh cache in background
+    db.refreshCache().catch(err => console.error('Cache refresh error:', err));
     
     res.render('dashboard', { 
       username: req.session.username,
-      devices: devices || [],
-      stats: stats || {},
-      codes: codes || [],
-      requests: pendingRequests || []
+      devices: cached.devices || [],
+      stats: cached.stats || {},
+      codes: cached.codes || [],
+      requests: cached.requests || []
     });
   } catch (error) {
     console.error('Dashboard error:', error);
@@ -177,16 +177,14 @@ app.post('/api/register', async (req, res) => {
 });
 
 // ============================================
-// STATUS CHECK - NEVER DELETES DEVICES
+// STATUS CHECK - SAFE, NEVER DELETES
 // ============================================
 app.get('/api/status/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
   
   try {
-    // Get the device
     const device = await db.getDevice(deviceId);
     
-    // If device doesn't exist -> needs code
     if (!device) {
       return res.json({ 
         exists: false,
@@ -197,7 +195,6 @@ app.get('/api/status/:deviceId', async (req, res) => {
       });
     }
 
-    // If device has no code -> needs code
     if (!device.code) {
       return res.json({
         exists: true,
@@ -208,10 +205,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
       });
     }
 
-    // Check if the code is still active
     const codeInfo = await db.getCodeInfo(device.code);
     
-    // If code is inactive -> report it, DO NOT delete
     if (!codeInfo || !codeInfo.is_active) {
       return res.json({
         exists: true,
@@ -223,8 +218,7 @@ app.get('/api/status/:deviceId', async (req, res) => {
       });
     }
 
-    // Device is valid - update ping
-    await db.updatePing(deviceId);
+    db.updatePing(deviceId).catch(err => console.error('Ping update error:', err));
 
     res.json({
       exists: true,
@@ -249,6 +243,71 @@ app.get('/api/status/:deviceId', async (req, res) => {
 });
 
 // ============================================
+// API ENDPOINTS - USING CACHED DATA
+// ============================================
+
+// GET ACTIVE CODES - FROM CACHE
+app.get('/api/codes', isApiAuthenticated, async (req, res) => {
+  try {
+    const codes = await db.getCachedCodes();
+    res.json(codes || []);
+  } catch (error) {
+    console.error('Get codes error:', error);
+    // Return cached data even on error
+    const cached = db.getCachedData();
+    res.json(cached.codes || []);
+  }
+});
+
+// GET STATS - FROM CACHE
+app.get('/api/stats', isApiAuthenticated, async (req, res) => {
+  try {
+    const stats = await db.getCachedStats();
+    res.json(stats || {});
+  } catch (error) {
+    console.error('Stats error:', error);
+    const cached = db.getCachedData();
+    res.json(cached.stats || {});
+  }
+});
+
+// GET DASHBOARD DATA - FROM CACHE
+app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
+  try {
+    const cached = db.getCachedData();
+    res.json({
+      stats: cached.stats || {},
+      devices: cached.devices || [],
+      codes: cached.codes || [],
+      requests: cached.requests || [],
+      username: req.session.username
+    });
+  } catch (error) {
+    console.error('Dashboard data error:', error);
+    const cached = db.getCachedData();
+    res.json({
+      stats: cached.stats || {},
+      devices: cached.devices || [],
+      codes: cached.codes || [],
+      requests: cached.requests || [],
+      username: req.session.username
+    });
+  }
+});
+
+// GET PENDING REQUESTS - FROM CACHE
+app.get('/api/requests/pending', isApiAuthenticated, async (req, res) => {
+  try {
+    const requests = await db.getCachedRequests();
+    res.json(requests || []);
+  } catch (error) {
+    console.error('Get pending requests error:', error);
+    const cached = db.getCachedData();
+    res.json(cached.requests || []);
+  }
+});
+
+// ============================================
 // GENERATE CODE
 // ============================================
 app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
@@ -266,9 +325,7 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
         `DELETE FROM requests WHERE device_id = $1 AND code IS NULL AND status = 'pending'`,
         [username.trim()]
       );
-    } catch (deleteError) {
-      // Ignore
-    }
+    } catch (e) {}
     
     try {
       await db.query(
@@ -277,9 +334,7 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
          WHERE device_id = $2`,
         [code, username.trim()]
       );
-    } catch (updateError) {
-      // Ignore
-    }
+    } catch (e) {}
     
     await db.logUsage(username, code, 'code_generated', 
       `Code ${code} generated for ${username} by ${req.session.username}`);
@@ -297,33 +352,7 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// GET ACTIVE CODES - FORCE FRESH
-// ============================================
-app.get('/api/codes', isApiAuthenticated, async (req, res) => {
-  try {
-    const codes = await db.getActiveCodes();
-    res.json(codes || []);
-  } catch (error) {
-    console.error('Get codes error:', error);
-    res.status(500).json({ error: 'Failed to get codes' });
-  }
-});
-
-// ============================================
-// GET ALL CODES
-// ============================================
-app.get('/api/codes/all', isApiAuthenticated, async (req, res) => {
-  try {
-    const codes = await db.getAllCodes();
-    res.json(codes || []);
-  } catch (error) {
-    console.error('Get all codes error:', error);
-    res.status(500).json({ error: 'Failed to get codes' });
-  }
-});
-
-// ============================================
-// DEACTIVATE CODE - ONLY THIS DELETES DEVICES
+// DEACTIVATE CODE
 // ============================================
 app.post('/api/code/:code/deactivate', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
@@ -341,7 +370,7 @@ app.post('/api/code/:code/deactivate', isApiAuthenticated, async (req, res) => {
         devicesRemoved: result.devicesRemoved
       });
     } else {
-      res.status(404).json({ error: 'Code not found' });
+      res.status(404).json({ error: result.error || 'Code not found' });
     }
   } catch (error) {
     console.error('Deactivate code error:', error);
@@ -409,76 +438,19 @@ app.delete('/api/device/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
   
   try {
-    const device = await db.getDevice(deviceId);
-    if (!device) {
-      return res.status(404).json({ error: 'Device not found' });
-    }
+    const success = await db.removeUser(deviceId);
     
-    const code = device.code;
-    
-    const result = await db.run(
-      `DELETE FROM devices WHERE device_id = $1`,
-      [deviceId]
-    );
-    
-    if (result.changes > 0) {
-      if (code) {
-        await db.run(
-          `UPDATE codes SET used_count = used_count - 1 WHERE code = $1`,
-          [code]
-        );
-      }
-      
-      await db.logUsage(deviceId, code, 'remove_user', 'User removed from extension');
-      
+    if (success) {
       res.json({ 
         success: true, 
-        message: `User removed, slot freed.`,
-        deviceId: deviceId,
-        code: code
+        message: `User removed, slot freed.`
       });
     } else {
-      res.status(404).json({ error: 'Failed to remove device' });
+      res.status(404).json({ error: 'Device not found' });
     }
   } catch (error) {
     console.error('Remove user error:', error);
     res.status(500).json({ error: 'Failed to remove user' });
-  }
-});
-
-// ============================================
-// GET STATS
-// ============================================
-app.get('/api/stats', isApiAuthenticated, async (req, res) => {
-  try {
-    const stats = await db.getStats();
-    res.json(stats || {});
-  } catch (error) {
-    console.error('Stats error:', error);
-    res.status(500).json({ error: 'Failed to get stats' });
-  }
-});
-
-// ============================================
-// GET DASHBOARD DATA
-// ============================================
-app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
-  try {
-    const devices = await db.getDevices();
-    const stats = await db.getStats();
-    const codes = await db.getActiveCodes();
-    const pendingRequests = await db.getPendingRequests();
-    
-    res.json({
-      stats: stats || {},
-      devices: devices || [],
-      codes: codes || [],
-      requests: pendingRequests || [],
-      username: req.session.username
-    });
-  } catch (error) {
-    console.error('Dashboard data error:', error);
-    res.status(500).json({ error: 'Failed to load dashboard data' });
   }
 });
 
@@ -517,16 +489,6 @@ app.post('/api/request-code', async (req, res) => {
   } catch (error) {
     console.error('Code request error:', error);
     res.status(500).json({ error: 'Failed to process request' });
-  }
-});
-
-app.get('/api/requests/pending', isApiAuthenticated, async (req, res) => {
-  try {
-    const requests = await db.getPendingRequests();
-    res.json(requests || []);
-  } catch (error) {
-    console.error('Get pending requests error:', error);
-    res.status(500).json({ error: 'Failed to get pending requests' });
   }
 });
 

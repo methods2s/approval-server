@@ -6,7 +6,24 @@ class DeviceDatabase {
       connectionString: process.env.DATABASE_URL,
       ssl: {
         rejectUnauthorized: false
-      }
+      },
+      max: 20,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 2000,
+    });
+    
+    // Cache for codes to prevent flickering
+    this.cache = {
+      codes: [],
+      stats: {},
+      devices: [],
+      requests: [],
+      lastUpdate: 0,
+      updateInterval: 2000 // Update every 2 seconds
+    };
+    
+    this.pool.on('error', (err) => {
+      console.error('Unexpected error on idle client', err);
     });
     
     this.initTables();
@@ -42,82 +59,152 @@ class DeviceDatabase {
   }
 
   async initTables() {
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS codes (
-        code TEXT PRIMARY KEY,
-        max_devices INTEGER DEFAULT 10,
-        used_count INTEGER DEFAULT 0,
-        is_active BOOLEAN DEFAULT TRUE,
-        created_by TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        notes TEXT
-      )
-    `);
-
     try {
-      await this.query(`ALTER TABLE codes ADD COLUMN username TEXT`);
-      console.log('✅ Added username column to codes table');
-    } catch (err) {
-      if (err.code === '42701' || err.message.includes('already exists')) {
-        console.log('ℹ️ Username column already exists');
-      } else {
-        console.log('⚠️ Could not add username column:', err.message);
+      await this.query(`
+        CREATE TABLE IF NOT EXISTS codes (
+          code TEXT PRIMARY KEY,
+          max_devices INTEGER DEFAULT 10,
+          used_count INTEGER DEFAULT 0,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_by TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          notes TEXT
+        )
+      `);
+
+      try {
+        await this.query(`ALTER TABLE codes ADD COLUMN username TEXT`);
+        console.log('✅ Added username column to codes table');
+      } catch (err) {
+        if (err.code === '42701' || err.message.includes('already exists')) {
+          console.log('ℹ️ Username column already exists');
+        }
       }
+
+      await this.query(`
+        CREATE TABLE IF NOT EXISTS devices (
+          id SERIAL PRIMARY KEY,
+          device_id TEXT UNIQUE NOT NULL,
+          user_agent TEXT,
+          ip_address TEXT,
+          browser_info TEXT,
+          code TEXT,
+          status TEXT DEFAULT 'approved',
+          approved_at TIMESTAMP,
+          revoked_at TIMESTAMP,
+          last_ping TIMESTAMP,
+          ping_count INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await this.query(`
+        CREATE TABLE IF NOT EXISTS requests (
+          id SERIAL PRIMARY KEY,
+          device_id TEXT NOT NULL,
+          code TEXT,
+          reason TEXT,
+          status TEXT DEFAULT 'pending',
+          requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          responded_at TIMESTAMP,
+          admin_response TEXT
+        )
+      `);
+
+      await this.query(`
+        CREATE TABLE IF NOT EXISTS usage_logs (
+          id SERIAL PRIMARY KEY,
+          device_id TEXT,
+          code TEXT,
+          action TEXT NOT NULL,
+          details TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await this.query(`
+        CREATE TABLE IF NOT EXISTS admins (
+          id SERIAL PRIMARY KEY,
+          username TEXT UNIQUE NOT NULL,
+          password_hash TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      console.log('✅ Tables created/verified');
+    } catch (error) {
+      console.error('❌ Failed to create tables:', error.message);
     }
-
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS devices (
-        id SERIAL PRIMARY KEY,
-        device_id TEXT UNIQUE NOT NULL,
-        user_agent TEXT,
-        ip_address TEXT,
-        browser_info TEXT,
-        code TEXT,
-        status TEXT DEFAULT 'approved',
-        approved_at TIMESTAMP,
-        revoked_at TIMESTAMP,
-        last_ping TIMESTAMP,
-        ping_count INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS requests (
-        id SERIAL PRIMARY KEY,
-        device_id TEXT NOT NULL,
-        code TEXT,
-        reason TEXT,
-        status TEXT DEFAULT 'pending',
-        requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        responded_at TIMESTAMP,
-        admin_response TEXT
-      )
-    `);
-
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS usage_logs (
-        id SERIAL PRIMARY KEY,
-        device_id TEXT,
-        code TEXT,
-        action TEXT NOT NULL,
-        details TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await this.query(`
-      CREATE TABLE IF NOT EXISTS admins (
-        id SERIAL PRIMARY KEY,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    console.log('✅ Tables created/verified');
   }
+
+  // ============================================
+  // CACHE MANAGEMENT - PREVENT FLICKERING
+  // ============================================
+  
+  async refreshCache() {
+    try {
+      const now = Date.now();
+      if (now - this.cache.lastUpdate < this.cache.updateInterval) {
+        return this.cache;
+      }
+      
+      console.log('🔄 Refreshing cache...');
+      
+      const [codes, stats, devices, requests] = await Promise.all([
+        this.getActiveCodes(),
+        this.getStats(),
+        this.getDevices(),
+        this.getPendingRequests()
+      ]);
+      
+      this.cache.codes = codes || [];
+      this.cache.stats = stats || {};
+      this.cache.devices = devices || [];
+      this.cache.requests = requests || [];
+      this.cache.lastUpdate = now;
+      
+      console.log(`✅ Cache updated: ${this.cache.codes.length} codes, ${this.cache.devices.length} devices`);
+      
+      return this.cache;
+    } catch (error) {
+      console.error('Cache refresh error:', error);
+      return this.cache;
+    }
+  }
+
+  getCachedData() {
+    return {
+      codes: this.cache.codes,
+      stats: this.cache.stats,
+      devices: this.cache.devices,
+      requests: this.cache.requests
+    };
+  }
+
+  async getCachedCodes() {
+    await this.refreshCache();
+    return this.cache.codes;
+  }
+
+  async getCachedStats() {
+    await this.refreshCache();
+    return this.cache.stats;
+  }
+
+  async getCachedDevices() {
+    await this.refreshCache();
+    return this.cache.devices;
+  }
+
+  async getCachedRequests() {
+    await this.refreshCache();
+    return this.cache.requests;
+  }
+
+  // ============================================
+  // CODE MANAGEMENT
+  // ============================================
 
   async usernameColumnExists() {
     try {
@@ -154,7 +241,12 @@ class DeviceDatabase {
           [code, maxDevices, createdBy, notes || '']
         );
       }
-      console.log(`✅ Code generated: ${code} (max: ${maxDevices} devices) for user: ${username}`);
+      
+      // Force cache refresh
+      this.cache.lastUpdate = 0;
+      await this.refreshCache();
+      
+      console.log(`✅ Code generated: ${code} for user: ${username}`);
       return code;
     } catch (error) {
       console.error('Generate code error:', error);
@@ -171,7 +263,8 @@ class DeviceDatabase {
         return await this.get('SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes WHERE code = $1', [code]);
       }
     } catch (error) {
-      return await this.get('SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes WHERE code = $1', [code]);
+      console.error('Get code info error:', error);
+      return null;
     }
   }
 
@@ -184,270 +277,368 @@ class DeviceDatabase {
         return await this.all('SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes ORDER BY created_at DESC');
       }
     } catch (error) {
-      return await this.all('SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes ORDER BY created_at DESC');
+      console.error('Get all codes error:', error);
+      return [];
     }
   }
 
   async getActiveCodes() {
     try {
       const hasUsername = await this.usernameColumnExists();
+      let result;
       if (hasUsername) {
-        return await this.all(
+        result = await this.all(
           'SELECT * FROM codes WHERE is_active = true ORDER BY created_at DESC'
         );
       } else {
-        return await this.all(
+        result = await this.all(
           'SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes WHERE is_active = true ORDER BY created_at DESC'
         );
       }
+      return result || [];
     } catch (error) {
-      return await this.all(
-        'SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes WHERE is_active = true ORDER BY created_at DESC'
-      );
+      console.error('Get active codes error:', error);
+      // Return cached data if available
+      if (this.cache.codes && this.cache.codes.length > 0) {
+        return this.cache.codes;
+      }
+      return [];
     }
   }
 
   async getPendingCodeRequests() {
-    return await this.all(
-      'SELECT * FROM requests WHERE code IS NULL AND status = $1 ORDER BY requested_at DESC',
-      ['pending']
-    );
+    try {
+      return await this.all(
+        'SELECT * FROM requests WHERE code IS NULL AND status = $1 ORDER BY requested_at DESC',
+        ['pending']
+      );
+    } catch (error) {
+      console.error('Get pending code requests error:', error);
+      return [];
+    }
   }
 
   async getCodeUsage(code) {
-    const devices = await this.all(
-      'SELECT * FROM devices WHERE code = $1 AND status != $2',
-      [code, 'revoked']
-    );
-    const codeInfo = await this.getCodeInfo(code);
-    return {
-      code: code,
-      used: devices.length,
-      max: codeInfo ? codeInfo.max_devices : 0,
-      devices: devices
-    };
+    try {
+      const devices = await this.all(
+        'SELECT * FROM devices WHERE code = $1 AND status != $2',
+        [code, 'revoked']
+      );
+      const codeInfo = await this.getCodeInfo(code);
+      return {
+        code: code,
+        used: devices.length,
+        max: codeInfo ? codeInfo.max_devices : 0,
+        devices: devices
+      };
+    } catch (error) {
+      console.error('Get code usage error:', error);
+      return { code, used: 0, max: 0, devices: [] };
+    }
   }
 
   async deactivateCode(code) {
-    const devices = await this.all(
-      'SELECT device_id FROM devices WHERE code = $1 AND status != $2',
-      [code, 'revoked']
-    );
-    
-    for (const device of devices) {
-      await this.run(
-        'DELETE FROM devices WHERE device_id = $1',
-        [device.device_id]
+    try {
+      const devices = await this.all(
+        'SELECT device_id FROM devices WHERE code = $1 AND status != $2',
+        [code, 'revoked']
       );
-      console.log(`🗑️ Removed device: ${device.device_id}`);
+      
+      for (const device of devices) {
+        await this.run(
+          'DELETE FROM devices WHERE device_id = $1',
+          [device.device_id]
+        );
+        console.log(`🗑️ Removed device: ${device.device_id}`);
+      }
+      
+      const result = await this.run(
+        'UPDATE codes SET is_active = false, used_count = 0 WHERE code = $1',
+        [code]
+      );
+      
+      // Force cache refresh
+      this.cache.lastUpdate = 0;
+      await this.refreshCache();
+      
+      if (result.changes > 0) {
+        console.log(`✅ Code deactivated: ${code} - ${devices.length} devices removed`);
+        return { success: true, devicesRemoved: devices.length };
+      }
+      return { success: false, devicesRemoved: 0 };
+    } catch (error) {
+      console.error('Deactivate code error:', error);
+      return { success: false, devicesRemoved: 0, error: error.message };
     }
-    
-    const result = await this.run(
-      'UPDATE codes SET is_active = false, used_count = 0 WHERE code = $1',
-      [code]
-    );
-    
-    if (result.changes > 0) {
-      console.log(`✅ Code deactivated: ${code} - ${devices.length} devices removed`);
-      return { success: true, devicesRemoved: devices.length };
-    }
-    return { success: false, devicesRemoved: 0 };
   }
 
   async deleteCode(code) {
-    await this.run(
-      'DELETE FROM devices WHERE code = $1',
-      [code]
-    );
-    
-    const result = await this.run('DELETE FROM codes WHERE code = $1', [code]);
-    
-    if (result.changes > 0) {
-      console.log(`🗑️ Code deleted: ${code}`);
-      return true;
+    try {
+      await this.run('DELETE FROM devices WHERE code = $1', [code]);
+      const result = await this.run('DELETE FROM codes WHERE code = $1', [code]);
+      
+      // Force cache refresh
+      this.cache.lastUpdate = 0;
+      await this.refreshCache();
+      
+      if (result.changes > 0) {
+        console.log(`🗑️ Code deleted: ${code}`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Delete code error:', error);
+      return false;
     }
-    return false;
   }
 
   async extendCode(code, maxDevices) {
-    const result = await this.run(
-      'UPDATE codes SET max_devices = $1, is_active = true WHERE code = $2',
-      [maxDevices, code]
-    );
-    if (result.changes > 0) {
-      console.log(`✅ Code extended: ${code} -> max ${maxDevices} devices`);
-      return true;
+    try {
+      const result = await this.run(
+        'UPDATE codes SET max_devices = $1, is_active = true WHERE code = $2',
+        [maxDevices, code]
+      );
+      
+      // Force cache refresh
+      this.cache.lastUpdate = 0;
+      await this.refreshCache();
+      
+      if (result.changes > 0) {
+        console.log(`✅ Code extended: ${code} -> max ${maxDevices} devices`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Extend code error:', error);
+      return false;
     }
-    return false;
   }
 
   async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code) {
-    const codeInfo = await this.getCodeInfo(code);
-    if (!codeInfo) {
-      return { success: false, error: 'Invalid code' };
-    }
-
-    if (!codeInfo.is_active) {
-      return { success: false, error: 'Code is inactive' };
-    }
-
-    const existingDevice = await this.getDevice(deviceId);
-    if (existingDevice) {
-      if (existingDevice.code === code) {
-        await this.run(
-          'UPDATE devices SET status = $1, user_agent = $2, ip_address = $3, browser_info = $4, approved_at = CURRENT_TIMESTAMP, revoked_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE device_id = $5',
-          ['approved', userAgent || '', ip || '', browserInfo || '', deviceId]
-        );
-        await this.logUsage(deviceId, code, 're-register', 'Device re-registered');
-        return { success: true, status: 'approved', code: code };
+    try {
+      const codeInfo = await this.getCodeInfo(code);
+      if (!codeInfo) {
+        return { success: false, error: 'Invalid code' };
       }
+
+      if (!codeInfo.is_active) {
+        return { success: false, error: 'Code is inactive' };
+      }
+
+      const existingDevice = await this.getDevice(deviceId);
+      if (existingDevice) {
+        if (existingDevice.code === code) {
+          await this.run(
+            'UPDATE devices SET status = $1, user_agent = $2, ip_address = $3, browser_info = $4, approved_at = CURRENT_TIMESTAMP, revoked_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE device_id = $5',
+            ['approved', userAgent || '', ip || '', browserInfo || '', deviceId]
+          );
+          await this.logUsage(deviceId, code, 're-register', 'Device re-registered');
+          
+          // Force cache refresh
+          this.cache.lastUpdate = 0;
+          await this.refreshCache();
+          
+          return { success: true, status: 'approved', code: code };
+        }
+      }
+
+      const usage = await this.getCodeUsage(code);
+      if (usage.used >= usage.max) {
+        await this.logUsage(deviceId, code, 'registration_failed', 'Code limit reached');
+        return { success: false, error: `Code limit reached (${usage.max} devices max)`, limitReached: true };
+      }
+
+      await this.run(
+        'INSERT INTO devices (device_id, user_agent, ip_address, browser_info, code, status, approved_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)',
+        [deviceId, userAgent || '', ip || '', browserInfo || '', code, 'approved']
+      );
+
+      await this.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code]);
+      await this.logUsage(deviceId, code, 'register', 'Device registered and auto-approved');
+      
+      // Force cache refresh
+      this.cache.lastUpdate = 0;
+      await this.refreshCache();
+      
+      return { success: true, status: 'approved', code: code };
+    } catch (error) {
+      console.error('Register device error:', error);
+      return { success: false, error: error.message };
     }
-
-    const usage = await this.getCodeUsage(code);
-    if (usage.used >= usage.max) {
-      await this.logUsage(deviceId, code, 'registration_failed', 'Code limit reached');
-      return { success: false, error: `Code limit reached (${usage.max} devices max)`, limitReached: true };
-    }
-
-    await this.run(
-      'INSERT INTO devices (device_id, user_agent, ip_address, browser_info, code, status, approved_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)',
-      [deviceId, userAgent || '', ip || '', browserInfo || '', code, 'approved']
-    );
-
-    await this.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code]);
-
-    await this.logUsage(deviceId, code, 'register', 'Device registered and auto-approved');
-    return { success: true, status: 'approved', code: code };
   }
 
   async getDevice(deviceId) {
-    return await this.get('SELECT * FROM devices WHERE device_id = $1', [deviceId]);
+    try {
+      return await this.get('SELECT * FROM devices WHERE device_id = $1', [deviceId]);
+    } catch (error) {
+      console.error('Get device error:', error);
+      return null;
+    }
   }
 
   async getDevices(status = null) {
-    let query = 'SELECT * FROM devices';
-    const params = [];
-    
-    if (status) {
-      query += ' WHERE status = $1';
-      params.push(status);
+    try {
+      let query = 'SELECT * FROM devices';
+      const params = [];
+      
+      if (status) {
+        query += ' WHERE status = $1';
+        params.push(status);
+      }
+      
+      query += ' ORDER BY created_at DESC';
+      return await this.all(query, params);
+    } catch (error) {
+      console.error('Get devices error:', error);
+      return [];
     }
-    
-    query += ' ORDER BY created_at DESC';
-    return await this.all(query, params);
   }
 
   async getDevicesByCode(code) {
-    return await this.all('SELECT * FROM devices WHERE code = $1 ORDER BY created_at DESC', [code]);
+    try {
+      return await this.all('SELECT * FROM devices WHERE code = $1 ORDER BY created_at DESC', [code]);
+    } catch (error) {
+      console.error('Get devices by code error:', error);
+      return [];
+    }
   }
 
   async removeUser(deviceId) {
-    const device = await this.getDevice(deviceId);
-    if (!device) return false;
+    try {
+      const device = await this.getDevice(deviceId);
+      if (!device) return false;
 
-    const code = device.code;
-    
-    const result = await this.run('DELETE FROM devices WHERE device_id = $1', [deviceId]);
-    
-    if (result.changes > 0) {
-      if (code) {
-        await this.run('UPDATE codes SET used_count = used_count - 1 WHERE code = $1', [code]);
-        await this.logUsage(deviceId, code, 'remove_user', 'User removed, slot freed');
+      const code = device.code;
+      
+      const result = await this.run('DELETE FROM devices WHERE device_id = $1', [deviceId]);
+      
+      if (result.changes > 0) {
+        if (code) {
+          await this.run('UPDATE codes SET used_count = used_count - 1 WHERE code = $1', [code]);
+          await this.logUsage(deviceId, code, 'remove_user', 'User removed, slot freed');
+        }
+        
+        // Force cache refresh
+        this.cache.lastUpdate = 0;
+        await this.refreshCache();
+        
+        console.log(`🗑️ User ${deviceId} removed, slot freed for code ${code}`);
+        return true;
       }
-      console.log(`🗑️ User ${deviceId} removed, slot freed for code ${code}`);
-      return true;
+      return false;
+    } catch (error) {
+      console.error('Remove user error:', error);
+      return false;
     }
-    return false;
   }
 
   async revokeDevice(deviceId) {
-    const device = await this.getDevice(deviceId);
-    if (!device) return false;
+    try {
+      const device = await this.getDevice(deviceId);
+      if (!device) return false;
 
-    const result = await this.run(
-      'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE device_id = $2',
-      ['revoked', deviceId]
-    );
-    
-    if (result.changes > 0) {
-      if (device.code) {
-        await this.run('UPDATE codes SET used_count = used_count - 1 WHERE code = $1', [device.code]);
-        await this.logUsage(deviceId, device.code, 'revoke', 'Device revoked, slot freed');
+      const result = await this.run(
+        'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE device_id = $2',
+        ['revoked', deviceId]
+      );
+      
+      if (result.changes > 0) {
+        if (device.code) {
+          await this.run('UPDATE codes SET used_count = used_count - 1 WHERE code = $1', [device.code]);
+          await this.logUsage(deviceId, device.code, 'revoke', 'Device revoked, slot freed');
+        }
+        return true;
       }
-      return true;
+      return false;
+    } catch (error) {
+      console.error('Revoke device error:', error);
+      return false;
     }
-    return false;
   }
 
   async reactivateDevice(deviceId) {
-    const device = await this.getDevice(deviceId);
-    if (!device) return false;
+    try {
+      const device = await this.getDevice(deviceId);
+      if (!device) return false;
 
-    if (device.code) {
-      const codeInfo = await this.getCodeInfo(device.code);
-      if (!codeInfo || !codeInfo.is_active) {
-        return { success: false, error: 'Code is inactive' };
-      }
-      const usage = await this.getCodeUsage(device.code);
-      if (usage.used >= codeInfo.max_devices) {
-        return { success: false, error: 'Code is full' };
-      }
-    }
-
-    const result = await this.run(
-      'UPDATE devices SET status = $1, approved_at = CURRENT_TIMESTAMP, revoked_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE device_id = $2',
-      ['approved', deviceId]
-    );
-    
-    if (result.changes > 0) {
       if (device.code) {
-        await this.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [device.code]);
-        await this.logUsage(deviceId, device.code, 'reactivate', 'Device reactivated');
+        const codeInfo = await this.getCodeInfo(device.code);
+        if (!codeInfo || !codeInfo.is_active) {
+          return { success: false, error: 'Code is inactive' };
+        }
+        const usage = await this.getCodeUsage(device.code);
+        if (usage.used >= codeInfo.max_devices) {
+          return { success: false, error: 'Code is full' };
+        }
       }
-      return { success: true };
+
+      const result = await this.run(
+        'UPDATE devices SET status = $1, approved_at = CURRENT_TIMESTAMP, revoked_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE device_id = $2',
+        ['approved', deviceId]
+      );
+      
+      if (result.changes > 0) {
+        if (device.code) {
+          await this.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [device.code]);
+          await this.logUsage(deviceId, device.code, 'reactivate', 'Device reactivated');
+        }
+        return { success: true };
+      }
+      return false;
+    } catch (error) {
+      console.error('Reactivate device error:', error);
+      return { success: false, error: error.message };
     }
-    return false;
   }
 
   async updatePing(deviceId) {
-    await this.run(
-      'UPDATE devices SET last_ping = CURRENT_TIMESTAMP, ping_count = ping_count + 1, updated_at = CURRENT_TIMESTAMP WHERE device_id = $1',
-      [deviceId]
-    );
+    try {
+      await this.run(
+        'UPDATE devices SET last_ping = CURRENT_TIMESTAMP, ping_count = ping_count + 1, updated_at = CURRENT_TIMESTAMP WHERE device_id = $1',
+        [deviceId]
+      );
+    } catch (error) {
+      console.error('Update ping error:', error);
+    }
   }
 
   async getDeviceStatus(deviceId) {
-    const device = await this.getDevice(deviceId);
-    if (!device) {
-      return { exists: false, status: 'not_found' };
-    }
-    return { 
-      exists: true, 
-      status: device.status,
-      code: device.code,
-      device: {
-        id: device.device_id,
-        approved_at: device.approved_at,
-        revoked_at: device.revoked_at
+    try {
+      const device = await this.getDevice(deviceId);
+      if (!device) {
+        return { exists: false, status: 'not_found' };
       }
-    };
+      return { 
+        exists: true, 
+        status: device.status,
+        code: device.code,
+        device: {
+          id: device.device_id,
+          approved_at: device.approved_at,
+          revoked_at: device.revoked_at
+        }
+      };
+    } catch (error) {
+      console.error('Get device status error:', error);
+      return { exists: false, status: 'error' };
+    }
   }
 
   async createRequest(deviceId, code, reason = '') {
-    const device = await this.getDevice(deviceId);
-    if (!device) {
-      return { success: false, error: 'Device not found' };
-    }
-
-    const existing = await this.get(
-      'SELECT * FROM requests WHERE device_id = $1 AND status = $2',
-      [deviceId, 'pending']
-    );
-    if (existing) {
-      return { success: false, error: 'You already have a pending request' };
-    }
-
     try {
+      const device = await this.getDevice(deviceId);
+      if (!device) {
+        return { success: false, error: 'Device not found' };
+      }
+
+      const existing = await this.get(
+        'SELECT * FROM requests WHERE device_id = $1 AND status = $2',
+        [deviceId, 'pending']
+      );
+      if (existing) {
+        return { success: false, error: 'You already have a pending request' };
+      }
+
       const result = await this.run(
         'INSERT INTO requests (device_id, code, reason) VALUES ($1, $2, $3)',
         [deviceId, code || device.code, reason || 'Need more slots']
@@ -461,50 +652,70 @@ class DeviceDatabase {
   }
 
   async getPendingRequests() {
-    return await this.all(
-      'SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id WHERE r.status = $1 ORDER BY r.requested_at ASC',
-      ['pending']
-    );
+    try {
+      return await this.all(
+        'SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id WHERE r.status = $1 ORDER BY r.requested_at ASC',
+        ['pending']
+      );
+    } catch (error) {
+      console.error('Get pending requests error:', error);
+      return [];
+    }
   }
 
   async getAllRequests() {
-    return await this.all(
-      'SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id ORDER BY r.requested_at DESC'
-    );
+    try {
+      return await this.all(
+        'SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id ORDER BY r.requested_at DESC'
+      );
+    } catch (error) {
+      console.error('Get all requests error:', error);
+      return [];
+    }
   }
 
   async respondToRequest(requestId, status, adminResponse = '') {
-    const request = await this.get('SELECT * FROM requests WHERE id = $1', [requestId]);
-    if (!request) return false;
+    try {
+      const request = await this.get('SELECT * FROM requests WHERE id = $1', [requestId]);
+      if (!request) return false;
 
-    const result = await this.run(
-      'UPDATE requests SET status = $1, responded_at = CURRENT_TIMESTAMP, admin_response = $2 WHERE id = $3',
-      [status, adminResponse, requestId]
-    );
-    
-    if (result.changes > 0) {
-      await this.logUsage(request.device_id, request.code, 'request_response', 
-        `Request ${status}: ${adminResponse}`);
+      const result = await this.run(
+        'UPDATE requests SET status = $1, responded_at = CURRENT_TIMESTAMP, admin_response = $2 WHERE id = $3',
+        [status, adminResponse, requestId]
+      );
       
-      if (status === 'approved' && request.code) {
-        const codeInfo = await this.getCodeInfo(request.code);
-        if (codeInfo) {
-          const newLimit = codeInfo.max_devices + 1;
-          await this.extendCode(request.code, newLimit);
-          await this.logUsage(request.device_id, request.code, 'code_extended', 
-            `Extended to ${newLimit} devices due to request`);
+      if (result.changes > 0) {
+        await this.logUsage(request.device_id, request.code, 'request_response', 
+          `Request ${status}: ${adminResponse}`);
+        
+        if (status === 'approved' && request.code) {
+          const codeInfo = await this.getCodeInfo(request.code);
+          if (codeInfo) {
+            const newLimit = codeInfo.max_devices + 1;
+            await this.extendCode(request.code, newLimit);
+            await this.logUsage(request.device_id, request.code, 'code_extended', 
+              `Extended to ${newLimit} devices due to request`);
+          }
         }
+        return true;
       }
-      return true;
+      return false;
+    } catch (error) {
+      console.error('Respond to request error:', error);
+      return false;
     }
-    return false;
   }
 
   async getRequestByDevice(deviceId) {
-    return await this.all(
-      'SELECT * FROM requests WHERE device_id = $1 ORDER BY requested_at DESC',
-      [deviceId]
-    );
+    try {
+      return await this.all(
+        'SELECT * FROM requests WHERE device_id = $1 ORDER BY requested_at DESC',
+        [deviceId]
+      );
+    } catch (error) {
+      console.error('Get request by device error:', error);
+      return [];
+    }
   }
 
   async logUsage(deviceId, code, action, details = '') {
@@ -519,40 +730,59 @@ class DeviceDatabase {
   }
 
   async getUsageLogs(deviceId = null, limit = 100) {
-    let query = 'SELECT * FROM usage_logs';
-    const params = [];
-    
-    if (deviceId) {
-      query += ' WHERE device_id = $1';
-      params.push(deviceId);
+    try {
+      let query = 'SELECT * FROM usage_logs';
+      const params = [];
+      
+      if (deviceId) {
+        query += ' WHERE device_id = $1';
+        params.push(deviceId);
+      }
+      
+      query += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1);
+      params.push(limit);
+      
+      return await this.all(query, params);
+    } catch (error) {
+      console.error('Get usage logs error:', error);
+      return [];
     }
-    
-    query += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1);
-    params.push(limit);
-    
-    return await this.all(query, params);
   }
 
   async getStats() {
-    const total = await this.get('SELECT COUNT(*) as count FROM devices');
-    const pending = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'pending'");
-    const approved = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'approved'");
-    const revoked = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'revoked'");
-    const totalPings = await this.get('SELECT COALESCE(SUM(ping_count), 0) as total FROM devices');
-    const totalCodes = await this.get('SELECT COUNT(*) as count FROM codes');
-    const activeCodes = await this.get("SELECT COUNT(*) as count FROM codes WHERE is_active = true");
-    const pendingRequests = await this.get("SELECT COUNT(*) as count FROM requests WHERE status = 'pending'");
+    try {
+      const total = await this.get('SELECT COUNT(*) as count FROM devices');
+      const pending = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'pending'");
+      const approved = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'approved'");
+      const revoked = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'revoked'");
+      const totalPings = await this.get('SELECT COALESCE(SUM(ping_count), 0) as total FROM devices');
+      const totalCodes = await this.get('SELECT COUNT(*) as count FROM codes');
+      const activeCodes = await this.get("SELECT COUNT(*) as count FROM codes WHERE is_active = true");
+      const pendingRequests = await this.get("SELECT COUNT(*) as count FROM requests WHERE status = 'pending'");
 
-    return {
-      total: parseInt(total.count || 0),
-      pending: parseInt(pending.count || 0),
-      approved: parseInt(approved.count || 0),
-      revoked: parseInt(revoked.count || 0),
-      totalPings: parseInt(totalPings.total || 0),
-      totalCodes: parseInt(totalCodes.count || 0),
-      activeCodes: parseInt(activeCodes.count || 0),
-      pendingRequests: parseInt(pendingRequests.count || 0)
-    };
+      return {
+        total: parseInt(total?.count || 0),
+        pending: parseInt(pending?.count || 0),
+        approved: parseInt(approved?.count || 0),
+        revoked: parseInt(revoked?.count || 0),
+        totalPings: parseInt(totalPings?.total || 0),
+        totalCodes: parseInt(totalCodes?.count || 0),
+        activeCodes: parseInt(activeCodes?.count || 0),
+        pendingRequests: parseInt(pendingRequests?.count || 0)
+      };
+    } catch (error) {
+      console.error('Get stats error:', error);
+      return this.cache.stats || {
+        total: 0,
+        pending: 0,
+        approved: 0,
+        revoked: 0,
+        totalPings: 0,
+        totalCodes: 0,
+        activeCodes: 0,
+        pendingRequests: 0
+      };
+    }
   }
 
   async createAdmin(username, passwordHash) {

@@ -97,10 +97,15 @@
       font-size: 12px;
       margin-left: 10px;
     }
-    .status-badge {
-      padding: 3px 10px;
-      border-radius: 20px;
-      font-size: 12px;
+    .fade-transition {
+      transition: opacity 0.3s ease;
+    }
+    .table-row-enter {
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
     }
   </style>
 </head>
@@ -130,21 +135,21 @@
     <div class="col-md-4">
       <div class="stat-card">
         <div class="icon"><i class="fas fa-laptop"></i></div>
-        <div class="number" id="totalDevices">0</div>
+        <div class="number" id="totalDevices"><%= stats.total || 0 %></div>
         <div class="label">Total Devices</div>
       </div>
     </div>
     <div class="col-md-4">
       <div class="stat-card" style="border-left-color: #28a745;">
         <div class="icon"><i class="fas fa-check-circle"></i></div>
-        <div class="number" id="approvedDevices">0</div>
+        <div class="number" id="approvedDevices"><%= stats.approved || 0 %></div>
         <div class="label">Approved</div>
       </div>
     </div>
     <div class="col-md-4">
       <div class="stat-card codes">
         <div class="icon"><i class="fas fa-key"></i></div>
-        <div class="number" id="activeCodes">0</div>
+        <div class="number" id="activeCodes"><%= stats.activeCodes || 0 %></div>
         <div class="label">Active Codes</div>
       </div>
     </div>
@@ -183,19 +188,20 @@
     <li class="nav-item" role="presentation">
       <button class="nav-link active" id="codes-tab" data-bs-toggle="tab" data-bs-target="#codes" type="button" role="tab">
         <i class="fas fa-key me-1"></i>Codes
-        <span class="badge bg-secondary ms-1" id="codeCountBadge">0</span>
+        <span class="badge bg-secondary ms-1" id="codeCountBadge"><%= codes ? codes.length : 0 %></span>
+        <span class="last-updated" id="lastUpdated"></span>
       </button>
     </li>
     <li class="nav-item" role="presentation">
       <button class="nav-link" id="devices-tab" data-bs-toggle="tab" data-bs-target="#devices" type="button" role="tab">
         <i class="fas fa-laptop me-1"></i>Devices
-        <span class="badge bg-primary ms-1" id="deviceCountBadge">0</span>
+        <span class="badge bg-primary ms-1" id="deviceCountBadge"><%= stats.total || 0 %></span>
       </button>
     </li>
     <li class="nav-item" role="presentation">
       <button class="nav-link" id="requests-tab" data-bs-toggle="tab" data-bs-target="#requests" type="button" role="tab">
         <i class="fas fa-inbox me-1"></i>Requests
-        <span class="badge bg-secondary ms-1" id="requestCountBadge">0</span>
+        <span class="badge bg-secondary ms-1" id="requestCountBadge"><%= requests ? requests.length : 0 %></span>
       </button>
     </li>
   </ul>
@@ -224,7 +230,39 @@
               </tr>
             </thead>
             <tbody id="codesTableBody">
-              <tr><td colspan="6" class="text-center"><div class="loading-spinner"></div> Loading...</td></tr>
+              <% if (codes && codes.length > 0) { %>
+                <% codes.forEach(function(code) { %>
+                  <tr id="code-row-<%= code.code %>" class="table-row-enter">
+                    <td><strong class="code-text"><%= code.code %></strong></td>
+                    <td>
+                      <span class="badge bg-primary"><%= code.used_count || 0 %></span>
+                      /
+                      <span class="badge bg-secondary"><%= code.max_devices %></span>
+                    </td>
+                    <td>
+                      <span class="badge <%= code.is_active ? 'bg-success' : 'bg-danger' %>">
+                        <%= code.is_active ? 'Active' : 'Inactive' %>
+                      </span>
+                    </td>
+                    <td><%= code.username || 'N/A' %></td>
+                    <td><%= new Date(code.created_at).toLocaleDateString() %></td>
+                    <td>
+                      <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-danger deactivate-code" data-code="<%= code.code %>">
+                          <i class="fas fa-ban"></i>
+                        </button>
+                        <button class="btn btn-outline-primary extend-code" data-code="<%= code.code %>">
+                          <i class="fas fa-plus"></i>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                <% }); %>
+              <% } else { %>
+                <tr id="noCodesRow">
+                  <td colspan="6" class="text-center text-muted">No codes generated yet</td>
+                </tr>
+              <% } %>
             </tbody>
           </table>
         </div>
@@ -253,7 +291,30 @@
               </tr>
             </thead>
             <tbody id="devicesTableBody">
-              <tr><td colspan="6" class="text-center"><div class="loading-spinner"></div> Loading...</td></tr>
+              <% if (devices && devices.length > 0) { %>
+                <% devices.forEach(function(device) { %>
+                  <tr id="device-row-<%= device.device_id %>" class="table-row-enter">
+                    <td><small><%= device.device_id.substring(0, 20) %>...</small></td>
+                    <td><span class="code-text"><%= device.code || 'N/A' %></span></td>
+                    <td>
+                      <span class="badge <%= device.status === 'approved' ? 'bg-success' : 'bg-danger' %>">
+                        <%= device.status %>
+                      </span>
+                    </td>
+                    <td><%= device.ip_address || 'N/A' %></td>
+                    <td><%= device.last_ping ? new Date(device.last_ping).toLocaleString() : 'Never' %></td>
+                    <td>
+                      <button class="btn btn-outline-danger btn-sm remove-device" data-device="<%= device.device_id %>">
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </td>
+                  </tr>
+                <% }); %>
+              <% } else { %>
+                <tr id="noDevicesRow">
+                  <td colspan="6" class="text-center text-muted">No devices registered</td>
+                </tr>
+              <% } %>
             </tbody>
           </table>
         </div>
@@ -281,7 +342,36 @@
               </tr>
             </thead>
             <tbody id="requestsTableBody">
-              <tr><td colspan="5" class="text-center"><div class="loading-spinner"></div> Loading...</td></tr>
+              <% if (requests && requests.length > 0) { %>
+                <% requests.forEach(function(req) { %>
+                  <tr id="request-row-<%= req.id %>" class="table-row-enter">
+                    <td><small><%= req.device_id %></small></td>
+                    <td><%= req.reason || 'No reason' %></td>
+                    <td>
+                      <span class="badge <%= req.status === 'pending' ? 'bg-warning' : req.status === 'approved' ? 'bg-success' : 'bg-danger' %>">
+                        <%= req.status %>
+                      </span>
+                    </td>
+                    <td><%= new Date(req.requested_at).toLocaleString() %></td>
+                    <td>
+                      <% if (req.status === 'pending') { %>
+                        <button class="btn btn-success btn-sm approve-request" data-id="<%= req.id %>">
+                          <i class="fas fa-check"></i>
+                        </button>
+                        <button class="btn btn-danger btn-sm reject-request" data-id="<%= req.id %>">
+                          <i class="fas fa-times"></i>
+                        </button>
+                      <% } else { %>
+                        <span class="text-muted">Processed</span>
+                      <% } %>
+                    </td>
+                  </tr>
+                <% }); %>
+              <% } else { %>
+                <tr id="noRequestsRow">
+                  <td colspan="5" class="text-center text-muted">No requests</td>
+                </tr>
+              <% } %>
             </tbody>
           </table>
         </div>
@@ -295,10 +385,29 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
 
+  let isUpdating = false;
+  let currentData = {
+    codes: <%= JSON.stringify(codes || []) %>,
+    stats: <%= JSON.stringify(stats || {}) %>,
+    devices: <%= JSON.stringify(devices || []) %>,
+    requests: <%= JSON.stringify(requests || []) %>
+  };
+
   // ============================================
-  // LOAD ALL DATA FROM SERVER
+  // UPDATE LAST UPDATED TIME
   // ============================================
-  async function loadAllData() {
+  function updateLastUpdated() {
+    const now = new Date();
+    document.getElementById('lastUpdated').textContent = '🔄 ' + now.toLocaleTimeString();
+  }
+
+  // ============================================
+  // LOAD DATA FROM SERVER
+  // ============================================
+  async function loadData() {
+    if (isUpdating) return;
+    isUpdating = true;
+    
     try {
       const [statsRes, codesRes, devicesRes, requestsRes] = await Promise.all([
         fetch('/api/stats?_=' + Date.now()),
@@ -312,43 +421,47 @@ document.addEventListener('DOMContentLoaded', function() {
       const dashboardData = await devicesRes.json();
       const requests = await requestsRes.json();
       
-      return { 
-        stats: stats || {}, 
-        codes: codes || [], 
-        devices: dashboardData.devices || [], 
-        requests: requests || [] 
-      };
+      // Only update if data has changed to prevent flickering
+      const hasChanged = JSON.stringify(currentData) !== JSON.stringify({ stats, codes, devices: dashboardData.devices, requests });
+      
+      if (hasChanged) {
+        currentData = {
+          stats: stats || {},
+          codes: codes || [],
+          devices: dashboardData.devices || [],
+          requests: requests || []
+        };
+        updateUI(currentData);
+        updateLastUpdated();
+      }
     } catch (error) {
       console.error('Error loading data:', error);
-      return null;
+    } finally {
+      isUpdating = false;
     }
   }
 
   // ============================================
-  // UPDATE UI WITH DATA
+  // UPDATE UI
   // ============================================
   function updateUI(data) {
-    if (!data) return;
-    
     const { stats, codes, devices, requests } = data;
     
     // Update stat cards
     document.getElementById('totalDevices').textContent = stats.total || 0;
     document.getElementById('approvedDevices').textContent = stats.approved || 0;
     document.getElementById('activeCodes').textContent = stats.activeCodes || 0;
-    
-    // Update badges
     document.getElementById('codeCountBadge').textContent = codes ? codes.length : 0;
     document.getElementById('deviceCountBadge').textContent = stats.total || 0;
     document.getElementById('requestCountBadge').textContent = requests ? requests.length : 0;
     
-    // Codes Table
+    // Update codes table
     const codesBody = document.getElementById('codesTableBody');
     if (codes && codes.length > 0) {
       let html = '';
       codes.forEach(function(code) {
         html += `
-          <tr id="code-row-${code.code}">
+          <tr id="code-row-${code.code}" class="table-row-enter">
             <td><strong class="code-text">${code.code}</strong></td>
             <td>
               <span class="badge bg-primary">${code.used_count || 0}</span>
@@ -380,13 +493,13 @@ document.addEventListener('DOMContentLoaded', function() {
       codesBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No codes generated yet</td></tr>';
     }
     
-    // Devices Table
+    // Update devices table
     const devicesBody = document.getElementById('devicesTableBody');
     if (devices && devices.length > 0) {
       let html = '';
       devices.forEach(function(device) {
         html += `
-          <tr id="device-row-${device.device_id}">
+          <tr id="device-row-${device.device_id}" class="table-row-enter">
             <td><small>${device.device_id.substring(0, 20)}...</small></td>
             <td><span class="code-text">${device.code || 'N/A'}</span></td>
             <td>
@@ -409,13 +522,13 @@ document.addEventListener('DOMContentLoaded', function() {
       devicesBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No devices registered</td></tr>';
     }
     
-    // Requests Table
+    // Update requests table
     const requestsBody = document.getElementById('requestsTableBody');
     if (requests && requests.length > 0) {
       let html = '';
       requests.forEach(function(req) {
         html += `
-          <tr id="request-row-${req.id}">
+          <tr id="request-row-${req.id}" class="table-row-enter">
             <td><small>${req.device_id}</small></td>
             <td>${req.reason || 'No reason'}</td>
             <td>
@@ -442,41 +555,14 @@ document.addEventListener('DOMContentLoaded', function() {
       requestsBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No requests</td></tr>';
     }
     
-    bindEventListeners();
+    // Re-bind events
+    bindEvents();
   }
 
   // ============================================
-  // REFRESH ALL DATA
+  // BIND EVENTS
   // ============================================
-  async function refreshAllData() {
-    const data = await loadAllData();
-    if (data) {
-      updateUI(data);
-    }
-    return data;
-  }
-
-  // ============================================
-  // TOAST NOTIFICATION
-  // ============================================
-  function showToast(message, type = 'success') {
-    const container = document.getElementById('toastContainer');
-    const toast = document.createElement('div');
-    toast.className = `toast-custom ${type}`;
-    const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
-    toast.innerHTML = `${icon} ${message}`;
-    container.appendChild(toast);
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      toast.style.transition = 'opacity 0.3s';
-      setTimeout(() => toast.remove(), 300);
-    }, 3000);
-  }
-
-  // ============================================
-  // BIND EVENT LISTENERS
-  // ============================================
-  function bindEventListeners() {
+  function bindEvents() {
     // Deactivate Code
     document.querySelectorAll('.deactivate-code').forEach(btn => {
       btn.onclick = async function() {
@@ -491,7 +577,7 @@ document.addEventListener('DOMContentLoaded', function() {
           const data = await response.json();
           if (data.success) {
             showToast(`Code ${code} deactivated!`, 'success');
-            await refreshAllData();
+            await loadData();
           } else {
             showToast(data.error || 'Failed', 'error');
           }
@@ -514,7 +600,7 @@ document.addEventListener('DOMContentLoaded', function() {
           const data = await response.json();
           if (data.success) {
             showToast(`Device removed!`, 'success');
-            await refreshAllData();
+            await loadData();
           } else {
             showToast(data.error || 'Failed', 'error');
           }
@@ -536,7 +622,7 @@ document.addEventListener('DOMContentLoaded', function() {
           });
           if (response.ok) {
             showToast('Request approved!', 'success');
-            await refreshAllData();
+            await loadData();
           }
         } catch (error) {
           showToast('Error', 'error');
@@ -556,7 +642,7 @@ document.addEventListener('DOMContentLoaded', function() {
           });
           if (response.ok) {
             showToast('Request rejected', 'info');
-            await refreshAllData();
+            await loadData();
           }
         } catch (error) {
           showToast('Error', 'error');
@@ -578,7 +664,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             if (response.ok) {
               showToast(`Code extended!`, 'success');
-              await refreshAllData();
+              await loadData();
             }
           } catch (error) {
             showToast('Error', 'error');
@@ -586,6 +672,23 @@ document.addEventListener('DOMContentLoaded', function() {
         }
       };
     });
+  }
+
+  // ============================================
+  // TOAST NOTIFICATION
+  // ============================================
+  function showToast(message, type = 'success') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast-custom ${type}`;
+    const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
+    toast.innerHTML = `${icon} ${message}`;
+    container.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transition = 'opacity 0.3s';
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
   }
 
   // ============================================
@@ -620,7 +723,7 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         document.getElementById('generateUsername').value = '';
         showToast(`Code generated!`, 'success');
-        await refreshAllData();
+        await loadData();
       } else {
         resultDiv.innerHTML = `<div class="alert alert-danger">❌ ${data.error || 'Failed'}</div>`;
         showToast(data.error || 'Failed', 'error');
@@ -635,7 +738,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // REFRESH BUTTON
   // ============================================
   document.getElementById('refreshBtn').addEventListener('click', async function() {
-    await refreshAllData();
+    await loadData();
     showToast('Data refreshed!', 'info');
   });
 
@@ -649,7 +752,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const data = await response.json();
       if (data.success) {
         showToast(data.message, 'success');
-        await refreshAllData();
+        await loadData();
       }
     } catch (error) {
       showToast('Error', 'error');
@@ -663,7 +766,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const data = await response.json();
       if (data.success) {
         showToast(data.message, 'success');
-        await refreshAllData();
+        await loadData();
       }
     } catch (error) {
       showToast('Error', 'error');
@@ -677,7 +780,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const data = await response.json();
       if (data.success) {
         showToast(data.message, 'success');
-        await refreshAllData();
+        await loadData();
       }
     } catch (error) {
       showToast('Error', 'error');
@@ -687,10 +790,11 @@ document.addEventListener('DOMContentLoaded', function() {
   // ============================================
   // INITIAL LOAD & AUTO REFRESH
   // ============================================
-  refreshAllData();
+  updateLastUpdated();
+  loadData();
   
-  // Auto refresh every 2 seconds (very frequent)
-  setInterval(refreshAllData, 2000);
+  // Auto refresh every 3 seconds (smooth updates)
+  setInterval(loadData, 3000);
 
 });
 </script>
