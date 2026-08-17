@@ -12,9 +12,6 @@ const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', 1);
 
-// ============================================
-// DISABLE ALL CACHING
-// ============================================
 app.use((req, res, next) => {
   res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.header('Pragma', 'no-cache');
@@ -103,15 +100,12 @@ app.get('/logout', (req, res) => {
 });
 
 // ============================================
-// DASHBOARD - USES CACHED DATA
+// DASHBOARD
 // ============================================
 app.get('/dashboard', isAuthenticated, async (req, res) => {
   try {
-    // Get cached data (no flickering)
     const cached = db.getCachedData();
-    
-    // Refresh cache in background
-    db.refreshCache().catch(err => console.error('Cache refresh error:', err));
+    console.log('📊 Dashboard render - codes:', cached.codes.length);
     
     res.render('dashboard', { 
       username: req.session.username,
@@ -135,6 +129,25 @@ app.get('/dashboard', isAuthenticated, async (req, res) => {
 
 app.get('/', (req, res) => {
   res.redirect('/dashboard');
+});
+
+// ============================================
+// FORCE CACHE REFRESH
+// ============================================
+app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
+  try {
+    await db.refreshCache();
+    const cached = db.getCachedData();
+    console.log('✅ Force refresh completed:', cached.codes.length, 'codes');
+    res.json({
+      success: true,
+      message: 'Cache refreshed from database',
+      data: cached
+    });
+  } catch (error) {
+    console.error('Force refresh error:', error);
+    res.status(500).json({ error: 'Failed to refresh cache' });
+  }
 });
 
 // ============================================
@@ -177,7 +190,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 // ============================================
-// STATUS CHECK - SAFE, NEVER DELETES
+// STATUS CHECK
 // ============================================
 app.get('/api/status/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
@@ -243,35 +256,30 @@ app.get('/api/status/:deviceId', async (req, res) => {
 });
 
 // ============================================
-// API ENDPOINTS - USING CACHED DATA
+// API ENDPOINTS
 // ============================================
 
-// GET ACTIVE CODES - FROM CACHE
 app.get('/api/codes', isApiAuthenticated, async (req, res) => {
   try {
-    const codes = await db.getCachedCodes();
-    res.json(codes || []);
+    const cached = db.getCachedData();
+    console.log('📊 /api/codes - returning:', cached.codes.length);
+    res.json(cached.codes || []);
   } catch (error) {
     console.error('Get codes error:', error);
-    // Return cached data even on error
-    const cached = db.getCachedData();
-    res.json(cached.codes || []);
+    res.json([]);
   }
 });
 
-// GET STATS - FROM CACHE
 app.get('/api/stats', isApiAuthenticated, async (req, res) => {
   try {
-    const stats = await db.getCachedStats();
-    res.json(stats || {});
-  } catch (error) {
-    console.error('Stats error:', error);
     const cached = db.getCachedData();
     res.json(cached.stats || {});
+  } catch (error) {
+    console.error('Stats error:', error);
+    res.json({});
   }
 });
 
-// GET DASHBOARD DATA - FROM CACHE
 app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
   try {
     const cached = db.getCachedData();
@@ -295,15 +303,13 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
   }
 });
 
-// GET PENDING REQUESTS - FROM CACHE
 app.get('/api/requests/pending', isApiAuthenticated, async (req, res) => {
   try {
-    const requests = await db.getCachedRequests();
-    res.json(requests || []);
-  } catch (error) {
-    console.error('Get pending requests error:', error);
     const cached = db.getCachedData();
     res.json(cached.requests || []);
+  } catch (error) {
+    console.error('Get pending requests error:', error);
+    res.json([]);
   }
 });
 
@@ -352,34 +358,7 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// DEACTIVATE CODE
-// ============================================
-app.post('/api/code/:code/deactivate', isApiAuthenticated, async (req, res) => {
-  const { code } = req.params;
-  
-  try {
-    const result = await db.deactivateCode(code);
-    
-    if (result.success) {
-      await db.logUsage('admin', code, 'code_deactivated', 
-        `Code ${code} deactivated by ${req.session.username}, ${result.devicesRemoved} devices removed`);
-      
-      res.json({ 
-        success: true, 
-        message: `Code deactivated and ${result.devicesRemoved} devices removed`,
-        devicesRemoved: result.devicesRemoved
-      });
-    } else {
-      res.status(404).json({ error: result.error || 'Code not found' });
-    }
-  } catch (error) {
-    console.error('Deactivate code error:', error);
-    res.status(500).json({ error: 'Failed to deactivate code' });
-  }
-});
-
-// ============================================
-// DELETE CODE
+// DELETE CODE - PERMANENTLY REMOVES
 // ============================================
 app.delete('/api/code/:code', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
@@ -393,7 +372,7 @@ app.delete('/api/code/:code', isApiAuthenticated, async (req, res) => {
       
       res.json({ 
         success: true, 
-        message: `Code ${code} deleted and all associated devices removed` 
+        message: `Code ${code} permanently deleted!` 
       });
     } else {
       res.status(404).json({ error: 'Code not found' });

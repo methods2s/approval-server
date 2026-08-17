@@ -44,25 +44,11 @@
       font-size: 13px;
       transition: all 0.3s;
     }
-    .btn-delete-all:hover {
-      background: #c82333;
-      color: white;
-      transform: scale(1.02);
-    }
+    .btn-delete-all:hover { background: #c82333; color: white; transform: scale(1.02); }
     .btn-delete-all i { margin-right: 5px; }
-    .tab-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 15px;
-    }
+    .tab-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
     .tab-header h6 { margin: 0; color: #666; }
-    .toast-container {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      z-index: 9999;
-    }
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
     .toast-custom {
       background: white;
       border-radius: 10px;
@@ -79,20 +65,25 @@
       from { transform: translateX(100%); opacity: 0; }
       to { transform: translateX(0); opacity: 1; }
     }
-    .last-updated {
-      color: #888;
-      font-size: 12px;
-      margin-left: 10px;
+    .last-updated { color: #888; font-size: 12px; margin-left: 10px; }
+    .btn-action { margin: 0 2px; cursor: pointer; }
+    .btn-action:hover { opacity: 0.8; }
+    .spinner-border-sm {
+      width: 1rem;
+      height: 1rem;
+      border-width: 0.2em;
     }
-    .table-row-enter {
-      animation: fadeIn 0.3s ease;
+    .row-deleting {
+      opacity: 0.5;
+      pointer-events: none;
+      transition: opacity 0.3s;
     }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(-10px); }
-      to { opacity: 1; transform: translateY(0); }
+    .row-removed {
+      animation: fadeOut 0.3s ease forwards;
     }
-    .btn-action {
-      margin: 0 2px;
+    @keyframes fadeOut {
+      from { opacity: 1; transform: scale(1); }
+      to { opacity: 0; transform: scale(0.9); height: 0; padding: 0; margin: 0; overflow: hidden; }
     }
   </style>
 </head>
@@ -112,37 +103,34 @@
   </div>
 </nav>
 
-<!-- Toast Container -->
 <div class="toast-container" id="toastContainer"></div>
 
 <div class="container mt-4">
   
-  <!-- Stats Cards -->
   <div class="row g-3 mb-4">
     <div class="col-md-4">
       <div class="stat-card">
         <div class="icon"><i class="fas fa-laptop"></i></div>
-        <div class="number" id="totalDevices"><%= stats.total || 0 %></div>
+        <div class="number" id="totalDevices">0</div>
         <div class="label">Total Devices</div>
       </div>
     </div>
     <div class="col-md-4">
       <div class="stat-card" style="border-left-color: #28a745;">
         <div class="icon"><i class="fas fa-check-circle"></i></div>
-        <div class="number" id="approvedDevices"><%= stats.approved || 0 %></div>
+        <div class="number" id="approvedDevices">0</div>
         <div class="label">Approved</div>
       </div>
     </div>
     <div class="col-md-4">
       <div class="stat-card codes">
         <div class="icon"><i class="fas fa-key"></i></div>
-        <div class="number" id="activeCodes"><%= stats.activeCodes || 0 %></div>
-        <div class="label">Active Codes</div>
+        <div class="number" id="totalCodes">0</div>
+        <div class="label">Total Codes</div>
       </div>
     </div>
   </div>
 
-  <!-- Generate Code -->
   <div class="card mb-4">
     <div class="card-header bg-primary text-white">
       <h5 class="mb-0"><i class="fas fa-plus-circle me-2"></i>Generate Code</h5>
@@ -162,7 +150,7 @@
         </div>
         <div class="col-md-2">
           <button class="btn btn-warning w-100" id="refreshBtn">
-            <i class="fas fa-sync"></i>
+            <i class="fas fa-sync"></i> Refresh
           </button>
         </div>
       </div>
@@ -170,25 +158,18 @@
     </div>
   </div>
 
-  <!-- Tabs -->
   <ul class="nav nav-tabs mb-3" id="mainTabs" role="tablist">
     <li class="nav-item" role="presentation">
       <button class="nav-link active" id="codes-tab" data-bs-toggle="tab" data-bs-target="#codes" type="button" role="tab">
         <i class="fas fa-key me-1"></i>Codes
-        <span class="badge bg-secondary ms-1" id="codeCountBadge"><%= codes ? codes.length : 0 %></span>
+        <span class="badge bg-secondary ms-1" id="codeCountBadge">0</span>
         <span class="last-updated" id="lastUpdated"></span>
       </button>
     </li>
     <li class="nav-item" role="presentation">
       <button class="nav-link" id="devices-tab" data-bs-toggle="tab" data-bs-target="#devices" type="button" role="tab">
         <i class="fas fa-laptop me-1"></i>Devices
-        <span class="badge bg-primary ms-1" id="deviceCountBadge"><%= stats.total || 0 %></span>
-      </button>
-    </li>
-    <li class="nav-item" role="presentation">
-      <button class="nav-link" id="requests-tab" data-bs-toggle="tab" data-bs-target="#requests" type="button" role="tab">
-        <i class="fas fa-inbox me-1"></i>Requests
-        <span class="badge bg-secondary ms-1" id="requestCountBadge"><%= requests ? requests.length : 0 %></span>
+        <span class="badge bg-primary ms-1" id="deviceCountBadge">0</span>
       </button>
     </li>
   </ul>
@@ -217,39 +198,12 @@
               </tr>
             </thead>
             <tbody id="codesTableBody">
-              <% if (codes && codes.length > 0) { %>
-                <% codes.forEach(function(code) { %>
-                  <tr id="code-row-<%= code.code %>" class="table-row-enter">
-                    <td><strong class="code-text"><%= code.code %></strong></td>
-                    <td>
-                      <span class="badge bg-primary"><%= code.used_count || 0 %></span>
-                      /
-                      <span class="badge bg-secondary"><%= code.max_devices %></span>
-                    </td>
-                    <td>
-                      <span class="badge <%= code.is_active ? 'bg-success' : 'bg-danger' %>">
-                        <%= code.is_active ? 'Active' : 'Inactive' %>
-                      </span>
-                    </td>
-                    <td><%= code.username || 'N/A' %></td>
-                    <td><%= new Date(code.created_at).toLocaleDateString() %></td>
-                    <td>
-                      <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-danger btn-action deactivate-code" data-code="<%= code.code %>">
-                          <i class="fas fa-ban"></i> Deactivate
-                        </button>
-                        <button class="btn btn-outline-primary btn-action extend-code" data-code="<%= code.code %>">
-                          <i class="fas fa-plus"></i> Extend
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                <% }); %>
-              <% } else { %>
-                <tr id="noCodesRow">
-                  <td colspan="6" class="text-center text-muted">No codes generated yet</td>
-                </tr>
-              <% } %>
+              <tr id="loadingCodesRow">
+                <td colspan="6" class="text-center">
+                  <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                  Loading codes...
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -278,87 +232,12 @@
               </tr>
             </thead>
             <tbody id="devicesTableBody">
-              <% if (devices && devices.length > 0) { %>
-                <% devices.forEach(function(device) { %>
-                  <tr id="device-row-<%= device.device_id %>" class="table-row-enter">
-                    <td><small><%= device.device_id.substring(0, 20) %>...</small></td>
-                    <td><span class="code-text"><%= device.code || 'N/A' %></span></td>
-                    <td>
-                      <span class="badge <%= device.status === 'approved' ? 'bg-success' : 'bg-danger' %>">
-                        <%= device.status %>
-                      </span>
-                    </td>
-                    <td><%= device.ip_address || 'N/A' %></td>
-                    <td><%= device.last_ping ? new Date(device.last_ping).toLocaleString() : 'Never' %></td>
-                    <td>
-                      <button class="btn btn-outline-danger btn-sm btn-action remove-device" data-device="<%= device.device_id %>">
-                        <i class="fas fa-trash"></i> Remove
-                      </button>
-                    </td>
-                  </tr>
-                <% }); %>
-              <% } else { %>
-                <tr id="noDevicesRow">
-                  <td colspan="6" class="text-center text-muted">No devices registered</td>
-                </tr>
-              <% } %>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- REQUESTS TAB -->
-    <div class="tab-pane fade" id="requests" role="tabpanel">
-      <div class="table-container">
-        <div class="tab-header">
-          <h6><i class="fas fa-inbox text-primary me-1"></i> All Requests</h6>
-          <button class="btn-delete-all" id="deleteAllRequestsBtn">
-            <i class="fas fa-trash-alt"></i> Delete All Requests
-          </button>
-        </div>
-        <div class="table-responsive">
-          <table class="table table-hover">
-            <thead>
-              <tr>
-                <th>Device ID</th>
-                <th>Reason</th>
-                <th>Status</th>
-                <th>Requested</th>
-                <th>Actions</th>
+              <tr id="loadingDevicesRow">
+                <td colspan="6" class="text-center">
+                  <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                  Loading devices...
+                </td>
               </tr>
-            </thead>
-            <tbody id="requestsTableBody">
-              <% if (requests && requests.length > 0) { %>
-                <% requests.forEach(function(req) { %>
-                  <tr id="request-row-<%= req.id %>" class="table-row-enter">
-                    <td><small><%= req.device_id %></small></td>
-                    <td><%= req.reason || 'No reason' %></td>
-                    <td>
-                      <span class="badge <%= req.status === 'pending' ? 'bg-warning' : req.status === 'approved' ? 'bg-success' : 'bg-danger' %>">
-                        <%= req.status %>
-                      </span>
-                    </td>
-                    <td><%= new Date(req.requested_at).toLocaleString() %></td>
-                    <td>
-                      <% if (req.status === 'pending') { %>
-                        <button class="btn btn-success btn-sm btn-action approve-request" data-id="<%= req.id %>">
-                          <i class="fas fa-check"></i> Approve
-                        </button>
-                        <button class="btn btn-danger btn-sm btn-action reject-request" data-id="<%= req.id %>">
-                          <i class="fas fa-times"></i> Reject
-                        </button>
-                      <% } else { %>
-                        <span class="text-muted">Processed</span>
-                      <% } %>
-                    </td>
-                  </tr>
-                <% }); %>
-              <% } else { %>
-                <tr id="noRequestsRow">
-                  <td colspan="5" class="text-center text-muted">No requests</td>
-                </tr>
-              <% } %>
             </tbody>
           </table>
         </div>
@@ -371,23 +250,6 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-
-  let isUpdating = false;
-  let currentData = {
-    codes: <%= JSON.stringify(codes || []) %>,
-    stats: <%= JSON.stringify(stats || {}) %>,
-    devices: <%= JSON.stringify(devices || []) %>,
-    requests: <%= JSON.stringify(requests || []) %>
-  };
-
-  // ============================================
-  // UPDATE LAST UPDATED TIME
-  // ============================================
-  function updateLastUpdated() {
-    const now = new Date();
-    const el = document.getElementById('lastUpdated');
-    if (el) el.textContent = '🔄 ' + now.toLocaleTimeString();
-  }
 
   // ============================================
   // TOAST NOTIFICATION
@@ -408,76 +270,104 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   // ============================================
+  // UPDATE LAST UPDATED TIME
+  // ============================================
+  function updateLastUpdated() {
+    const now = new Date();
+    const el = document.getElementById('lastUpdated');
+    if (el) el.textContent = '🔄 ' + now.toLocaleTimeString();
+  }
+
+  // ============================================
+  // FORCE CACHE REFRESH
+  // ============================================
+  async function forceRefreshCache() {
+    try {
+      const response = await fetch('/api/force-refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      console.log('✅ Cache force refreshed:', data);
+      return data;
+    } catch (error) {
+      console.error('Force refresh error:', error);
+      return null;
+    }
+  }
+
+  // ============================================
+  // UPDATE STATS COUNTS
+  // ============================================
+  async function updateStats() {
+    try {
+      const response = await fetch('/api/stats?_=' + Date.now());
+      const stats = await response.json();
+      
+      document.getElementById('totalDevices').textContent = stats.total || 0;
+      document.getElementById('approvedDevices').textContent = stats.approved || 0;
+      document.getElementById('totalCodes').textContent = stats.totalCodes || 0;
+      document.getElementById('codeCountBadge').textContent = stats.totalCodes || 0;
+      document.getElementById('deviceCountBadge').textContent = stats.total || 0;
+      
+      return stats;
+    } catch (error) {
+      console.error('Error updating stats:', error);
+      return null;
+    }
+  }
+
+  // ============================================
+  // SHOW NO CODES MESSAGE
+  // ============================================
+  function showNoCodesMessage() {
+    const codesBody = document.getElementById('codesTableBody');
+    codesBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No codes generated yet</td></tr>';
+  }
+
+  function showNoDevicesMessage() {
+    const devicesBody = document.getElementById('devicesTableBody');
+    devicesBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No devices registered</td></tr>';
+  }
+
+  // ============================================
   // LOAD DATA FROM SERVER
   // ============================================
-  async function loadData(silent = false) {
-    if (isUpdating) return;
-    isUpdating = true;
+  let isLoading = false;
+  
+  async function loadData(forceRefresh = false) {
+    if (isLoading) return;
+    isLoading = true;
     
     try {
-      const [statsRes, codesRes, devicesRes, requestsRes] = await Promise.all([
+      // If force refresh, clear server cache first
+      if (forceRefresh) {
+        await forceRefreshCache();
+      }
+      
+      const [statsRes, codesRes, devicesRes] = await Promise.all([
         fetch('/api/stats?_=' + Date.now()),
         fetch('/api/codes?_=' + Date.now()),
-        fetch('/api/dashboard-data?_=' + Date.now()),
-        fetch('/api/requests/pending?_=' + Date.now())
+        fetch('/api/dashboard-data?_=' + Date.now())
       ]);
       
       const stats = await statsRes.json();
       const codes = await codesRes.json();
       const dashboardData = await devicesRes.json();
-      const requests = await requestsRes.json();
+      const devices = dashboardData.devices || [];
       
-      const newData = {
-        stats: stats || {},
-        codes: codes || [],
-        devices: dashboardData.devices || [],
-        requests: requests || []
-      };
+      document.getElementById('totalDevices').textContent = stats.total || 0;
+      document.getElementById('approvedDevices').textContent = stats.approved || 0;
+      document.getElementById('totalCodes').textContent = stats.totalCodes || 0;
+      document.getElementById('codeCountBadge').textContent = codes ? codes.length : 0;
+      document.getElementById('deviceCountBadge').textContent = stats.total || 0;
       
-      const hasChanged = JSON.stringify(currentData) !== JSON.stringify(newData);
-      
-      if (hasChanged) {
-        currentData = newData;
-        updateUI(currentData);
-        if (!silent) updateLastUpdated();
-      }
-    } catch (error) {
-      console.error('Error loading data:', error);
-      if (!silent) showToast('Error loading data', 'error');
-    } finally {
-      isUpdating = false;
-    }
-  }
-
-  // ============================================
-  // UPDATE UI
-  // ============================================
-  function updateUI(data) {
-    const { stats, codes, devices, requests } = data;
-    
-    // Update stat cards
-    const totalDevices = document.getElementById('totalDevices');
-    const approvedDevices = document.getElementById('approvedDevices');
-    const activeCodes = document.getElementById('activeCodes');
-    const codeCountBadge = document.getElementById('codeCountBadge');
-    const deviceCountBadge = document.getElementById('deviceCountBadge');
-    const requestCountBadge = document.getElementById('requestCountBadge');
-    
-    if (totalDevices) totalDevices.textContent = stats.total || 0;
-    if (approvedDevices) approvedDevices.textContent = stats.approved || 0;
-    if (activeCodes) activeCodes.textContent = stats.activeCodes || 0;
-    if (codeCountBadge) codeCountBadge.textContent = codes ? codes.length : 0;
-    if (deviceCountBadge) deviceCountBadge.textContent = stats.total || 0;
-    if (requestCountBadge) requestCountBadge.textContent = requests ? requests.length : 0;
-    
-    // Update codes table
-    const codesBody = document.getElementById('codesTableBody');
-    if (codesBody) {
+      const codesBody = document.getElementById('codesTableBody');
       if (codes && codes.length > 0) {
         let html = '';
         codes.forEach(function(code) {
           html += `
-            <tr id="code-row-${code.code}" class="table-row-enter">
+            <tr id="code-row-${code.code}">
               <td><strong class="code-text">${code.code}</strong></td>
               <td>
                 <span class="badge bg-primary">${code.used_count || 0}</span>
@@ -493,8 +383,8 @@ document.addEventListener('DOMContentLoaded', function() {
               <td>${new Date(code.created_at).toLocaleDateString()}</td>
               <td>
                 <div class="btn-group btn-group-sm">
-                  <button class="btn btn-outline-danger btn-action deactivate-code" data-code="${code.code}">
-                    <i class="fas fa-ban"></i> Deactivate
+                  <button class="btn btn-danger btn-action delete-code" data-code="${code.code}">
+                    <i class="fas fa-trash"></i> Delete
                   </button>
                   <button class="btn btn-outline-primary btn-action extend-code" data-code="${code.code}">
                     <i class="fas fa-plus"></i> Extend
@@ -506,18 +396,15 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         codesBody.innerHTML = html;
       } else {
-        codesBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No codes generated yet</td></tr>';
+        showNoCodesMessage();
       }
-    }
-    
-    // Update devices table
-    const devicesBody = document.getElementById('devicesTableBody');
-    if (devicesBody) {
+      
+      const devicesBody = document.getElementById('devicesTableBody');
       if (devices && devices.length > 0) {
         let html = '';
         devices.forEach(function(device) {
           html += `
-            <tr id="device-row-${device.device_id}" class="table-row-enter">
+            <tr id="device-row-${device.device_id}">
               <td><small>${device.device_id.substring(0, 20)}...</small></td>
               <td><span class="code-text">${device.code || 'N/A'}</span></td>
               <td>
@@ -537,131 +424,165 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         devicesBody.innerHTML = html;
       } else {
-        devicesBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No devices registered</td></tr>';
+        showNoDevicesMessage();
       }
-    }
-    
-    // Update requests table
-    const requestsBody = document.getElementById('requestsTableBody');
-    if (requestsBody) {
-      if (requests && requests.length > 0) {
-        let html = '';
-        requests.forEach(function(req) {
-          html += `
-            <tr id="request-row-${req.id}" class="table-row-enter">
-              <td><small>${req.device_id}</small></td>
-              <td>${req.reason || 'No reason'}</td>
-              <td>
-                <span class="badge ${req.status === 'pending' ? 'bg-warning' : req.status === 'approved' ? 'bg-success' : 'bg-danger'}">
-                  ${req.status}
-                </span>
-              </td>
-              <td>${new Date(req.requested_at).toLocaleString()}</td>
-              <td>
-                ${req.status === 'pending' ? `
-                  <button class="btn btn-success btn-sm btn-action approve-request" data-id="${req.id}">
-                    <i class="fas fa-check"></i> Approve
-                  </button>
-                  <button class="btn btn-danger btn-sm btn-action reject-request" data-id="${req.id}">
-                    <i class="fas fa-times"></i> Reject
-                  </button>
-                ` : '<span class="text-muted">Processed</span>'}
-              </td>
-            </tr>
-          `;
-        });
-        requestsBody.innerHTML = html;
-      } else {
-        requestsBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No requests</td></tr>';
-      }
+      
+      updateLastUpdated();
+      
+    } catch (error) {
+      console.error('Error loading data:', error);
+      showToast('Error loading data', 'error');
+    } finally {
+      isLoading = false;
     }
   }
 
   // ============================================
-  // EVENT DELEGATION - FIXED!
+  // DELETE CODE - INSTANT REMOVE + CLEAR CACHE
   // ============================================
-  // Instead of binding events to each button individually,
-  // we listen for clicks on the parent containers and check if the click
-  // came from a button with a specific class.
-  // This works even when the HTML is updated!
-  // ============================================
-
-  // --- DEACTIVATE CODE (Event Delegation) ---
-  document.getElementById('codesTableBody').addEventListener('click', function(e) {
-    const btn = e.target.closest('.deactivate-code');
-    if (!btn) return;
+  async function deleteCode(code) {
+    if (!confirm(`⚠️⚠️⚠️ PERMANENTLY DELETE code: ${code}?\n\nThis will REMOVE the code from the database FOREVER.\nAll devices using this code will also be removed.\n\nThis action CANNOT be undone!`)) return;
     
-    const code = btn.dataset.code;
-    if (!confirm(`⚠️ Deactivate code: ${code}?\n\nThis will REMOVE all devices using this code.`)) return;
+    // Find and animate the row
+    const row = document.getElementById(`code-row-${code}`);
+    if (row) {
+      row.classList.add('row-deleting');
+    }
     
-    handleDeactivate(code);
-  });
-
-  // --- EXTEND CODE (Event Delegation) ---
-  document.getElementById('codesTableBody').addEventListener('click', function(e) {
-    const btn = e.target.closest('.extend-code');
-    if (!btn) return;
-    
-    const code = btn.dataset.code;
-    handleExtend(code);
-  });
-
-  // --- REMOVE DEVICE (Event Delegation) ---
-  document.getElementById('devicesTableBody').addEventListener('click', function(e) {
-    const btn = e.target.closest('.remove-device');
-    if (!btn) return;
-    
-    const deviceId = btn.dataset.device;
-    if (!confirm(`⚠️ Remove this device?\n\nDevice ID: ${deviceId.substring(0, 20)}...`)) return;
-    
-    handleRemoveDevice(deviceId);
-  });
-
-  // --- APPROVE REQUEST (Event Delegation) ---
-  document.getElementById('requestsTableBody').addEventListener('click', function(e) {
-    const btn = e.target.closest('.approve-request');
-    if (!btn) return;
-    
-    const id = btn.dataset.id;
-    if (!confirm('Approve this request?')) return;
-    
-    handleApprove(id);
-  });
-
-  // --- REJECT REQUEST (Event Delegation) ---
-  document.getElementById('requestsTableBody').addEventListener('click', function(e) {
-    const btn = e.target.closest('.reject-request');
-    if (!btn) return;
-    
-    const id = btn.dataset.id;
-    if (!confirm('Reject this request?')) return;
-    
-    handleReject(id);
-  });
-
-  // ============================================
-  // HANDLER FUNCTIONS
-  // ============================================
-
-  async function handleDeactivate(code) {
     try {
-      const response = await fetch(`/api/code/${code}/deactivate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+      const response = await fetch(`/api/code/${code}`, {
+        method: 'DELETE'
       });
       const data = await response.json();
+      
       if (data.success) {
-        showToast(`Code ${code} deactivated! ${data.devicesRemoved} devices removed.`, 'success');
-        await loadData(true);
+        showToast(`Code ${code} permanently deleted!`, 'success');
+        
+        // FORCE CLEAR CACHE
+        await forceRefreshCache();
+        
+        // Remove the row from UI with animation
+        if (row) {
+          row.classList.remove('row-deleting');
+          row.classList.add('row-removed');
+          setTimeout(() => {
+            row.remove();
+            const codesBody = document.getElementById('codesTableBody');
+            if (codesBody.children.length === 0 || codesBody.children[0].id === 'loadingCodesRow') {
+              showNoCodesMessage();
+            }
+          }, 300);
+        }
+        
+        // Update stats
+        await updateStats();
+        
+        // Also remove any devices that were using this code
+        document.querySelectorAll(`#devicesTableBody tr`).forEach(tr => {
+          if (tr.textContent.includes(code)) {
+            tr.classList.add('row-removed');
+            setTimeout(() => {
+              tr.remove();
+              const devicesBody = document.getElementById('devicesTableBody');
+              if (devicesBody.children.length === 0 || devicesBody.children[0].id === 'loadingDevicesRow') {
+                showNoDevicesMessage();
+              }
+            }, 300);
+          }
+        });
+        
+        // Reload data to ensure consistency
+        await loadData(false);
+        
       } else {
-        showToast(data.error || 'Failed to deactivate code', 'error');
+        showToast(data.error || 'Failed to delete code', 'error');
+        if (row) {
+          row.classList.remove('row-deleting');
+        }
       }
     } catch (error) {
-      showToast('Error deactivating code', 'error');
+      showToast('Error deleting code', 'error');
+      if (row) {
+        row.classList.remove('row-deleting');
+      }
     }
   }
 
-  async function handleExtend(code) {
+  // ============================================
+  // REMOVE DEVICE - INSTANT REMOVE + CLEAR CACHE
+  // ============================================
+  async function removeDevice(deviceId) {
+    if (!confirm(`⚠️ Remove this device?\n\nDevice ID: ${deviceId.substring(0, 20)}...`)) return;
+    
+    // Find and animate the row
+    const row = document.getElementById(`device-row-${deviceId}`);
+    if (row) {
+      row.classList.add('row-deleting');
+    }
+    
+    try {
+      const response = await fetch(`/api/device/${encodeURIComponent(deviceId)}`, {
+        method: 'DELETE'
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        showToast('Device removed successfully!', 'success');
+        
+        // FORCE CLEAR CACHE
+        await forceRefreshCache();
+        
+        // Remove the row from UI with animation
+        if (row) {
+          row.classList.remove('row-deleting');
+          row.classList.add('row-removed');
+          setTimeout(() => {
+            row.remove();
+            const devicesBody = document.getElementById('devicesTableBody');
+            if (devicesBody.children.length === 0 || devicesBody.children[0].id === 'loadingDevicesRow') {
+              showNoDevicesMessage();
+            }
+          }, 300);
+        }
+        
+        // Update stats
+        await updateStats();
+        
+        // Update the used count for the code in codes table
+        if (data.code) {
+          const codeRows = document.querySelectorAll(`#codesTableBody tr`);
+          codeRows.forEach(tr => {
+            if (tr.id === `code-row-${data.code}`) {
+              const usedSpan = tr.querySelector('.badge.bg-primary');
+              if (usedSpan) {
+                const currentCount = parseInt(usedSpan.textContent);
+                usedSpan.textContent = Math.max(0, currentCount - 1);
+              }
+            }
+          });
+        }
+        
+        // Reload data to ensure consistency
+        await loadData(false);
+        
+      } else {
+        showToast(data.error || 'Failed to remove device', 'error');
+        if (row) {
+          row.classList.remove('row-deleting');
+        }
+      }
+    } catch (error) {
+      showToast('Error removing device', 'error');
+      if (row) {
+        row.classList.remove('row-deleting');
+      }
+    }
+  }
+
+  // ============================================
+  // EXTEND CODE
+  // ============================================
+  async function extendCode(code) {
     const newLimit = prompt(`Enter new max devices for code: ${code}`, '15');
     if (newLimit && parseInt(newLimit) > 0) {
       try {
@@ -672,7 +593,15 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         if (response.ok) {
           showToast(`Code ${code} extended to ${newLimit} devices`, 'success');
-          await loadData(true);
+          // Update the max in the UI
+          const row = document.getElementById(`code-row-${code}`);
+          if (row) {
+            const maxSpan = row.querySelector('.badge.bg-secondary');
+            if (maxSpan) {
+              maxSpan.textContent = newLimit;
+            }
+          }
+          await updateStats();
         }
       } catch (error) {
         showToast('Error extending code', 'error');
@@ -680,54 +609,33 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  async function handleRemoveDevice(deviceId) {
-    try {
-      const response = await fetch(`/api/device/${encodeURIComponent(deviceId)}`, {
-        method: 'DELETE'
-      });
-      const data = await response.json();
-      if (data.success) {
-        showToast('Device removed successfully!', 'success');
-        await loadData(true);
-      } else {
-        showToast(data.error || 'Failed to remove device', 'error');
-      }
-    } catch (error) {
-      showToast('Error removing device', 'error');
+  // ============================================
+  // EVENT DELEGATION
+  // ============================================
+  
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.delete-code');
+    if (btn) {
+      e.preventDefault();
+      deleteCode(btn.dataset.code);
     }
-  }
+  });
 
-  async function handleApprove(id) {
-    try {
-      const response = await fetch(`/api/request/${id}/respond`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'approved', response: 'Approved by admin' })
-      });
-      if (response.ok) {
-        showToast('Request approved!', 'success');
-        await loadData(true);
-      }
-    } catch (error) {
-      showToast('Error approving request', 'error');
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.extend-code');
+    if (btn) {
+      e.preventDefault();
+      extendCode(btn.dataset.code);
     }
-  }
+  });
 
-  async function handleReject(id) {
-    try {
-      const response = await fetch(`/api/request/${id}/respond`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'rejected', response: 'Rejected by admin' })
-      });
-      if (response.ok) {
-        showToast('Request rejected', 'info');
-        await loadData(true);
-      }
-    } catch (error) {
-      showToast('Error rejecting request', 'error');
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.remove-device');
+    if (btn) {
+      e.preventDefault();
+      removeDevice(btn.dataset.device);
     }
-  }
+  });
 
   // ============================================
   // GENERATE CODE
@@ -761,7 +669,9 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         document.getElementById('generateUsername').value = '';
         showToast(`Code ${data.code} generated for ${username}`, 'success');
-        await loadData(true);
+        // Force refresh cache and reload
+        await forceRefreshCache();
+        await loadData(false);
       } else {
         resultDiv.innerHTML = `<div class="alert alert-danger">❌ ${data.error || 'Failed to generate code'}</div>`;
         showToast(data.error || 'Failed to generate code', 'error');
@@ -776,8 +686,10 @@ document.addEventListener('DOMContentLoaded', function() {
   // REFRESH BUTTON
   // ============================================
   document.getElementById('refreshBtn').addEventListener('click', async function() {
+    showToast('🔄 Refreshing data from database...', 'info');
+    await forceRefreshCache();
     await loadData(false);
-    showToast('Data refreshed!', 'info');
+    showToast('✅ Data refreshed!', 'success');
   });
 
   // ============================================
@@ -790,7 +702,8 @@ document.addEventListener('DOMContentLoaded', function() {
       const data = await response.json();
       if (data.success) {
         showToast(data.message, 'success');
-        await loadData(true);
+        await forceRefreshCache();
+        await loadData(false);
       }
     } catch (error) {
       showToast('Error deleting all codes', 'error');
@@ -804,39 +717,18 @@ document.addEventListener('DOMContentLoaded', function() {
       const data = await response.json();
       if (data.success) {
         showToast(data.message, 'success');
-        await loadData(true);
+        await forceRefreshCache();
+        await loadData(false);
       }
     } catch (error) {
       showToast('Error deleting all devices', 'error');
     }
   });
 
-  document.getElementById('deleteAllRequestsBtn').addEventListener('click', async function() {
-    if (!confirm('⚠️ Delete ALL requests?')) return;
-    try {
-      const response = await fetch('/api/delete-all-requests', { method: 'POST' });
-      const data = await response.json();
-      if (data.success) {
-        showToast(data.message, 'success');
-        await loadData(true);
-      }
-    } catch (error) {
-      showToast('Error deleting all requests', 'error');
-    }
-  });
-
   // ============================================
-  // INITIAL LOAD & AUTO REFRESH
+  // INITIAL LOAD
   // ============================================
-  updateLastUpdated();
-  
-  // Initial load
-  loadData(false);
-  
-  // Auto refresh every 3 seconds
-  setInterval(function() {
-    loadData(true);
-  }, 3000);
+  loadData(true);
 
 });
 </script>

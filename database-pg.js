@@ -7,23 +7,23 @@ class DeviceDatabase {
       ssl: {
         rejectUnauthorized: false
       },
-      max: 20,
-      idleTimeoutMillis: 30000,
+      max: 10,
+      idleTimeoutMillis: 10000,
       connectionTimeoutMillis: 2000,
+      maxUses: 100
     });
     
-    // Cache for codes to prevent flickering
     this.cache = {
       codes: [],
-      stats: {},
+      stats: { total: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
       devices: [],
       requests: [],
       lastUpdate: 0,
-      updateInterval: 2000 // Update every 2 seconds
+      hasInitialData: false
     };
     
     this.pool.on('error', (err) => {
-      console.error('Unexpected error on idle client', err);
+      console.error('Database pool error:', err);
     });
     
     this.initTables();
@@ -31,12 +31,32 @@ class DeviceDatabase {
   }
 
   async query(sql, params = []) {
-    const client = await this.pool.connect();
+    let client = null;
     try {
+      client = await this.pool.connect();
       const result = await client.query(sql, params);
       return result;
+    } catch (error) {
+      throw error;
     } finally {
-      client.release();
+      if (client) {
+        try {
+          client.release();
+        } catch (releaseError) {
+          // Ignore release errors
+        }
+      }
+    }
+  }
+
+  async safeQuery(sql, params = []) {
+    try {
+      return await this.query(sql, params);
+    } catch (error) {
+      if (error.code === '42701' || error.message.includes('already exists')) {
+        return null;
+      }
+      throw error;
     }
   }
 
@@ -72,14 +92,7 @@ class DeviceDatabase {
         )
       `);
 
-      try {
-        await this.query(`ALTER TABLE codes ADD COLUMN username TEXT`);
-        console.log('✅ Added username column to codes table');
-      } catch (err) {
-        if (err.code === '42701' || err.message.includes('already exists')) {
-          console.log('ℹ️ Username column already exists');
-        }
-      }
+      await this.safeQuery(`ALTER TABLE codes ADD COLUMN username TEXT`);
 
       await this.query(`
         CREATE TABLE IF NOT EXISTS devices (
@@ -133,78 +146,13 @@ class DeviceDatabase {
       `);
 
       console.log('✅ Tables created/verified');
+      
+      await this.refreshCache();
+      
     } catch (error) {
       console.error('❌ Failed to create tables:', error.message);
     }
   }
-
-  // ============================================
-  // CACHE MANAGEMENT - PREVENT FLICKERING
-  // ============================================
-  
-  async refreshCache() {
-    try {
-      const now = Date.now();
-      if (now - this.cache.lastUpdate < this.cache.updateInterval) {
-        return this.cache;
-      }
-      
-      console.log('🔄 Refreshing cache...');
-      
-      const [codes, stats, devices, requests] = await Promise.all([
-        this.getActiveCodes(),
-        this.getStats(),
-        this.getDevices(),
-        this.getPendingRequests()
-      ]);
-      
-      this.cache.codes = codes || [];
-      this.cache.stats = stats || {};
-      this.cache.devices = devices || [];
-      this.cache.requests = requests || [];
-      this.cache.lastUpdate = now;
-      
-      console.log(`✅ Cache updated: ${this.cache.codes.length} codes, ${this.cache.devices.length} devices`);
-      
-      return this.cache;
-    } catch (error) {
-      console.error('Cache refresh error:', error);
-      return this.cache;
-    }
-  }
-
-  getCachedData() {
-    return {
-      codes: this.cache.codes,
-      stats: this.cache.stats,
-      devices: this.cache.devices,
-      requests: this.cache.requests
-    };
-  }
-
-  async getCachedCodes() {
-    await this.refreshCache();
-    return this.cache.codes;
-  }
-
-  async getCachedStats() {
-    await this.refreshCache();
-    return this.cache.stats;
-  }
-
-  async getCachedDevices() {
-    await this.refreshCache();
-    return this.cache.devices;
-  }
-
-  async getCachedRequests() {
-    await this.refreshCache();
-    return this.cache.requests;
-  }
-
-  // ============================================
-  // CODE MANAGEMENT
-  // ============================================
 
   async usernameColumnExists() {
     try {
@@ -217,6 +165,96 @@ class DeviceDatabase {
     } catch (error) {
       return false;
     }
+  }
+
+  async refreshCache() {
+    try {
+      console.log('🔄 Refreshing cache...');
+      
+      const [codes, stats, devices, requests] = await Promise.all([
+        this.getAllCodes(),
+        this.getStats(),
+        this.getDevices(),
+        this.getPendingRequests()
+      ]);
+      
+      if (codes !== null && codes !== undefined) {
+        if (codes.length > 0) {
+          this.cache.codes = codes;
+          console.log(`✅ Updated codes cache with ${codes.length} codes`);
+        } else if (codes.length === 0 && this.cache.hasInitialData) {
+          console.log(`⚠️ Database returned 0 codes, keeping existing ${this.cache.codes.length} codes in cache`);
+        } else if (codes.length === 0 && !this.cache.hasInitialData) {
+          this.cache.codes = [];
+          console.log('ℹ️ First load, no codes found');
+        }
+      }
+      
+      if (stats !== null && stats !== undefined && Object.keys(stats).length > 0) {
+        this.cache.stats = stats;
+      }
+      
+      if (devices !== null && devices !== undefined) {
+        if (devices.length > 0 || !this.cache.hasInitialData) {
+          this.cache.devices = devices;
+        } else {
+          console.log(`⚠️ Database returned 0 devices, keeping existing ${this.cache.devices.length} devices in cache`);
+        }
+      }
+      
+      if (requests !== null && requests !== undefined) {
+        if (requests.length > 0 || !this.cache.hasInitialData) {
+          this.cache.requests = requests;
+        }
+      }
+      
+      this.cache.lastUpdate = Date.now();
+      this.cache.hasInitialData = true;
+      
+      console.log(`✅ Cache: ${this.cache.codes.length} codes, ${this.cache.devices.length} devices`);
+      
+      return this.cache;
+    } catch (error) {
+      console.error('Cache refresh error:', error);
+      return this.cache;
+    }
+  }
+
+  getCachedData() {
+    return {
+      codes: this.cache.codes || [],
+      stats: this.cache.stats || { total: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
+      devices: this.cache.devices || [],
+      requests: this.cache.requests || []
+    };
+  }
+
+  async getCachedCodes() {
+    if (!this.cache.hasInitialData) {
+      await this.refreshCache();
+    }
+    return this.cache.codes || [];
+  }
+
+  async getCachedStats() {
+    if (!this.cache.hasInitialData) {
+      await this.refreshCache();
+    }
+    return this.cache.stats || { total: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 };
+  }
+
+  async getCachedDevices() {
+    if (!this.cache.hasInitialData) {
+      await this.refreshCache();
+    }
+    return this.cache.devices || [];
+  }
+
+  async getCachedRequests() {
+    if (!this.cache.hasInitialData) {
+      await this.refreshCache();
+    }
+    return this.cache.requests || [];
   }
 
   async generateCode(maxDevices = 10, createdBy = 'admin', username = '', notes = '') {
@@ -242,8 +280,6 @@ class DeviceDatabase {
         );
       }
       
-      // Force cache refresh
-      this.cache.lastUpdate = 0;
       await this.refreshCache();
       
       console.log(`✅ Code generated: ${code} for user: ${username}`);
@@ -271,14 +307,16 @@ class DeviceDatabase {
   async getAllCodes() {
     try {
       const hasUsername = await this.usernameColumnExists();
+      let result;
       if (hasUsername) {
-        return await this.all('SELECT * FROM codes ORDER BY created_at DESC');
+        result = await this.all('SELECT * FROM codes ORDER BY created_at DESC');
       } else {
-        return await this.all('SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes ORDER BY created_at DESC');
+        result = await this.all('SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes ORDER BY created_at DESC');
       }
+      return result || [];
     } catch (error) {
       console.error('Get all codes error:', error);
-      return [];
+      return this.cache.codes || [];
     }
   }
 
@@ -298,11 +336,7 @@ class DeviceDatabase {
       return result || [];
     } catch (error) {
       console.error('Get active codes error:', error);
-      // Return cached data if available
-      if (this.cache.codes && this.cache.codes.length > 0) {
-        return this.cache.codes;
-      }
-      return [];
+      return this.cache.codes || [];
     }
   }
 
@@ -357,8 +391,6 @@ class DeviceDatabase {
         [code]
       );
       
-      // Force cache refresh
-      this.cache.lastUpdate = 0;
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -377,8 +409,6 @@ class DeviceDatabase {
       await this.run('DELETE FROM devices WHERE code = $1', [code]);
       const result = await this.run('DELETE FROM codes WHERE code = $1', [code]);
       
-      // Force cache refresh
-      this.cache.lastUpdate = 0;
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -399,8 +429,6 @@ class DeviceDatabase {
         [maxDevices, code]
       );
       
-      // Force cache refresh
-      this.cache.lastUpdate = 0;
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -434,8 +462,6 @@ class DeviceDatabase {
           );
           await this.logUsage(deviceId, code, 're-register', 'Device re-registered');
           
-          // Force cache refresh
-          this.cache.lastUpdate = 0;
           await this.refreshCache();
           
           return { success: true, status: 'approved', code: code };
@@ -456,8 +482,6 @@ class DeviceDatabase {
       await this.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code]);
       await this.logUsage(deviceId, code, 'register', 'Device registered and auto-approved');
       
-      // Force cache refresh
-      this.cache.lastUpdate = 0;
       await this.refreshCache();
       
       return { success: true, status: 'approved', code: code };
@@ -490,7 +514,7 @@ class DeviceDatabase {
       return await this.all(query, params);
     } catch (error) {
       console.error('Get devices error:', error);
-      return [];
+      return this.cache.devices || [];
     }
   }
 
@@ -518,8 +542,6 @@ class DeviceDatabase {
           await this.logUsage(deviceId, code, 'remove_user', 'User removed, slot freed');
         }
         
-        // Force cache refresh
-        this.cache.lastUpdate = 0;
         await this.refreshCache();
         
         console.log(`🗑️ User ${deviceId} removed, slot freed for code ${code}`);
@@ -659,7 +681,7 @@ class DeviceDatabase {
       );
     } catch (error) {
       console.error('Get pending requests error:', error);
-      return [];
+      return this.cache.requests || [];
     }
   }
 
@@ -760,7 +782,7 @@ class DeviceDatabase {
       const activeCodes = await this.get("SELECT COUNT(*) as count FROM codes WHERE is_active = true");
       const pendingRequests = await this.get("SELECT COUNT(*) as count FROM requests WHERE status = 'pending'");
 
-      return {
+      const stats = {
         total: parseInt(total?.count || 0),
         pending: parseInt(pending?.count || 0),
         approved: parseInt(approved?.count || 0),
@@ -770,6 +792,8 @@ class DeviceDatabase {
         activeCodes: parseInt(activeCodes?.count || 0),
         pendingRequests: parseInt(pendingRequests?.count || 0)
       };
+      
+      return stats;
     } catch (error) {
       console.error('Get stats error:', error);
       return this.cache.stats || {
