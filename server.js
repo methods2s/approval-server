@@ -12,6 +12,14 @@ const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', 1);
 
+// Disable cache for all API responses
+app.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
+
 app.use(session({
   secret: process.env.SESSION_SECRET || 'default-secret-change-me',
   resave: false,
@@ -89,18 +97,30 @@ app.get('/logout', (req, res) => {
 });
 
 app.get('/dashboard', isAuthenticated, async (req, res) => {
-  const devices = await db.getDevices();
-  const stats = await db.getStats();
-  const codes = await db.getActiveCodes();
-  const pendingRequests = await db.getPendingRequests();
-  
-  res.render('dashboard', { 
-    username: req.session.username,
-    devices: devices,
-    stats: stats,
-    codes: codes,
-    requests: pendingRequests
-  });
+  try {
+    const devices = await db.getDevices();
+    const stats = await db.getStats();
+    const codes = await db.getActiveCodes();
+    const pendingRequests = await db.getPendingRequests();
+    
+    res.render('dashboard', { 
+      username: req.session.username,
+      devices: devices || [],
+      stats: stats || {},
+      codes: codes || [],
+      requests: pendingRequests || []
+    });
+  } catch (error) {
+    console.error('Dashboard error:', error);
+    res.render('dashboard', { 
+      username: req.session.username,
+      devices: [],
+      stats: {},
+      codes: [],
+      requests: [],
+      error: 'Failed to load data'
+    });
+  }
 });
 
 app.get('/', (req, res) => {
@@ -143,17 +163,12 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// ============================================
-// FIXED: STATUS CHECK - Forces re-login when code is deactivated
-// ============================================
 app.get('/api/status/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
   
   try {
-    // Get the device
     const device = await db.getDevice(deviceId);
     
-    // If device doesn't exist at all -> needs code
     if (!device) {
       console.log(`📱 Device ${deviceId} not found - needs code`);
       return res.json({ 
@@ -161,12 +176,10 @@ app.get('/api/status/:deviceId', async (req, res) => {
         approved: false,
         status: 'not_found',
         message: 'Device not found - Please enter your code again',
-        needsCode: true,
-        forceLogin: true
+        needsCode: true
       });
     }
 
-    // If device exists but has NO code -> needs code
     if (!device.code) {
       console.log(`📱 Device ${deviceId} has no code - needs code`);
       return res.json({
@@ -174,34 +187,25 @@ app.get('/api/status/:deviceId', async (req, res) => {
         approved: false,
         status: 'no_code',
         message: 'Device has no active code - Please enter your code again',
-        needsCode: true,
-        forceLogin: true
+        needsCode: true
       });
     }
 
-    // Check if the code is still active
     const codeInfo = await db.getCodeInfo(device.code);
     
-    // If code is inactive or doesn't exist -> DELETE device and force re-login
     if (!codeInfo || !codeInfo.is_active) {
-      console.log(`📱 Code ${device.code} is inactive - removing device ${deviceId}`);
-      
-      // Delete the device from database
-      await db.run('DELETE FROM devices WHERE device_id = $1', [deviceId]);
-      await db.logUsage(deviceId, device.code, 'code_inactive', 'Device removed because code was deactivated');
+      console.log(`📱 Code ${device.code} is inactive for device ${deviceId}`);
       
       return res.json({
-        exists: false,
+        exists: true,
         approved: false,
         status: 'code_inactive',
         message: 'Your activation code has been deactivated - Please enter a new code',
         needsCode: true,
-        forceLogin: true,
-        codeRemoved: true
+        code: device.code
       });
     }
 
-    // Device is valid - update ping and return success
     await db.updatePing(deviceId);
 
     res.json({
@@ -221,8 +225,7 @@ app.get('/api/status/:deviceId', async (req, res) => {
       error: 'Failed to check status',
       exists: false,
       approved: false,
-      needsCode: true,
-      forceLogin: true
+      needsCode: true
     });
   }
 });
@@ -344,7 +347,7 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
 app.get('/api/codes', isApiAuthenticated, async (req, res) => {
   try {
     const codes = await db.getActiveCodes();
-    res.json(codes);
+    res.json(codes || []);
   } catch (error) {
     console.error('Get codes error:', error);
     res.status(500).json({ error: 'Failed to get codes' });
@@ -354,7 +357,7 @@ app.get('/api/codes', isApiAuthenticated, async (req, res) => {
 app.get('/api/codes/all', isApiAuthenticated, async (req, res) => {
   try {
     const codes = await db.getAllCodes();
-    res.json(codes);
+    res.json(codes || []);
   } catch (error) {
     console.error('Get all codes error:', error);
     res.status(500).json({ error: 'Failed to get codes' });
@@ -366,7 +369,7 @@ app.get('/api/code/:code/usage', isApiAuthenticated, async (req, res) => {
   
   try {
     const usage = await db.getCodeUsage(code);
-    res.json(usage);
+    res.json(usage || {});
   } catch (error) {
     console.error('Code usage error:', error);
     res.status(500).json({ error: 'Failed to get code usage' });
@@ -621,7 +624,7 @@ app.post('/api/request', async (req, res) => {
 app.get('/api/requests', isApiAuthenticated, async (req, res) => {
   try {
     const requests = await db.getAllRequests();
-    res.json(requests);
+    res.json(requests || []);
   } catch (error) {
     console.error('Get requests error:', error);
     res.status(500).json({ error: 'Failed to get requests' });
@@ -631,7 +634,7 @@ app.get('/api/requests', isApiAuthenticated, async (req, res) => {
 app.get('/api/requests/pending', isApiAuthenticated, async (req, res) => {
   try {
     const requests = await db.getPendingRequests();
-    res.json(requests);
+    res.json(requests || []);
   } catch (error) {
     console.error('Get pending requests error:', error);
     res.status(500).json({ error: 'Failed to get pending requests' });
@@ -665,7 +668,7 @@ app.post('/api/request/:requestId/respond', isApiAuthenticated, async (req, res)
 app.get('/api/stats', isApiAuthenticated, async (req, res) => {
   try {
     const stats = await db.getStats();
-    res.json(stats);
+    res.json(stats || {});
   } catch (error) {
     console.error('Stats error:', error);
     res.status(500).json({ error: 'Failed to get stats' });
@@ -680,10 +683,10 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
     const pendingRequests = await db.getPendingRequests();
     
     res.json({
-      stats,
-      devices,
-      codes,
-      requests: pendingRequests,
+      stats: stats || {},
+      devices: devices || [],
+      codes: codes || [],
+      requests: pendingRequests || [],
       username: req.session.username
     });
   } catch (error) {

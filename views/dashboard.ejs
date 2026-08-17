@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Admin Dashboard - WantMatures</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
@@ -75,6 +78,19 @@
     @keyframes slideIn {
       from { transform: translateX(100%); opacity: 0; }
       to { transform: translateX(0); opacity: 1; }
+    }
+    .loading-spinner {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #3498db;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
   </style>
 </head>
@@ -198,7 +214,7 @@
               </tr>
             </thead>
             <tbody id="codesTableBody">
-              <!-- Populated by JavaScript -->
+              <tr><td colspan="6" class="text-center"><div class="loading-spinner"></div> Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -227,7 +243,7 @@
               </tr>
             </thead>
             <tbody id="devicesTableBody">
-              <!-- Populated by JavaScript -->
+              <tr><td colspan="6" class="text-center"><div class="loading-spinner"></div> Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -255,7 +271,7 @@
               </tr>
             </thead>
             <tbody id="requestsTableBody">
-              <!-- Populated by JavaScript -->
+              <tr><td colspan="5" class="text-center"><div class="loading-spinner"></div> Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -270,22 +286,22 @@
 document.addEventListener('DOMContentLoaded', function() {
 
   // ============================================
-  // LOAD ALL DATA FROM SERVER
+  // LOAD ALL DATA FROM SERVER WITH CACHE BUSTING
   // ============================================
   async function loadAllData() {
+    const cacheBuster = Date.now();
     try {
-      const statsRes = await fetch('/api/stats');
+      const statsRes = await fetch('/api/stats?_=' + cacheBuster);
       const stats = await statsRes.json();
       
-      // Get ONLY active codes (not all codes)
-      const codesRes = await fetch('/api/codes');
+      const codesRes = await fetch('/api/codes?_=' + cacheBuster);
       const codes = await codesRes.json();
       
-      const devicesRes = await fetch('/api/dashboard-data');
+      const devicesRes = await fetch('/api/dashboard-data?_=' + cacheBuster);
       const dashboardData = await devicesRes.json();
       const devices = dashboardData.devices || [];
       
-      const requestsRes = await fetch('/api/requests/pending');
+      const requestsRes = await fetch('/api/requests/pending?_=' + cacheBuster);
       const requests = await requestsRes.json();
       
       return { stats, codes, devices, requests };
@@ -303,18 +319,14 @@ document.addEventListener('DOMContentLoaded', function() {
     
     const { stats, codes, devices, requests } = data;
     
-    // Update stat cards
     document.getElementById('totalDevices').textContent = stats.total || 0;
     document.getElementById('approvedDevices').textContent = stats.approved || 0;
     document.getElementById('activeCodes').textContent = stats.activeCodes || 0;
-    
-    // Update badges - IMPORTANT: Use active codes count, not total codes
-    const activeCodeCount = codes ? codes.length : 0;
-    document.getElementById('codeCountBadge').textContent = activeCodeCount;
+    document.getElementById('codeCountBadge').textContent = codes ? codes.length : 0;
     document.getElementById('deviceCountBadge').textContent = stats.total || 0;
     document.getElementById('requestCountBadge').textContent = requests ? requests.length : 0;
     
-    // Update codes table - ONLY show active codes
+    // Codes Table
     const codesBody = document.getElementById('codesTableBody');
     if (codes && codes.length > 0) {
       let html = '';
@@ -352,7 +364,7 @@ document.addEventListener('DOMContentLoaded', function() {
       codesBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No codes generated yet</td></tr>';
     }
     
-    // Update devices table
+    // Devices Table
     const devicesBody = document.getElementById('devicesTableBody');
     if (devices && devices.length > 0) {
       let html = '';
@@ -381,7 +393,7 @@ document.addEventListener('DOMContentLoaded', function() {
       devicesBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No devices registered</td></tr>';
     }
     
-    // Update requests table
+    // Requests Table
     const requestsBody = document.getElementById('requestsTableBody');
     if (requests && requests.length > 0) {
       let html = '';
@@ -679,7 +691,9 @@ document.addEventListener('DOMContentLoaded', function() {
   // INITIAL LOAD & AUTO REFRESH
   // ============================================
   refreshAllData();
-  setInterval(refreshAllData, 10000);
+  
+  // Auto refresh every 5 seconds (more frequent)
+  setInterval(refreshAllData, 5000);
 
 });
 </script>
