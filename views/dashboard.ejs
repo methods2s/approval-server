@@ -107,6 +107,7 @@
 
 <div class="container mt-4">
   
+  <!-- Stats Cards -->
   <div class="row g-3 mb-4">
     <div class="col-md-4">
       <div class="stat-card">
@@ -131,6 +132,7 @@
     </div>
   </div>
 
+  <!-- Generate Code -->
   <div class="card mb-4">
     <div class="card-header bg-primary text-white">
       <h5 class="mb-0"><i class="fas fa-plus-circle me-2"></i>Generate Code</h5>
@@ -158,6 +160,7 @@
     </div>
   </div>
 
+  <!-- Tabs - Only Codes and Devices -->
   <ul class="nav nav-tabs mb-3" id="mainTabs" role="tablist">
     <li class="nav-item" role="presentation">
       <button class="nav-link active" id="codes-tab" data-bs-toggle="tab" data-bs-target="#codes" type="button" role="tab">
@@ -340,7 +343,6 @@ document.addEventListener('DOMContentLoaded', function() {
     isLoading = true;
     
     try {
-      // If force refresh, clear server cache first
       if (forceRefresh) {
         await forceRefreshCache();
       }
@@ -443,7 +445,6 @@ document.addEventListener('DOMContentLoaded', function() {
   async function deleteCode(code) {
     if (!confirm(`⚠️⚠️⚠️ PERMANENTLY DELETE code: ${code}?\n\nThis will REMOVE the code from the database FOREVER.\nAll devices using this code will also be removed.\n\nThis action CANNOT be undone!`)) return;
     
-    // Find and animate the row
     const row = document.getElementById(`code-row-${code}`);
     if (row) {
       row.classList.add('row-deleting');
@@ -458,10 +459,8 @@ document.addEventListener('DOMContentLoaded', function() {
       if (data.success) {
         showToast(`Code ${code} permanently deleted!`, 'success');
         
-        // FORCE CLEAR CACHE
         await forceRefreshCache();
         
-        // Remove the row from UI with animation
         if (row) {
           row.classList.remove('row-deleting');
           row.classList.add('row-removed');
@@ -474,10 +473,8 @@ document.addEventListener('DOMContentLoaded', function() {
           }, 300);
         }
         
-        // Update stats
         await updateStats();
         
-        // Also remove any devices that were using this code
         document.querySelectorAll(`#devicesTableBody tr`).forEach(tr => {
           if (tr.textContent.includes(code)) {
             tr.classList.add('row-removed');
@@ -491,7 +488,6 @@ document.addEventListener('DOMContentLoaded', function() {
           }
         });
         
-        // Reload data to ensure consistency
         await loadData(false);
         
       } else {
@@ -514,7 +510,6 @@ document.addEventListener('DOMContentLoaded', function() {
   async function removeDevice(deviceId) {
     if (!confirm(`⚠️ Remove this device?\n\nDevice ID: ${deviceId.substring(0, 20)}...`)) return;
     
-    // Find and animate the row
     const row = document.getElementById(`device-row-${deviceId}`);
     if (row) {
       row.classList.add('row-deleting');
@@ -529,10 +524,8 @@ document.addEventListener('DOMContentLoaded', function() {
       if (data.success) {
         showToast('Device removed successfully!', 'success');
         
-        // FORCE CLEAR CACHE
         await forceRefreshCache();
         
-        // Remove the row from UI with animation
         if (row) {
           row.classList.remove('row-deleting');
           row.classList.add('row-removed');
@@ -545,10 +538,8 @@ document.addEventListener('DOMContentLoaded', function() {
           }, 300);
         }
         
-        // Update stats
         await updateStats();
         
-        // Update the used count for the code in codes table
         if (data.code) {
           const codeRows = document.querySelectorAll(`#codesTableBody tr`);
           codeRows.forEach(tr => {
@@ -562,7 +553,6 @@ document.addEventListener('DOMContentLoaded', function() {
           });
         }
         
-        // Reload data to ensure consistency
         await loadData(false);
         
       } else {
@@ -593,7 +583,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         if (response.ok) {
           showToast(`Code ${code} extended to ${newLimit} devices`, 'success');
-          // Update the max in the UI
           const row = document.getElementById(`code-row-${code}`);
           if (row) {
             const maxSpan = row.querySelector('.badge.bg-secondary');
@@ -669,7 +658,6 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         document.getElementById('generateUsername').value = '';
         showToast(`Code ${data.code} generated for ${username}`, 'success');
-        // Force refresh cache and reload
         await forceRefreshCache();
         await loadData(false);
       } else {
