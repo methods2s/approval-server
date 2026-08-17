@@ -79,19 +79,6 @@
       from { transform: translateX(100%); opacity: 0; }
       to { transform: translateX(0); opacity: 1; }
     }
-    .loading-spinner {
-      display: inline-block;
-      width: 20px;
-      height: 20px;
-      border: 3px solid #f3f3f3;
-      border-top: 3px solid #3498db;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
     .last-updated {
       color: #888;
       font-size: 12px;
@@ -588,55 +575,75 @@ document.addEventListener('DOMContentLoaded', function() {
         requestsBody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No requests</td></tr>';
       }
     }
-    
-    // Re-bind all event listeners
-    bindAllEvents();
   }
 
   // ============================================
-  // BIND ALL EVENTS - FIXED
+  // EVENT DELEGATION - FIXED!
   // ============================================
-  function bindAllEvents() {
+  // Instead of binding events to each button individually,
+  // we listen for clicks on the parent containers and check if the click
+  // came from a button with a specific class.
+  // This works even when the HTML is updated!
+  // ============================================
+
+  // --- DEACTIVATE CODE (Event Delegation) ---
+  document.getElementById('codesTableBody').addEventListener('click', function(e) {
+    const btn = e.target.closest('.deactivate-code');
+    if (!btn) return;
     
-    // --- DEACTIVATE CODE ---
-    document.querySelectorAll('.deactivate-code').forEach(btn => {
-      btn.removeEventListener('click', handleDeactivate);
-      btn.addEventListener('click', handleDeactivate);
-    });
-
-    // --- REMOVE DEVICE ---
-    document.querySelectorAll('.remove-device').forEach(btn => {
-      btn.removeEventListener('click', handleRemoveDevice);
-      btn.addEventListener('click', handleRemoveDevice);
-    });
-
-    // --- APPROVE REQUEST ---
-    document.querySelectorAll('.approve-request').forEach(btn => {
-      btn.removeEventListener('click', handleApprove);
-      btn.addEventListener('click', handleApprove);
-    });
-
-    // --- REJECT REQUEST ---
-    document.querySelectorAll('.reject-request').forEach(btn => {
-      btn.removeEventListener('click', handleReject);
-      btn.addEventListener('click', handleReject);
-    });
-
-    // --- EXTEND CODE ---
-    document.querySelectorAll('.extend-code').forEach(btn => {
-      btn.removeEventListener('click', handleExtend);
-      btn.addEventListener('click', handleExtend);
-    });
-  }
-
-  // ============================================
-  // EVENT HANDLERS
-  // ============================================
-
-  async function handleDeactivate(e) {
-    const code = e.currentTarget.dataset.code;
+    const code = btn.dataset.code;
     if (!confirm(`⚠️ Deactivate code: ${code}?\n\nThis will REMOVE all devices using this code.`)) return;
     
+    handleDeactivate(code);
+  });
+
+  // --- EXTEND CODE (Event Delegation) ---
+  document.getElementById('codesTableBody').addEventListener('click', function(e) {
+    const btn = e.target.closest('.extend-code');
+    if (!btn) return;
+    
+    const code = btn.dataset.code;
+    handleExtend(code);
+  });
+
+  // --- REMOVE DEVICE (Event Delegation) ---
+  document.getElementById('devicesTableBody').addEventListener('click', function(e) {
+    const btn = e.target.closest('.remove-device');
+    if (!btn) return;
+    
+    const deviceId = btn.dataset.device;
+    if (!confirm(`⚠️ Remove this device?\n\nDevice ID: ${deviceId.substring(0, 20)}...`)) return;
+    
+    handleRemoveDevice(deviceId);
+  });
+
+  // --- APPROVE REQUEST (Event Delegation) ---
+  document.getElementById('requestsTableBody').addEventListener('click', function(e) {
+    const btn = e.target.closest('.approve-request');
+    if (!btn) return;
+    
+    const id = btn.dataset.id;
+    if (!confirm('Approve this request?')) return;
+    
+    handleApprove(id);
+  });
+
+  // --- REJECT REQUEST (Event Delegation) ---
+  document.getElementById('requestsTableBody').addEventListener('click', function(e) {
+    const btn = e.target.closest('.reject-request');
+    if (!btn) return;
+    
+    const id = btn.dataset.id;
+    if (!confirm('Reject this request?')) return;
+    
+    handleReject(id);
+  });
+
+  // ============================================
+  // HANDLER FUNCTIONS
+  // ============================================
+
+  async function handleDeactivate(code) {
     try {
       const response = await fetch(`/api/code/${code}/deactivate`, {
         method: 'POST',
@@ -654,10 +661,26 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  async function handleRemoveDevice(e) {
-    const deviceId = e.currentTarget.dataset.device;
-    if (!confirm(`⚠️ Remove this device?\n\nDevice ID: ${deviceId.substring(0, 20)}...`)) return;
-    
+  async function handleExtend(code) {
+    const newLimit = prompt(`Enter new max devices for code: ${code}`, '15');
+    if (newLimit && parseInt(newLimit) > 0) {
+      try {
+        const response = await fetch(`/api/code/${code}/extend`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ maxDevices: parseInt(newLimit) })
+        });
+        if (response.ok) {
+          showToast(`Code ${code} extended to ${newLimit} devices`, 'success');
+          await loadData(true);
+        }
+      } catch (error) {
+        showToast('Error extending code', 'error');
+      }
+    }
+  }
+
+  async function handleRemoveDevice(deviceId) {
     try {
       const response = await fetch(`/api/device/${encodeURIComponent(deviceId)}`, {
         method: 'DELETE'
@@ -674,10 +697,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  async function handleApprove(e) {
-    const id = e.currentTarget.dataset.id;
-    if (!confirm('Approve this request?')) return;
-    
+  async function handleApprove(id) {
     try {
       const response = await fetch(`/api/request/${id}/respond`, {
         method: 'POST',
@@ -693,10 +713,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 
-  async function handleReject(e) {
-    const id = e.currentTarget.dataset.id;
-    if (!confirm('Reject this request?')) return;
-    
+  async function handleReject(id) {
     try {
       const response = await fetch(`/api/request/${id}/respond`, {
         method: 'POST',
@@ -709,26 +726,6 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     } catch (error) {
       showToast('Error rejecting request', 'error');
-    }
-  }
-
-  async function handleExtend(e) {
-    const code = e.currentTarget.dataset.code;
-    const newLimit = prompt(`Enter new max devices for code: ${code}`, '15');
-    if (newLimit && parseInt(newLimit) > 0) {
-      try {
-        const response = await fetch(`/api/code/${code}/extend`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ maxDevices: parseInt(newLimit) })
-        });
-        if (response.ok) {
-          showToast(`Code ${code} extended to ${newLimit} devices`, 'success');
-          await loadData(true);
-        }
-      } catch (error) {
-        showToast('Error extending code', 'error');
-      }
     }
   }
 
