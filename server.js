@@ -175,7 +175,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE
+// REGISTER DEVICE - UPDATED WITH USERNAME
 // ============================================
 app.post('/api/register', async (req, res) => {
   const { deviceId, userAgent, browserInfo, code } = req.body;
@@ -201,10 +201,15 @@ app.post('/api/register', async (req, res) => {
       });
     }
 
+    // Get the username associated with this code
+    const codeInfo = await db.getCodeInfo(code.toUpperCase());
+    const username = codeInfo ? codeInfo.username || codeInfo.created_by || 'Unknown' : 'Unknown';
+
     res.json({
       success: true,
       status: result.status,
       code: result.code,
+      username: username,
       message: `Device registered and auto-approved!`
     });
   } catch (error) {
@@ -214,7 +219,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 // ============================================
-// STATUS CHECK
+// STATUS CHECK - UPDATED WITH USERNAME
 // ============================================
 app.get('/api/status/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
@@ -228,7 +233,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
         approved: false,
         status: 'not_found',
         message: 'Device not found - Please enter your code again',
-        needsCode: true
+        needsCode: true,
+        username: null
       });
     }
 
@@ -238,7 +244,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
         approved: false,
         status: 'no_code',
         message: 'Device has no active code - Please enter your code again',
-        needsCode: true
+        needsCode: true,
+        username: null
       });
     }
 
@@ -251,9 +258,13 @@ app.get('/api/status/:deviceId', async (req, res) => {
         status: 'code_inactive',
         message: 'Your activation code has been deactivated - Please enter a new code',
         needsCode: true,
-        code: device.code
+        code: device.code,
+        username: null
       });
     }
+
+    // Get username from codeInfo
+    const username = codeInfo.username || codeInfo.created_by || 'Unknown';
 
     db.updatePing(deviceId).catch(err => console.error('Ping update error:', err));
 
@@ -262,6 +273,7 @@ app.get('/api/status/:deviceId', async (req, res) => {
       approved: true,
       status: device.status,
       code: device.code,
+      username: username,
       device: {
         id: device.device_id,
         approved_at: device.approved_at,
@@ -274,7 +286,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
       error: 'Failed to check status',
       exists: false,
       approved: false,
-      needsCode: true
+      needsCode: true,
+      username: null
     });
   }
 });

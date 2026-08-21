@@ -87,12 +87,19 @@ class DeviceDatabase {
           used_count INTEGER DEFAULT 0,
           is_active BOOLEAN DEFAULT TRUE,
           created_by TEXT,
+          username TEXT,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           notes TEXT
         )
       `);
 
-      await this.safeQuery(`ALTER TABLE codes ADD COLUMN username TEXT`);
+      // Add username column if it doesn't exist
+      try {
+        await this.query(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS username TEXT`);
+        console.log('✅ Username column verified');
+      } catch (e) {
+        console.log('ℹ️ Username column already exists or could not be added');
+      }
 
       await this.query(`
         CREATE TABLE IF NOT EXISTS devices (
@@ -266,19 +273,10 @@ class DeviceDatabase {
     code = code.slice(0, 4) + '-' + code.slice(4);
 
     try {
-      const hasUsername = await this.usernameColumnExists();
-      
-      if (hasUsername) {
-        await this.run(
-          'INSERT INTO codes (code, max_devices, created_by, username, notes) VALUES ($1, $2, $3, $4, $5)',
-          [code, maxDevices, createdBy, username, notes || '']
-        );
-      } else {
-        await this.run(
-          'INSERT INTO codes (code, max_devices, created_by, notes) VALUES ($1, $2, $3, $4)',
-          [code, maxDevices, createdBy, notes || '']
-        );
-      }
+      await this.run(
+        'INSERT INTO codes (code, max_devices, created_by, username, notes) VALUES ($1, $2, $3, $4, $5)',
+        [code, maxDevices, createdBy, username, notes || '']
+      );
       
       await this.refreshCache();
       
@@ -292,12 +290,7 @@ class DeviceDatabase {
 
   async getCodeInfo(code) {
     try {
-      const hasUsername = await this.usernameColumnExists();
-      if (hasUsername) {
-        return await this.get('SELECT * FROM codes WHERE code = $1', [code]);
-      } else {
-        return await this.get('SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes WHERE code = $1', [code]);
-      }
+      return await this.get('SELECT * FROM codes WHERE code = $1', [code]);
     } catch (error) {
       console.error('Get code info error:', error);
       return null;
@@ -306,13 +299,7 @@ class DeviceDatabase {
 
   async getAllCodes() {
     try {
-      const hasUsername = await this.usernameColumnExists();
-      let result;
-      if (hasUsername) {
-        result = await this.all('SELECT * FROM codes ORDER BY created_at DESC');
-      } else {
-        result = await this.all('SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes ORDER BY created_at DESC');
-      }
+      const result = await this.all('SELECT * FROM codes ORDER BY created_at DESC');
       return result || [];
     } catch (error) {
       console.error('Get all codes error:', error);
@@ -322,17 +309,9 @@ class DeviceDatabase {
 
   async getActiveCodes() {
     try {
-      const hasUsername = await this.usernameColumnExists();
-      let result;
-      if (hasUsername) {
-        result = await this.all(
-          'SELECT * FROM codes WHERE is_active = true ORDER BY created_at DESC'
-        );
-      } else {
-        result = await this.all(
-          'SELECT code, max_devices, used_count, is_active, created_by, created_at, notes FROM codes WHERE is_active = true ORDER BY created_at DESC'
-        );
-      }
+      const result = await this.all(
+        'SELECT * FROM codes WHERE is_active = true ORDER BY created_at DESC'
+      );
       return result || [];
     } catch (error) {
       console.error('Get active codes error:', error);
