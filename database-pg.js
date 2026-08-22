@@ -81,7 +81,7 @@ class DeviceDatabase {
 
   async initTables() {
     try {
-      // Codes table with all columns
+      // Codes table with all new columns
       await this.query(`
         CREATE TABLE IF NOT EXISTS codes (
           code TEXT PRIMARY KEY,
@@ -100,82 +100,8 @@ class DeviceDatabase {
         )
       `);
 
-      // Devices table with hardware columns
-      await this.query(`
-        CREATE TABLE IF NOT EXISTS devices (
-          id SERIAL PRIMARY KEY,
-          device_id TEXT UNIQUE NOT NULL,
-          user_agent TEXT,
-          ip_address TEXT,
-          browser_info TEXT,
-          code TEXT,
-          hardware_id TEXT,
-          device_name TEXT,
-          hardware_conflict BOOLEAN DEFAULT FALSE,
-          status TEXT DEFAULT 'approved',
-          approved_at TIMESTAMP,
-          revoked_at TIMESTAMP,
-          last_ping TIMESTAMP,
-          ping_count INTEGER DEFAULT 0,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Requests table
-      await this.query(`
-        CREATE TABLE IF NOT EXISTS requests (
-          id SERIAL PRIMARY KEY,
-          device_id TEXT,
-          code TEXT,
-          reason TEXT,
-          status TEXT DEFAULT 'pending',
-          requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          responded_at TIMESTAMP,
-          admin_response TEXT
-        )
-      `);
-
-      // Usage logs table
-      await this.query(`
-        CREATE TABLE IF NOT EXISTS usage_logs (
-          id SERIAL PRIMARY KEY,
-          device_id TEXT,
-          code TEXT,
-          action TEXT NOT NULL,
-          details TEXT,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Admins table
-      await this.query(`
-        CREATE TABLE IF NOT EXISTS admins (
-          id SERIAL PRIMARY KEY,
-          username TEXT UNIQUE NOT NULL,
-          password_hash TEXT NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Add hardware columns if they don't exist (for existing databases)
+      // Add missing columns if they don't exist
       const columnsToAdd = [
-        { name: 'hardware_id', type: 'TEXT' },
-        { name: 'device_name', type: 'TEXT' },
-        { name: 'hardware_conflict', type: 'BOOLEAN DEFAULT FALSE' }
-      ];
-
-      for (const col of columnsToAdd) {
-        try {
-          await this.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-          console.log(`✅ Added column: ${col.name}`);
-        } catch (e) {
-          // Column might already exist
-        }
-      }
-
-      // Add missing columns to codes table
-      const codeColumnsToAdd = [
         { name: 'username', type: 'TEXT' },
         { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
         { name: 'subscription_type', type: 'TEXT DEFAULT \'Lifetime\'' },
@@ -184,24 +110,12 @@ class DeviceDatabase {
         { name: 'status', type: 'TEXT DEFAULT \'active\'' }
       ];
 
-      for (const col of codeColumnsToAdd) {
+      for (const col of columnsToAdd) {
         try {
           await this.query(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
         } catch (e) {
           // Column might already exist
         }
-      }
-
-      // Create indexes for hardware lookups
-      try {
-        await this.query(`
-          CREATE INDEX IF NOT EXISTS idx_devices_hardware_id ON devices(hardware_id);
-          CREATE INDEX IF NOT EXISTS idx_devices_code_hardware ON devices(code, hardware_id);
-          CREATE INDEX IF NOT EXISTS idx_devices_hardware_status ON devices(hardware_id, status);
-        `);
-        console.log('✅ Hardware indexes created');
-      } catch (e) {
-        console.log('⚠️ Indexes may already exist');
       }
 
       // Migrate VVIP to SVIP
@@ -215,6 +129,57 @@ class DeviceDatabase {
           subscription_type = COALESCE(subscription_type, 'Lifetime'),
           status = COALESCE(status, 'active'),
           subscription_started_at = COALESCE(subscription_started_at, created_at, NOW())
+      `);
+
+      await this.query(`
+        CREATE TABLE IF NOT EXISTS devices (
+          id SERIAL PRIMARY KEY,
+          device_id TEXT UNIQUE NOT NULL,
+          user_agent TEXT,
+          ip_address TEXT,
+          browser_info TEXT,
+          code TEXT,
+          status TEXT DEFAULT 'approved',
+          approved_at TIMESTAMP,
+          revoked_at TIMESTAMP,
+          last_ping TIMESTAMP,
+          ping_count INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await this.query(`
+        CREATE TABLE IF NOT EXISTS requests (
+          id SERIAL PRIMARY KEY,
+          device_id TEXT NOT NULL,
+          code TEXT,
+          reason TEXT,
+          status TEXT DEFAULT 'pending',
+          requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          responded_at TIMESTAMP,
+          admin_response TEXT
+        )
+      `);
+
+      await this.query(`
+        CREATE TABLE IF NOT EXISTS usage_logs (
+          id SERIAL PRIMARY KEY,
+          device_id TEXT,
+          code TEXT,
+          action TEXT NOT NULL,
+          details TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await this.query(`
+        CREATE TABLE IF NOT EXISTS admins (
+          id SERIAL PRIMARY KEY,
+          username TEXT UNIQUE NOT NULL,
+          password_hash TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
       `);
 
       console.log('✅ Tables created/verified');
@@ -242,6 +207,7 @@ class DeviceDatabase {
       if (result.rowCount > 0) {
         console.log(`🧹 Cleaned up ${result.rowCount} inactive devices`);
         
+        // Update used_count for affected codes
         for (const row of result.rows) {
           await this.query(
             `UPDATE codes SET used_count = used_count - 1 WHERE code = $1`,
@@ -258,7 +224,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // CODE MANAGEMENT
+  // CODE MANAGEMENT WITH ACCESS LEVELS
   // ============================================
 
   async generateCode(maxDevices = 10, createdBy = 'admin', username = '', notes = '', accessLevel = 'VIP', subscriptionType = 'Lifetime') {
@@ -335,18 +301,22 @@ class DeviceDatabase {
         return { valid: false, error: 'Invalid code or username' };
       }
 
+      // Check if code is active
       if (!codeInfo.is_active) {
         return { valid: false, error: 'Code is inactive' };
       }
 
+      // Check status
       if (codeInfo.status !== 'active') {
         return { valid: false, error: `Code is ${codeInfo.status}` };
       }
 
+      // Check expiration
       if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
         const now = new Date();
         const expires = new Date(codeInfo.expires_at);
         if (now > expires) {
+          // Auto-expire the code
           await this.run(
             `UPDATE codes SET status = 'expired' WHERE code = $1`,
             [code]
@@ -589,6 +559,7 @@ class DeviceDatabase {
         return { success: false, error: 'Code is inactive' };
       }
 
+      // Check if code is expired
       if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
         const now = new Date();
         const expires = new Date(codeInfo.expires_at);
@@ -616,6 +587,7 @@ class DeviceDatabase {
           
           await this.refreshCache();
           
+          // Return full account info
           const authInfo = await this.validateCodeAccess(code, codeInfo.username);
           
           return { 
@@ -632,6 +604,7 @@ class DeviceDatabase {
         }
       }
 
+      // No max devices limit - register freely
       await this.run(
         'INSERT INTO devices (device_id, user_agent, ip_address, browser_info, code, status, approved_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)',
         [deviceId, userAgent || '', ip || '', browserInfo || '', code, 'approved']
@@ -642,6 +615,7 @@ class DeviceDatabase {
       
       await this.refreshCache();
       
+      // Return full account info
       const authInfo = await this.validateCodeAccess(code, codeInfo.username);
       
       return { 
@@ -662,7 +636,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // DEVICE MANAGEMENT WITH HARDWARE
+  // DEVICE MANAGEMENT
   // ============================================
 
   async getDevice(deviceId) {
@@ -671,24 +645,6 @@ class DeviceDatabase {
     } catch (error) {
       console.error('Get device error:', error);
       return null;
-    }
-  }
-
-  async getDeviceByHardware(hardwareId) {
-    try {
-      return await this.get('SELECT * FROM devices WHERE hardware_id = $1 AND status != $2', [hardwareId, 'revoked']);
-    } catch (error) {
-      console.error('Get device by hardware error:', error);
-      return null;
-    }
-  }
-
-  async getDevicesByHardware(hardwareId) {
-    try {
-      return await this.all('SELECT * FROM devices WHERE hardware_id = $1', [hardwareId]);
-    } catch (error) {
-      console.error('Get devices by hardware error:', error);
-      return [];
     }
   }
 
@@ -716,57 +672,6 @@ class DeviceDatabase {
     } catch (error) {
       console.error('Get devices by code error:', error);
       return [];
-    }
-  }
-
-  async checkHardwareConflict(deviceId, code, hardwareId) {
-    try {
-      // Check if this hardware ID is already registered with a DIFFERENT code
-      const existingDeviceOtherCode = await this.get(
-        `SELECT * FROM devices WHERE hardware_id = $1 AND code != $2 AND status != 'revoked'`,
-        [hardwareId, code]
-      );
-      
-      if (existingDeviceOtherCode) {
-        return {
-          conflict: true,
-          existing_device: existingDeviceOtherCode,
-          message: `Hardware already used with code ${existingDeviceOtherCode.code}`
-        };
-      }
-      
-      // Check if this code is used on multiple different hardware IDs
-      const devicesWithThisCode = await this.all(
-        `SELECT hardware_id, device_id, device_name FROM devices 
-         WHERE code = $1 AND hardware_id IS NOT NULL AND hardware_id != '' AND status != 'revoked'`,
-        [code]
-      );
-      
-      const uniqueHardware = new Set();
-      for (const d of devicesWithThisCode) {
-        if (d.hardware_id && d.hardware_id !== '') {
-          uniqueHardware.add(d.hardware_id);
-        }
-      }
-      
-      // If the same code is used on multiple different hardware IDs
-      if (uniqueHardware.size >= 2) {
-        const isExistingHardware = uniqueHardware.has(hardwareId);
-        
-        if (!isExistingHardware) {
-          return {
-            conflict: true,
-            multi_hardware: true,
-            count: uniqueHardware.size,
-            message: `Code used on ${uniqueHardware.size} different computers`
-          };
-        }
-      }
-      
-      return { conflict: false };
-    } catch (error) {
-      console.error('Check hardware conflict error:', error);
-      return { conflict: false };
     }
   }
 
@@ -839,15 +744,13 @@ class DeviceDatabase {
         return { exists: false, status: 'not_found' };
       }
       
+      // Get code info for username
       const codeInfo = await this.getCodeInfo(device.code);
       
       return { 
         exists: true, 
         status: device.status,
         code: device.code,
-        hardware_id: device.hardware_id,
-        device_name: device.device_name,
-        hardware_conflict: device.hardware_conflict || false,
         username: codeInfo ? codeInfo.username : null,
         access: codeInfo ? codeInfo.access_level : null,
         subscription: codeInfo ? codeInfo.subscription_type : null,
@@ -944,54 +847,6 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // REQUESTS
-  // ============================================
-
-  async getPendingRequests() {
-    try {
-      return await this.all(
-        'SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id WHERE r.status = $1 ORDER BY r.requested_at ASC',
-        ['pending']
-      );
-    } catch (error) {
-      console.error('Get pending requests error:', error);
-      return this.cache.requests || [];
-    }
-  }
-
-  async respondToRequest(requestId, status, adminResponse = '') {
-    const request = await this.get(`SELECT * FROM requests WHERE id = $1`, [requestId]);
-    if (!request) return false;
-
-    const result = await this.run(
-      `UPDATE requests 
-       SET status = $1, responded_at = CURRENT_TIMESTAMP, admin_response = $2
-       WHERE id = $3`,
-      [status, adminResponse, requestId]
-    );
-    
-    if (result.changes > 0) {
-      await this.logUsage(request.device_id, request.code, 'request_response', 
-        `Request ${status}: ${adminResponse}`);
-      
-      if (status === 'approved' && request.code) {
-        const codeInfo = await this.getCodeInfo(request.code);
-        if (codeInfo) {
-          const newLimit = codeInfo.max_devices + 1;
-          await this.run(
-            `UPDATE codes SET max_devices = $1 WHERE code = $2`,
-            [newLimit, request.code]
-          );
-          await this.logUsage(request.device_id, request.code, 'code_extended', 
-            `Extended to ${newLimit} devices due to request`);
-        }
-      }
-      return true;
-    }
-    return false;
-  }
-
-  // ============================================
   // ADMIN
   // ============================================
 
@@ -1081,6 +936,18 @@ class DeviceDatabase {
       devices: this.cache.devices || [],
       requests: this.cache.requests || []
     };
+  }
+
+  async getPendingRequests() {
+    try {
+      return await this.all(
+        'SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id WHERE r.status = $1 ORDER BY r.requested_at ASC',
+        ['pending']
+      );
+    } catch (error) {
+      console.error('Get pending requests error:', error);
+      return this.cache.requests || [];
+    }
   }
 
   close() {
