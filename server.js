@@ -91,7 +91,6 @@ app.get('/real_automation.js', (req, res) => {
                 return res.status(403).send('Access Denied: Code Deactivated');
             }
 
-            // Check if code is expired
             if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
                 const now = new Date();
                 const expires = new Date(codeInfo.expires_at);
@@ -156,7 +155,6 @@ app.get('/logout', (req, res) => {
 
 app.get('/dashboard', isAuthenticated, async (req, res) => {
   try {
-    // Run cleanup on dashboard load
     await db.cleanupInactiveDevices();
     
     const cached = db.getCachedData();
@@ -200,11 +198,11 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - WITH FULL ACCOUNT INFO
+// REGISTER DEVICE - WITH HARDWARE ID VALIDATION
 // ============================================
 
 app.post('/api/register', async (req, res) => {
-  const { deviceId, userAgent, browserInfo, code } = req.body;
+  const { deviceId, userAgent, browserInfo, code, hardwareId, deviceName } = req.body;
   
   if (!deviceId) {
     return res.status(400).json({ error: 'Device ID is required' });
@@ -217,6 +215,88 @@ app.post('/api/register', async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
   
   try {
+    // ============================================
+    // HARDWARE ID VALIDATION
+    // ============================================
+    if (hardwareId && hardwareId !== '') {
+      // 1. Check if this hardware ID is already registered with a DIFFERENT code
+      const existingDeviceOtherCode = await db.get(
+        `SELECT * FROM devices WHERE hardware_id = $1 AND code != $2 AND status != 'revoked'`,
+        [hardwareId, code.toUpperCase()]
+      );
+      
+      if (existingDeviceOtherCode) {
+        // This hardware is already registered with another code - POSSIBLE ABUSE!
+        await db.logUsage(deviceId, code, 'hardware_conflict', 
+          `Hardware ${hardwareId} already used with code ${existingDeviceOtherCode.code}`);
+        
+        // Get the code info for the conflicting code
+        const conflictCodeInfo = await db.getCodeInfo(existingDeviceOtherCode.code);
+        
+        // Deactivate the conflicting code
+        if (conflictCodeInfo) {
+          await db.deactivateCode(existingDeviceOtherCode.code);
+          await db.logUsage('system', existingDeviceOtherCode.code, 'auto_deactivated', 
+            `Auto-deactivated due to hardware conflict with ${deviceId}`);
+        }
+        
+        return res.status(403).json({
+          error: 'This computer is already registered with another code. The previous code has been deactivated.',
+          conflict: true,
+          existing_code: existingDeviceOtherCode.code,
+          existing_username: conflictCodeInfo ? conflictCodeInfo.username : 'Unknown',
+          action: 'deactivated'
+        });
+      }
+      
+      // 2. Check if this code is used on multiple different hardware IDs
+      const devicesWithThisCode = await db.all(
+        `SELECT hardware_id, device_id, device_name FROM devices 
+         WHERE code = $1 AND hardware_id IS NOT NULL AND hardware_id != '' AND status != 'revoked'`,
+        [code.toUpperCase()]
+      );
+      
+      // Count unique hardware IDs for this code
+      const uniqueHardware = new Set();
+      const hardwareList = [];
+      for (const d of devicesWithThisCode) {
+        if (d.hardware_id && d.hardware_id !== '') {
+          uniqueHardware.add(d.hardware_id);
+          hardwareList.push({
+            hardware_id: d.hardware_id,
+            device_id: d.device_id,
+            device_name: d.device_name || 'Unknown'
+          });
+        }
+      }
+      
+      // If the same code is used on multiple different hardware IDs
+      if (uniqueHardware.size >= 2) {
+        // Check if this hardware ID is already in the list (re-registration)
+        const isExistingHardware = uniqueHardware.has(hardwareId);
+        
+        if (!isExistingHardware) {
+          // NEW hardware trying to use a code already used on another computer!
+          await db.logUsage(deviceId, code, 'multi_hardware_detected', 
+            `Code ${code} used on ${uniqueHardware.size} different computers. ` +
+            `Existing: ${Array.from(uniqueHardware).join(', ')}, New: ${hardwareId}`);
+          
+          // Deactivate the code
+          await db.deactivateCode(code);
+          
+          return res.status(403).json({
+            error: `This code has been used on ${uniqueHardware.size} different computers and has been deactivated.`,
+            multi_hardware: true,
+            devices_used: hardwareList,
+            action: 'deactivated'
+          });
+        }
+      }
+    }
+
+    // ============================================
+    // EXISTING REGISTRATION LOGIC
+    // ============================================
     const result = await db.registerDeviceWithCode(deviceId, userAgent || '', ip, browserInfo || '', code.toUpperCase());
     
     if (!result.success) {
@@ -225,6 +305,18 @@ app.post('/api/register', async (req, res) => {
         status: 'registration_failed'
       });
     }
+
+    // Update hardware_id if provided
+    if (hardwareId && result.success) {
+      await db.run(
+        `UPDATE devices SET hardware_id = $1, device_name = $2 WHERE device_id = $3`,
+        [hardwareId, deviceName || 'Unknown', deviceId]
+      );
+    }
+
+    // Log successful registration with hardware info
+    await db.logUsage(deviceId, code, 'register', 
+      `Device registered with hardware: ${hardwareId || 'Unknown'}`);
 
     res.json({
       success: true,
@@ -236,8 +328,10 @@ app.post('/api/register', async (req, res) => {
       subscription_started_at: result.subscription_started_at,
       subscription_expires_at: result.subscription_expires_at,
       status_code: result.status_code,
+      hardware_locked: hardwareId ? true : false,
       message: `Device registered and auto-approved!`
     });
+    
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ error: 'Registration failed' });
@@ -245,7 +339,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 // ============================================
-// STATUS CHECK - WITH FULL ACCOUNT INFO
+// STATUS CHECK - WITH HARDWARE INFO
 // ============================================
 
 app.get('/api/status/:deviceId', async (req, res) => {
@@ -266,7 +360,9 @@ app.get('/api/status/:deviceId', async (req, res) => {
         subscription: null,
         subscription_started_at: null,
         subscription_expires_at: null,
-        status_code: null
+        status_code: null,
+        hardware_id: null,
+        device_name: null
       });
     }
 
@@ -282,7 +378,9 @@ app.get('/api/status/:deviceId', async (req, res) => {
         subscription: null,
         subscription_started_at: null,
         subscription_expires_at: null,
-        status_code: null
+        status_code: null,
+        hardware_id: device.hardware_id,
+        device_name: device.device_name
       });
     }
 
@@ -301,7 +399,9 @@ app.get('/api/status/:deviceId', async (req, res) => {
         subscription: null,
         subscription_started_at: null,
         subscription_expires_at: null,
-        status_code: null
+        status_code: null,
+        hardware_id: device.hardware_id,
+        device_name: device.device_name
       });
     }
 
@@ -323,7 +423,9 @@ app.get('/api/status/:deviceId', async (req, res) => {
           subscription: codeInfo.subscription_type,
           subscription_started_at: codeInfo.subscription_started_at,
           subscription_expires_at: codeInfo.expires_at,
-          status_code: 'expired'
+          status_code: 'expired',
+          hardware_id: device.hardware_id,
+          device_name: device.device_name
         });
       }
     }
@@ -341,11 +443,23 @@ app.get('/api/status/:deviceId', async (req, res) => {
         subscription: codeInfo.subscription_type,
         subscription_started_at: codeInfo.subscription_started_at,
         subscription_expires_at: codeInfo.expires_at,
-        status_code: codeInfo.status
+        status_code: codeInfo.status,
+        hardware_id: device.hardware_id,
+        device_name: device.device_name
       });
     }
 
     db.updatePing(deviceId).catch(err => console.error('Ping update error:', err));
+
+    // Check if this hardware is used with any other code
+    let hardwareDevices = [];
+    if (device.hardware_id) {
+      hardwareDevices = await db.all(
+        `SELECT device_id, code, status FROM devices 
+         WHERE hardware_id = $1 AND device_id != $2 AND status != 'revoked'`,
+        [device.hardware_id, deviceId]
+      );
+    }
 
     res.json({
       exists: true,
@@ -358,6 +472,10 @@ app.get('/api/status/:deviceId', async (req, res) => {
       subscription_started_at: codeInfo.subscription_started_at,
       subscription_expires_at: codeInfo.expires_at,
       status_code: codeInfo.status,
+      hardware_id: device.hardware_id,
+      device_name: device.device_name,
+      hardware_conflict: hardwareDevices.length > 0,
+      other_hardware_devices: hardwareDevices,
       device: {
         id: device.device_id,
         approved_at: device.approved_at,
@@ -376,9 +494,116 @@ app.get('/api/status/:deviceId', async (req, res) => {
       subscription: null,
       subscription_started_at: null,
       subscription_expires_at: null,
-      status_code: null
+      status_code: null,
+      hardware_id: null,
+      device_name: null
     });
   }
+});
+
+// ============================================
+// HARDWARE STATUS CHECK
+// ============================================
+
+app.get('/api/hardware-status/:deviceId', async (req, res) => {
+    const { deviceId } = req.params;
+    
+    try {
+        const device = await db.get(
+            `SELECT device_id, code, hardware_id, device_name, status FROM devices WHERE device_id = $1`,
+            [deviceId]
+        );
+        
+        if (!device) {
+            return res.json({
+                exists: false,
+                has_hardware: false,
+                message: 'Device not found'
+            });
+        }
+        
+        if (!device.hardware_id) {
+            return res.json({
+                exists: true,
+                has_hardware: false,
+                device_id: device.device_id,
+                code: device.code,
+                message: 'No hardware ID registered for this device'
+            });
+        }
+        
+        const otherDevices = await db.all(
+            `SELECT device_id, code, status FROM devices 
+             WHERE hardware_id = $1 AND device_id != $2 AND status != 'revoked'`,
+            [device.hardware_id, deviceId]
+        );
+        
+        res.json({
+            exists: true,
+            has_hardware: true,
+            hardware_id: device.hardware_id,
+            device_name: device.device_name,
+            code: device.code,
+            status: device.status,
+            is_shared: otherDevices.length > 0,
+            other_devices: otherDevices
+        });
+        
+    } catch (error) {
+        console.error('Hardware status error:', error);
+        res.status(500).json({ error: 'Failed to check hardware status' });
+    }
+});
+
+// ============================================
+// REVOKE ALL DEVICES WITH SAME HARDWARE
+// ============================================
+
+app.post('/api/revoke-hardware/:hardwareId', isApiAuthenticated, async (req, res) => {
+    const { hardwareId } = req.params;
+    
+    try {
+        const devices = await db.all(
+            `SELECT device_id, code FROM devices WHERE hardware_id = $1 AND status != 'revoked'`,
+            [hardwareId]
+        );
+        
+        for (const device of devices) {
+            await db.revokeDevice(device.device_id);
+            await db.logUsage(device.device_id, device.code, 'revoked_by_hardware',
+                `Device revoked due to hardware conflict by ${req.session.username}`);
+        }
+        
+        res.json({
+            success: true,
+            revoked_count: devices.length,
+            message: `Revoked ${devices.length} devices with hardware ${hardwareId}`
+        });
+        
+    } catch (error) {
+        console.error('Revoke hardware error:', error);
+        res.status(500).json({ error: 'Failed to revoke devices' });
+    }
+});
+
+// ============================================
+// GET DEVICES BY HARDWARE
+// ============================================
+
+app.get('/api/hardware-devices/:hardwareId', isApiAuthenticated, async (req, res) => {
+    const { hardwareId } = req.params;
+    
+    try {
+        const devices = await db.getDevicesByHardware(hardwareId);
+        res.json({
+            success: true,
+            devices: devices,
+            count: devices.length
+        });
+    } catch (error) {
+        console.error('Get hardware devices error:', error);
+        res.status(500).json({ error: 'Failed to get devices' });
+    }
 });
 
 // ============================================
@@ -456,7 +681,7 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// GENERATE CODE - WITH ACCESS LEVEL AND SUBSCRIPTION
+// GENERATE CODE
 // ============================================
 
 app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
@@ -467,7 +692,6 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
   }
   
   try {
-    // Check if username already exists
     const existing = await db.get(
       'SELECT * FROM codes WHERE username = $1',
       [username.trim()]
@@ -499,7 +723,7 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// UPDATE CODE USERNAME
+// UPDATE CODE
 // ============================================
 
 app.put('/api/code/:code/username', isApiAuthenticated, async (req, res) => {
@@ -511,7 +735,6 @@ app.put('/api/code/:code/username', isApiAuthenticated, async (req, res) => {
   }
   
   try {
-    // Check if new username is already taken by another code
     const existing = await db.get(
       'SELECT * FROM codes WHERE username = $1 AND code != $2',
       [username.trim(), code]
@@ -542,10 +765,6 @@ app.put('/api/code/:code/username', isApiAuthenticated, async (req, res) => {
   }
 });
 
-// ============================================
-// UPDATE CODE ACCESS LEVEL
-// ============================================
-
 app.put('/api/code/:code/access', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
   const { accessLevel } = req.body;
@@ -573,10 +792,6 @@ app.put('/api/code/:code/access', isApiAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to update access' });
   }
 });
-
-// ============================================
-// UPDATE CODE SUBSCRIPTION
-// ============================================
 
 app.put('/api/code/:code/subscription', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
@@ -855,7 +1070,7 @@ createDefaultAdmin().then(() => {
     console.log(`🔑 Username: ${process.env.ADMIN_USERNAME || 'admin'}`);
     console.log(`🔒 Password: ${process.env.ADMIN_PASSWORD || 'password123'}`);
     console.log('='.repeat(50));
-    console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
+    console.log('🔐 Hardware ID Detection ENABLED');
     console.log('='.repeat(50) + '\n');
   });
 });
