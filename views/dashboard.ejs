@@ -55,6 +55,8 @@
         .btn-save:hover { background: #388E3C; }
         .btn-cancel { background: #757575; color: #fff; }
         .btn-cancel:hover { background: #616161; }
+        .btn-remove { background: #f44336; color: #fff; }
+        .btn-remove:hover { background: #d32f2f; }
         
         /* Tables */
         .scroll-table { overflow-x: auto; max-height: 500px; overflow-y: auto; }
@@ -71,7 +73,6 @@
         .badge.vip { background: rgba(255,152,0,0.2); color: #FF9800; }
         .badge.svip { background: rgba(76,175,80,0.2); color: #4CAF50; }
         .badge.lifetime { background: rgba(255,152,0,0.2); color: #FF9800; }
-        .badge.revoked { background: rgba(244,67,54,0.2); color: #f44336; }
         .badge.approved { background: rgba(76,175,80,0.2); color: #4CAF50; }
         
         /* Inline editing */
@@ -292,7 +293,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: DEVICES (Device Manager) -->
+        <!-- TAB: DEVICES (Device Manager - REMOVE ONLY) -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-devices">
             <div class="card">
@@ -477,70 +478,34 @@
                     <td><small class="code-font">${d.device_id}</small></td>
                     <td><strong>${d.code || '<span class="text-muted">N/A</span>'}</strong></td>
                     <td>${d.ip_address || '<span class="text-muted">N/A</span>'}</td>
-                    <td><span class="badge ${d.status === 'approved' ? 'approved' : d.status === 'revoked' ? 'revoked' : 'pending'}">${d.status}</span></td>
+                    <td><span class="badge ${d.status === 'approved' ? 'approved' : 'inactive'}">${d.status}</span></td>
                     <td>${d.ping_count || 0}</td>
                     <td>${d.created_at ? new Date(d.created_at).toLocaleString() : 'N/A'}</td>
                     <td>${d.last_ping ? new Date(d.last_ping).toLocaleString() : 'Never'}</td>
                     <td><small class="code-font" style="font-size:10px;">${d.hwid ? d.hwid.substring(0,12)+'...' : '<span class="text-muted">N/A</span>'}</small></td>
                     <td>
-                        <div class="action-buttons">
-                            <button onclick="removeDevice('${d.device_id}')" class="btn-small btn-danger">🗑️ Remove</button>
-                            ${d.status !== 'revoked' ? `<button onclick="revokeDevice('${d.device_id}')" class="btn-small btn-warning">🔒 Revoke</button>` : ''}
-                            ${d.status === 'revoked' ? `<button onclick="reactivateDevice('${d.device_id}')" class="btn-small btn-success">🔓 Reactivate</button>` : ''}
-                        </div>
+                        <button onclick="removeDevice('${d.device_id}')" class="btn-small btn-remove">🗑️ Remove</button>
                     </td>
                 </tr>
             `).join('');
         }
 
         // ============================================
-        // DEVICE ACTIONS
+        // DEVICE ACTIONS - REMOVE ONLY
         // ============================================
         async function removeDevice(deviceId) {
-            if (!confirm(`⚠️ Remove device ${deviceId}? This will delete it permanently.`)) return;
+            if (!confirm(`⚠️ Remove device ${deviceId}?\n\nThis will permanently delete this device from the database.\nThe user will need to re-register.`)) return;
             
             try {
                 const response = await fetch(`/api/device/${deviceId}`, { method: 'DELETE' });
                 const result = await response.json();
                 if (result.success) {
-                    showMessage(`✅ Device removed!`, 'success');
+                    showMessage(`✅ Device removed successfully!`, 'success');
                     setTimeout(() => hideMessage(), 2000);
                     await loadDevices();
                     await loadAll();
-                }
-            } catch (error) {
-                showMessage('❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        async function revokeDevice(deviceId) {
-            if (!confirm(`🔒 Revoke device ${deviceId}?`)) return;
-            
-            try {
-                const response = await fetch(`/api/device/${deviceId}/revoke`, { method: 'POST' });
-                const result = await response.json();
-                if (result.success) {
-                    showMessage(`✅ Device revoked!`, 'success');
-                    setTimeout(() => hideMessage(), 2000);
-                    await loadDevices();
-                    await loadAll();
-                }
-            } catch (error) {
-                showMessage('❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        async function reactivateDevice(deviceId) {
-            if (!confirm(`🔓 Reactivate device ${deviceId}?`)) return;
-            
-            try {
-                const response = await fetch(`/api/device/${deviceId}/reactivate`, { method: 'POST' });
-                const result = await response.json();
-                if (result.success) {
-                    showMessage(`✅ Device reactivated!`, 'success');
-                    setTimeout(() => hideMessage(), 2000);
-                    await loadDevices();
-                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to remove device'), 'error');
                 }
             } catch (error) {
                 showMessage('❌ Error: ' + error.message, 'error');
@@ -751,7 +716,6 @@
                 // Update HWID if changed
                 const currentCode = allCodes.find(c => c.code === code);
                 if (currentCode && currentCode.hwid !== hwid) {
-                    // Update HWID in database
                     await fetch(`/api/code/${code}/hwid`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
@@ -940,14 +904,6 @@
                 el.className = '';
             }
         }
-
-        // ============================================
-        // SERVER ENDPOINTS NEEDED
-        // ============================================
-        // Need to add these to server.js:
-        // PUT /api/code/:code/hwid - Update HWID
-        // POST /api/device/:deviceId/revoke - Revoke device
-        // POST /api/device/:deviceId/reactivate - Reactivate device
 
         // ============================================
         // INIT
