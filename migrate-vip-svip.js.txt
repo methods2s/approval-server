@@ -1,0 +1,90 @@
+// migrate-vip-svip.js
+const { Pool } = require('pg');
+const bcrypt = require('bcrypt');
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgresql://wantmatures_user:CWSWZCkVncc7RUu74TLwBFig5zeQWRRZ@dpg-d9f8ts1kh4rs7380h9sg-a.singapore-postgres.render.com/wantmatures',
+  ssl: { rejectUnauthorized: false }
+});
+
+async function migrate() {
+  try {
+    console.log('🔄 Starting VIP/SVIP migration...');
+
+    // Add new columns to codes table
+    console.log('📊 Adding new columns to codes table...');
+    
+    // Check if columns exist before adding
+    const columnsToAdd = [
+      { name: 'username', type: 'TEXT' },
+      { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
+      { name: 'subscription_type', type: 'TEXT DEFAULT \'Lifetime\'' },
+      { name: 'subscription_started_at', type: 'TIMESTAMP' },
+      { name: 'expires_at', type: 'TIMESTAMP' },
+      { name: 'status', type: 'TEXT DEFAULT \'active\'' }
+    ];
+
+    for (const col of columnsToAdd) {
+      try {
+        await pool.query(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
+        console.log(`  ✅ Added column: ${col.name}`);
+      } catch (err) {
+        if (err.message.includes('already exists')) {
+          console.log(`  ℹ️ Column ${col.name} already exists`);
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    // Migrate existing VVIP to SVIP
+    console.log('📊 Migrating VVIP to SVIP...');
+    const result = await pool.query(
+      `UPDATE codes SET access_level = 'SVIP' WHERE access_level = 'VVIP' OR access_level = 'vvip'`
+    );
+    console.log(`  ✅ Migrated ${result.rowCount} codes from VVIP to SVIP`);
+
+    // Set default values for existing codes
+    console.log('📊 Setting default values for existing codes...');
+    await pool.query(`
+      UPDATE codes 
+      SET 
+        access_level = COALESCE(access_level, 'VIP'),
+        subscription_type = COALESCE(subscription_type, 'Lifetime'),
+        status = COALESCE(status, 'active'),
+        subscription_started_at = COALESCE(subscription_started_at, created_at, NOW())
+      WHERE access_level IS NULL OR subscription_type IS NULL OR status IS NULL
+    `);
+
+    // For codes with no expiration and not Lifetime, set to Lifetime
+    await pool.query(`
+      UPDATE codes 
+      SET subscription_type = 'Lifetime' 
+      WHERE expires_at IS NULL AND subscription_type != 'Lifetime'
+    `);
+
+    console.log('✅ Migration complete!');
+    console.log('\n📊 Summary:');
+    
+    const stats = await pool.query(`
+      SELECT 
+        access_level,
+        subscription_type,
+        status,
+        COUNT(*) as count
+      FROM codes
+      GROUP BY access_level, subscription_type, status
+      ORDER BY access_level, subscription_type
+    `);
+    
+    console.table(stats.rows);
+
+    await pool.end();
+  } catch (error) {
+    console.error('❌ Migration error:', error.message);
+    await pool.end();
+    process.exit(1);
+  }
+}
+
+migrate();

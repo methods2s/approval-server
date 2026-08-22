@@ -1,3 +1,4 @@
+// server.js
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -51,6 +52,10 @@ app.use('/api/', limiter);
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
+// ============================================
+// MIDDLEWARE
+// ============================================
+
 function isAuthenticated(req, res, next) {
   if (req.session && req.session.isAuthenticated) {
     return next();
@@ -66,8 +71,9 @@ function isApiAuthenticated(req, res, next) {
 }
 
 // ============================================
-// SERVE AUTOMATION SCRIPT (Level 1 Protection)
+// SERVE AUTOMATION SCRIPT
 // ============================================
+
 app.get('/real_automation.js', (req, res) => {
     const deviceId = req.query.deviceId;
     
@@ -85,6 +91,20 @@ app.get('/real_automation.js', (req, res) => {
                 return res.status(403).send('Access Denied: Code Deactivated');
             }
 
+            // Check if code is expired
+            if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
+                const now = new Date();
+                const expires = new Date(codeInfo.expires_at);
+                if (now > expires) {
+                    db.run(`UPDATE codes SET status = 'expired' WHERE code = $1`, [device.code]);
+                    return res.status(403).send('Access Denied: Subscription Expired');
+                }
+            }
+
+            if (codeInfo.status !== 'active') {
+                return res.status(403).send('Access Denied: Code is ' + codeInfo.status);
+            }
+
             res.setHeader('Content-Type', 'application/javascript');
             res.sendFile(path.join(__dirname, 'real_automation.js'));
         }).catch(() => {
@@ -98,6 +118,7 @@ app.get('/real_automation.js', (req, res) => {
 // ============================================
 // LOGIN ROUTES
 // ============================================
+
 app.get('/login', (req, res) => {
   if (req.session && req.session.isAuthenticated) {
     return res.redirect('/dashboard');
@@ -132,8 +153,12 @@ app.get('/logout', (req, res) => {
 // ============================================
 // DASHBOARD
 // ============================================
+
 app.get('/dashboard', isAuthenticated, async (req, res) => {
   try {
+    // Run cleanup on dashboard load
+    await db.cleanupInactiveDevices();
+    
     const cached = db.getCachedData();
     res.render('dashboard', { 
       username: req.session.username,
@@ -175,8 +200,9 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - UPDATED WITH USERNAME
+// REGISTER DEVICE - WITH FULL ACCOUNT INFO
 // ============================================
+
 app.post('/api/register', async (req, res) => {
   const { deviceId, userAgent, browserInfo, code } = req.body;
   
@@ -196,20 +222,20 @@ app.post('/api/register', async (req, res) => {
     if (!result.success) {
       return res.status(400).json({ 
         error: result.error,
-        status: 'registration_failed',
-        limitReached: result.limitReached || false
+        status: 'registration_failed'
       });
     }
-
-    // Get the username associated with this code
-    const codeInfo = await db.getCodeInfo(code.toUpperCase());
-    const username = codeInfo ? codeInfo.username || codeInfo.created_by || 'Unknown' : 'Unknown';
 
     res.json({
       success: true,
       status: result.status,
       code: result.code,
-      username: username,
+      username: result.username,
+      access: result.access,
+      subscription: result.subscription,
+      subscription_started_at: result.subscription_started_at,
+      subscription_expires_at: result.subscription_expires_at,
+      status_code: result.status_code,
       message: `Device registered and auto-approved!`
     });
   } catch (error) {
@@ -219,8 +245,9 @@ app.post('/api/register', async (req, res) => {
 });
 
 // ============================================
-// STATUS CHECK - UPDATED WITH USERNAME
+// STATUS CHECK - WITH FULL ACCOUNT INFO
 // ============================================
+
 app.get('/api/status/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
   
@@ -234,7 +261,12 @@ app.get('/api/status/:deviceId', async (req, res) => {
         status: 'not_found',
         message: 'Device not found - Please enter your code again',
         needsCode: true,
-        username: null
+        username: null,
+        access: null,
+        subscription: null,
+        subscription_started_at: null,
+        subscription_expires_at: null,
+        status_code: null
       });
     }
 
@@ -245,7 +277,12 @@ app.get('/api/status/:deviceId', async (req, res) => {
         status: 'no_code',
         message: 'Device has no active code - Please enter your code again',
         needsCode: true,
-        username: null
+        username: null,
+        access: null,
+        subscription: null,
+        subscription_started_at: null,
+        subscription_expires_at: null,
+        status_code: null
       });
     }
 
@@ -259,12 +296,54 @@ app.get('/api/status/:deviceId', async (req, res) => {
         message: 'Your activation code has been deactivated - Please enter a new code',
         needsCode: true,
         code: device.code,
-        username: null
+        username: null,
+        access: null,
+        subscription: null,
+        subscription_started_at: null,
+        subscription_expires_at: null,
+        status_code: null
       });
     }
 
-    // Get username from codeInfo
-    const username = codeInfo.username || codeInfo.created_by || 'Unknown';
+    // Check expiration
+    if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
+      const now = new Date();
+      const expires = new Date(codeInfo.expires_at);
+      if (now > expires) {
+        await db.run(`UPDATE codes SET status = 'expired' WHERE code = $1`, [device.code]);
+        return res.json({
+          exists: true,
+          approved: false,
+          status: 'expired',
+          message: 'Your subscription has expired',
+          needsCode: true,
+          code: device.code,
+          username: codeInfo.username,
+          access: codeInfo.access_level,
+          subscription: codeInfo.subscription_type,
+          subscription_started_at: codeInfo.subscription_started_at,
+          subscription_expires_at: codeInfo.expires_at,
+          status_code: 'expired'
+        });
+      }
+    }
+
+    if (codeInfo.status !== 'active') {
+      return res.json({
+        exists: true,
+        approved: false,
+        status: codeInfo.status,
+        message: `Your code is ${codeInfo.status}`,
+        needsCode: true,
+        code: device.code,
+        username: codeInfo.username,
+        access: codeInfo.access_level,
+        subscription: codeInfo.subscription_type,
+        subscription_started_at: codeInfo.subscription_started_at,
+        subscription_expires_at: codeInfo.expires_at,
+        status_code: codeInfo.status
+      });
+    }
 
     db.updatePing(deviceId).catch(err => console.error('Ping update error:', err));
 
@@ -273,7 +352,12 @@ app.get('/api/status/:deviceId', async (req, res) => {
       approved: true,
       status: device.status,
       code: device.code,
-      username: username,
+      username: codeInfo.username,
+      access: codeInfo.access_level,
+      subscription: codeInfo.subscription_type,
+      subscription_started_at: codeInfo.subscription_started_at,
+      subscription_expires_at: codeInfo.expires_at,
+      status_code: codeInfo.status,
       device: {
         id: device.device_id,
         approved_at: device.approved_at,
@@ -287,10 +371,45 @@ app.get('/api/status/:deviceId', async (req, res) => {
       exists: false,
       approved: false,
       needsCode: true,
-      username: null
+      username: null,
+      access: null,
+      subscription: null,
+      subscription_started_at: null,
+      subscription_expires_at: null,
+      status_code: null
     });
   }
 });
+
+// ============================================
+// VALIDATE CODE WITH USERNAME
+// ============================================
+
+app.post('/api/validate-code', async (req, res) => {
+  const { code, username } = req.body;
+  
+  if (!code || !username) {
+    return res.status(400).json({ 
+      valid: false, 
+      error: 'Code and username are required' 
+    });
+  }
+
+  try {
+    const result = await db.validateCodeAccess(code.toUpperCase(), username.trim());
+    res.json(result);
+  } catch (error) {
+    console.error('Validate code error:', error);
+    res.status(500).json({ 
+      valid: false, 
+      error: 'Validation failed' 
+    });
+  }
+});
+
+// ============================================
+// API ENDPOINTS - CODES
+// ============================================
 
 app.get('/api/codes', isApiAuthenticated, async (req, res) => {
   try {
@@ -314,6 +433,7 @@ app.get('/api/stats', isApiAuthenticated, async (req, res) => {
 
 app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
   try {
+    await db.cleanupInactiveDevices();
     const cached = db.getCachedData();
     res.json({
       stats: cached.stats || {},
@@ -335,49 +455,41 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
   }
 });
 
-app.get('/api/requests/pending', isApiAuthenticated, async (req, res) => {
-  try {
-    const cached = db.getCachedData();
-    res.json(cached.requests || []);
-  } catch (error) {
-    console.error('Get pending requests error:', error);
-    res.json([]);
-  }
-});
+// ============================================
+// GENERATE CODE - WITH ACCESS LEVEL AND SUBSCRIPTION
+// ============================================
 
 app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
-  const { username } = req.body;
+  const { username, accessLevel = 'VIP', subscriptionType = 'Lifetime' } = req.body;
   
   if (!username || username.trim() === '') {
     return res.status(400).json({ error: 'Username is required' });
   }
   
   try {
-    const code = await db.generateCode(10, req.session.username, username.trim(), `For user: ${username}`);
+    // Check if username already exists
+    const existing = await db.get(
+      'SELECT * FROM codes WHERE username = $1',
+      [username.trim()]
+    );
     
-    try {
-      await db.query(
-        `DELETE FROM requests WHERE device_id = $1 AND code IS NULL AND status = 'pending'`,
-        [username.trim()]
-      );
-    } catch (e) {}
+    if (existing) {
+      return res.status(400).json({ 
+        error: `Username "${username}" already has a code: ${existing.code}` 
+      });
+    }
     
-    try {
-      await db.query(
-        `UPDATE devices 
-         SET code = $1, status = 'approved', approved_at = CURRENT_TIMESTAMP
-         WHERE device_id = $2`,
-        [code, username.trim()]
-      );
-    } catch (e) {}
+    const code = await db.generateCode(10, req.session.username, username.trim(), `For user: ${username}`, accessLevel, subscriptionType);
     
     await db.logUsage(username, code, 'code_generated', 
-      `Code ${code} generated for ${username} by ${req.session.username}`);
+      `Code ${code} generated for ${username} by ${req.session.username} (${accessLevel}, ${subscriptionType})`);
     
     res.json({ 
       success: true, 
       code: code,
-      username: username,
+      username: username.trim(),
+      access: accessLevel,
+      subscription: subscriptionType,
       message: `Code ${code} generated for ${username}`
     });
   } catch (error) {
@@ -385,6 +497,148 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to generate code' });
   }
 });
+
+// ============================================
+// UPDATE CODE USERNAME
+// ============================================
+
+app.put('/api/code/:code/username', isApiAuthenticated, async (req, res) => {
+  const { code } = req.params;
+  const { username } = req.body;
+  
+  if (!username || username.trim() === '') {
+    return res.status(400).json({ error: 'Username is required' });
+  }
+  
+  try {
+    // Check if new username is already taken by another code
+    const existing = await db.get(
+      'SELECT * FROM codes WHERE username = $1 AND code != $2',
+      [username.trim(), code]
+    );
+    
+    if (existing) {
+      return res.status(400).json({ 
+        error: `Username "${username}" is already assigned to code: ${existing.code}` 
+      });
+    }
+    
+    const success = await db.updateCodeUsername(code, username.trim());
+    
+    if (success) {
+      await db.logUsage(username, code, 'username_updated', 
+        `Username updated to ${username} for code ${code} by ${req.session.username}`);
+      
+      res.json({ 
+        success: true, 
+        message: `Username updated to ${username}` 
+      });
+    } else {
+      res.status(404).json({ error: 'Code not found' });
+    }
+  } catch (error) {
+    console.error('Update username error:', error);
+    res.status(500).json({ error: 'Failed to update username' });
+  }
+});
+
+// ============================================
+// UPDATE CODE ACCESS LEVEL
+// ============================================
+
+app.put('/api/code/:code/access', isApiAuthenticated, async (req, res) => {
+  const { code } = req.params;
+  const { accessLevel } = req.body;
+  
+  if (!accessLevel || !['VIP', 'SVIP'].includes(accessLevel)) {
+    return res.status(400).json({ error: 'Access level must be VIP or SVIP' });
+  }
+  
+  try {
+    const success = await db.updateCodeAccess(code, accessLevel);
+    
+    if (success) {
+      await db.logUsage('admin', code, 'access_updated', 
+        `Access updated to ${accessLevel} for code ${code} by ${req.session.username}`);
+      
+      res.json({ 
+        success: true, 
+        message: `Access updated to ${accessLevel}` 
+      });
+    } else {
+      res.status(404).json({ error: 'Code not found' });
+    }
+  } catch (error) {
+    console.error('Update access error:', error);
+    res.status(500).json({ error: 'Failed to update access' });
+  }
+});
+
+// ============================================
+// UPDATE CODE SUBSCRIPTION
+// ============================================
+
+app.put('/api/code/:code/subscription', isApiAuthenticated, async (req, res) => {
+  const { code } = req.params;
+  const { subscriptionType } = req.body;
+  
+  if (!subscriptionType || !['Lifetime', '3 Months', '6 Months', '9 Months', '12 Months'].includes(subscriptionType)) {
+    return res.status(400).json({ 
+      error: 'Subscription must be Lifetime, 3 Months, 6 Months, 9 Months, or 12 Months' 
+    });
+  }
+  
+  try {
+    const success = await db.updateCodeSubscription(code, subscriptionType);
+    
+    if (success) {
+      await db.logUsage('admin', code, 'subscription_updated', 
+        `Subscription updated to ${subscriptionType} for code ${code} by ${req.session.username}`);
+      
+      res.json({ 
+        success: true, 
+        message: `Subscription updated to ${subscriptionType}` 
+      });
+    } else {
+      res.status(404).json({ error: 'Code not found' });
+    }
+  } catch (error) {
+    console.error('Update subscription error:', error);
+    res.status(500).json({ error: 'Failed to update subscription' });
+  }
+});
+
+// ============================================
+// REACTIVATE CODE
+// ============================================
+
+app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
+  const { code } = req.params;
+  const { subscriptionType = 'Lifetime' } = req.body;
+  
+  try {
+    const result = await db.reactivateCode(code, subscriptionType);
+    
+    if (result.success) {
+      await db.logUsage('admin', code, 'code_reactivated', 
+        `Code ${code} reactivated with ${subscriptionType} by ${req.session.username}`);
+      
+      res.json({ 
+        success: true, 
+        message: `Code reactivated with ${subscriptionType}` 
+      });
+    } else {
+      res.status(404).json({ error: result.error || 'Code not found' });
+    }
+  } catch (error) {
+    console.error('Reactivate code error:', error);
+    res.status(500).json({ error: 'Failed to reactivate code' });
+  }
+});
+
+// ============================================
+// DELETE CODE
+// ============================================
 
 app.delete('/api/code/:code', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
@@ -409,29 +663,36 @@ app.delete('/api/code/:code', isApiAuthenticated, async (req, res) => {
   }
 });
 
-app.post('/api/code/:code/extend', isApiAuthenticated, async (req, res) => {
+// ============================================
+// DEACTIVATE CODE
+// ============================================
+
+app.post('/api/code/:code/deactivate', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
-  const { maxDevices } = req.body;
-  
-  if (!maxDevices || maxDevices < 1) {
-    return res.status(400).json({ error: 'maxDevices is required and must be > 0' });
-  }
   
   try {
-    const success = await db.extendCode(code, maxDevices);
-    if (success) {
-      await db.logUsage('admin', code, 'code_extended', 
-        `Code ${code} extended to ${maxDevices} devices by ${req.session.username}`);
+    const result = await db.deactivateCode(code);
+    
+    if (result.success) {
+      await db.logUsage('admin', code, 'code_deactivated', 
+        `Code ${code} deactivated by ${req.session.username}`);
       
-      res.json({ success: true, message: `Code extended to ${maxDevices} devices` });
+      res.json({ 
+        success: true, 
+        message: `Code ${code} deactivated! ${result.devicesRemoved} devices removed` 
+      });
     } else {
       res.status(404).json({ error: 'Code not found' });
     }
   } catch (error) {
-    console.error('Extend code error:', error);
-    res.status(500).json({ error: 'Failed to extend code' });
+    console.error('Deactivate code error:', error);
+    res.status(500).json({ error: 'Failed to deactivate code' });
   }
 });
+
+// ============================================
+// DEVICE MANAGEMENT
+// ============================================
 
 app.delete('/api/device/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
@@ -442,7 +703,7 @@ app.delete('/api/device/:deviceId', async (req, res) => {
     if (success) {
       res.json({ 
         success: true, 
-        message: `User removed, slot freed.`
+        message: `User removed`
       });
     } else {
       res.status(404).json({ error: 'Device not found' });
@@ -452,6 +713,10 @@ app.delete('/api/device/:deviceId', async (req, res) => {
     res.status(500).json({ error: 'Failed to remove user' });
   }
 });
+
+// ============================================
+// REQUEST MANAGEMENT
+// ============================================
 
 app.post('/api/request-code', async (req, res) => {
   const { deviceId } = req.body;
@@ -512,6 +777,10 @@ app.post('/api/request/:requestId/respond', isApiAuthenticated, async (req, res)
   }
 });
 
+// ============================================
+// BULK DELETE
+// ============================================
+
 app.post('/api/delete-all-devices', isApiAuthenticated, async (req, res) => {
   try {
     const count = await db.get('SELECT COUNT(*) as count FROM devices');
@@ -552,6 +821,10 @@ app.post('/api/delete-all-codes', isApiAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to delete codes' });
   }
 });
+
+// ============================================
+// START SERVER
+// ============================================
 
 async function createDefaultAdmin() {
   try {

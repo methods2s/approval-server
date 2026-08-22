@@ -1,715 +1,1350 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
-  <title>Admin Dashboard - WantMatures</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-  <style>
-    body { background: #f0f2f5; }
-    .navbar { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-    .stat-card {
-      background: white;
-      border-radius: 15px;
-      padding: 20px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-      transition: transform 0.2s;
-      border-left: 4px solid #667eea;
-    }
-    .stat-card:hover { transform: translateY(-3px); }
-    .stat-card .number { font-size: 28px; font-weight: bold; color: #333; }
-    .stat-card .label { color: #888; font-size: 14px; }
-    .stat-card .icon { float: right; font-size: 30px; opacity: 0.3; }
-    .stat-card.codes { border-left-color: #ffc107; }
-    .table-container {
-      background: white;
-      border-radius: 15px;
-      padding: 20px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-    }
-    .nav-tabs .nav-link { color: #555; font-weight: 500; }
-    .nav-tabs .nav-link.active { color: #667eea; font-weight: 600; }
-    .badge-status { font-size: 12px; padding: 5px 10px; }
-    .code-text { font-family: 'Courier New', monospace; font-weight: bold; color: #333; }
-    .btn-delete-all { 
-      background: #dc3545; 
-      color: white;
-      border: none;
-      padding: 5px 15px;
-      border-radius: 8px;
-      font-size: 13px;
-      transition: all 0.3s;
-    }
-    .btn-delete-all:hover { background: #c82333; color: white; transform: scale(1.02); }
-    .btn-delete-all i { margin-right: 5px; }
-    .tab-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-    .tab-header h6 { margin: 0; color: #666; }
-    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
-    .toast-custom {
-      background: white;
-      border-radius: 10px;
-      padding: 15px 20px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-      margin-bottom: 10px;
-      min-width: 300px;
-      animation: slideIn 0.3s ease;
-    }
-    .toast-custom.success { border-left: 4px solid #28a745; }
-    .toast-custom.error { border-left: 4px solid #dc3545; }
-    .toast-custom.info { border-left: 4px solid #17a2b8; }
-    @keyframes slideIn {
-      from { transform: translateX(100%); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
-    .last-updated { color: #888; font-size: 12px; margin-left: 10px; }
-    .btn-action { margin: 0 2px; cursor: pointer; }
-    .btn-action:hover { opacity: 0.8; }
-    .spinner-border-sm {
-      width: 1rem;
-      height: 1rem;
-      border-width: 0.2em;
-    }
-    .row-deleting {
-      opacity: 0.5;
-      pointer-events: none;
-      transition: opacity 0.3s;
-    }
-    .row-removed {
-      animation: fadeOut 0.3s ease forwards;
-    }
-    @keyframes fadeOut {
-      from { opacity: 1; transform: scale(1); }
-      to { opacity: 0; transform: scale(0.9); height: 0; padding: 0; margin: 0; overflow: hidden; }
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Dating Sites Manager</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            background: #0a0a1a;
+            color: #e0e0e0;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.08);
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .header-left h1 {
+            font-size: 20px;
+            color: #fff;
+        }
+        .header-left .powered {
+            font-size: 11px;
+            color: #555;
+        }
+        .header-left .powered .highlight {
+            color: #ff4444;
+            font-weight: bold;
+        }
+        .header-left .powered .brand {
+            color: #FF9800;
+            font-weight: bold;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .header-right .username {
+            color: #4CAF50;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .header-right .logout-btn {
+            padding: 8px 20px;
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+        .header-right .logout-btn:hover {
+            background: #d32f2f;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.05);
+            padding: 14px 16px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.06);
+            text-align: center;
+        }
+        .stat-card .number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        .stat-card .label {
+            font-size: 11px;
+            color: #888;
+            margin-top: 4px;
+        }
+        .stat-card .number.gold {
+            color: #FF9800;
+        }
+        .stat-card .number.red {
+            color: #f44336;
+        }
+        .stat-card .number.blue {
+            color: #2196F3;
+        }
+        .section {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.08);
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #fff;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .section-title .badge {
+            font-size: 11px;
+            font-weight: normal;
+            padding: 4px 12px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.08);
+            color: #aaa;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 12px;
+            align-items: end;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .form-group label {
+            font-size: 11px;
+            color: #888;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .form-group input,
+        .form-group select {
+            padding: 10px 12px;
+            border: 2px solid #333;
+            border-radius: 6px;
+            background: #111;
+            color: #e0e0e0;
+            font-size: 14px;
+            transition: border-color 0.2s;
+            width: 100%;
+        }
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+        .form-group input::placeholder {
+            color: #555;
+        }
+        .btn {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .btn-primary {
+            background: #4CAF50;
+            color: white;
+        }
+        .btn-primary:hover {
+            background: #45a049;
+            transform: scale(1.02);
+        }
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+        .btn-danger:hover {
+            background: #d32f2f;
+        }
+        .btn-warning {
+            background: #FF9800;
+            color: white;
+        }
+        .btn-warning:hover {
+            background: #e68900;
+        }
+        .btn-info {
+            background: #2196F3;
+            color: white;
+        }
+        .btn-info:hover {
+            background: #1976D2;
+        }
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 11px;
+        }
+        .btn-xs {
+            padding: 4px 8px;
+            font-size: 10px;
+            border-radius: 4px;
+        }
+        .table-wrapper {
+            overflow-x: auto;
+            margin-top: 12px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        table th {
+            text-align: left;
+            padding: 10px 12px;
+            background: rgba(255,255,255,0.05);
+            color: #888;
+            font-weight: bold;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 2px solid rgba(255,255,255,0.08);
+        }
+        table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            vertical-align: middle;
+        }
+        table tr:hover td {
+            background: rgba(255,255,255,0.03);
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        .status-badge.active {
+            background: rgba(76, 175, 80, 0.2);
+            color: #4CAF50;
+        }
+        .status-badge.inactive {
+            background: rgba(255, 152, 0, 0.2);
+            color: #FF9800;
+        }
+        .status-badge.expired {
+            background: rgba(244, 67, 54, 0.2);
+            color: #f44336;
+        }
+        .status-badge.pending {
+            background: rgba(33, 150, 243, 0.2);
+            color: #2196F3;
+        }
+        .access-badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: bold;
+        }
+        .access-badge.vip {
+            background: rgba(255, 152, 0, 0.2);
+            color: #FF9800;
+        }
+        .access-badge.svip {
+            background: rgba(76, 175, 80, 0.2);
+            color: #4CAF50;
+        }
+        .actions-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+        .actions-dropdown .dropdown-btn {
+            background: rgba(255,255,255,0.08);
+            color: #aaa;
+            border: 1px solid rgba(255,255,255,0.1);
+            padding: 4px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.2s;
+        }
+        .actions-dropdown .dropdown-btn:hover {
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+        }
+        .actions-dropdown .dropdown-menu {
+            display: none;
+            position: absolute;
+            right: 0;
+            top: 100%;
+            background: #1a1a2e;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px;
+            min-width: 160px;
+            z-index: 100;
+            padding: 4px 0;
+            margin-top: 4px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.8);
+        }
+        .actions-dropdown .dropdown-menu.show {
+            display: block;
+        }
+        .actions-dropdown .dropdown-menu button {
+            display: block;
+            width: 100%;
+            padding: 8px 16px;
+            background: none;
+            border: none;
+            color: #e0e0e0;
+            font-size: 12px;
+            text-align: left;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .actions-dropdown .dropdown-menu button:hover {
+            background: rgba(255,255,255,0.08);
+        }
+        .actions-dropdown .dropdown-menu button.danger {
+            color: #f44336;
+        }
+        .actions-dropdown .dropdown-menu button.success {
+            color: #4CAF50;
+        }
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(4px);
+        }
+        .modal-overlay.show {
+            display: flex;
+        }
+        .modal {
+            background: #1a1a2e;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 420px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.9);
+        }
+        .modal h3 {
+            color: #fff;
+            font-size: 18px;
+            margin-bottom: 16px;
+        }
+        .modal .form-group {
+            margin-bottom: 12px;
+        }
+        .modal .form-group label {
+            font-size: 12px;
+            color: #aaa;
+            font-weight: bold;
+        }
+        .modal .form-group input,
+        .modal .form-group select {
+            padding: 10px 12px;
+            border: 2px solid #333;
+            border-radius: 6px;
+            background: #111;
+            color: #e0e0e0;
+            font-size: 14px;
+            width: 100%;
+        }
+        .modal .form-group input:focus,
+        .modal .form-group select:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+        .modal .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+            justify-content: flex-end;
+        }
+        .modal .modal-actions .btn {
+            padding: 8px 20px;
+        }
+        .modal .btn-secondary {
+            background: #333;
+            color: #e0e0e0;
+        }
+        .modal .btn-secondary:hover {
+            background: #444;
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 14px 24px;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            font-weight: bold;
+            z-index: 2000;
+            animation: slideIn 0.3s ease;
+            max-width: 400px;
+        }
+        .toast.success {
+            background: #4CAF50;
+        }
+        .toast.error {
+            background: #f44336;
+        }
+        .toast.warning {
+            background: #FF9800;
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        .refresh-btn {
+            padding: 6px 14px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 6px;
+            color: #aaa;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+        .refresh-btn:hover {
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+        .empty-state .icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+        .empty-state p {
+            font-size: 14px;
+        }
+        .code-highlight {
+            font-family: monospace;
+            font-weight: bold;
+            color: #FF9800;
+            letter-spacing: 1px;
+        }
+        .device-count {
+            font-size: 14px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .header-right {
+                width: 100%;
+                justify-content: space-between;
+            }
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+            .stats-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+            .section-title {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            table {
+                font-size: 11px;
+            }
+            table th,
+            table td {
+                padding: 6px 8px;
+            }
+        }
+    </style>
 </head>
 <body>
-
-<nav class="navbar navbar-expand-lg navbar-dark">
-  <div class="container">
-    <a class="navbar-brand" href="#">
-      <i class="fas fa-crown me-2"></i>WantMatures Admin
-    </a>
-    <div class="ms-auto">
-      <span class="text-white me-3"><i class="fas fa-user me-1"></i><%= username %></span>
-      <a href="/logout" class="btn btn-outline-light btn-sm">
-        <i class="fas fa-sign-out-alt me-1"></i>Logout
-      </a>
-    </div>
-  </div>
-</nav>
-
-<div class="toast-container" id="toastContainer"></div>
-
-<div class="container mt-4">
-  
-  <!-- Stats Cards - Only Codes and Devices -->
-  <div class="row g-3 mb-4">
-    <div class="col-md-6">
-      <div class="stat-card">
-        <div class="icon"><i class="fas fa-laptop"></i></div>
-        <div class="number" id="totalDevices">0</div>
-        <div class="label">Total Devices</div>
-      </div>
-    </div>
-    <div class="col-md-6">
-      <div class="stat-card codes">
-        <div class="icon"><i class="fas fa-key"></i></div>
-        <div class="number" id="totalCodes">0</div>
-        <div class="label">Total Codes</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Generate Code -->
-  <div class="card mb-4">
-    <div class="card-header bg-primary text-white">
-      <h5 class="mb-0"><i class="fas fa-plus-circle me-2"></i>Generate Code</h5>
-    </div>
-    <div class="card-body">
-      <div class="row g-3">
-        <div class="col-md-6">
-          <div class="input-group">
-            <span class="input-group-text"><i class="fas fa-user"></i></span>
-            <input type="text" class="form-control" id="generateUsername" placeholder="Enter username" required>
-          </div>
-        </div>
-        <div class="col-md-4">
-          <button class="btn btn-success w-100" id="generateCodeBtn">
-            <i class="fas fa-key me-1"></i>Generate Code
-          </button>
-        </div>
-        <div class="col-md-2">
-          <button class="btn btn-warning w-100" id="refreshBtn">
-            <i class="fas fa-sync"></i> Refresh
-          </button>
-        </div>
-      </div>
-      <div id="generateResult" class="mt-2"></div>
-    </div>
-  </div>
-
-  <!-- Tabs - Only Codes and Devices -->
-  <ul class="nav nav-tabs mb-3" id="mainTabs" role="tablist">
-    <li class="nav-item" role="presentation">
-      <button class="nav-link active" id="codes-tab" data-bs-toggle="tab" data-bs-target="#codes" type="button" role="tab">
-        <i class="fas fa-key me-1"></i>Codes
-        <span class="badge bg-secondary ms-1" id="codeCountBadge">0</span>
-        <span class="last-updated" id="lastUpdated"></span>
-      </button>
-    </li>
-    <li class="nav-item" role="presentation">
-      <button class="nav-link" id="devices-tab" data-bs-toggle="tab" data-bs-target="#devices" type="button" role="tab">
-        <i class="fas fa-laptop me-1"></i>Devices
-        <span class="badge bg-primary ms-1" id="deviceCountBadge">0</span>
-      </button>
-    </li>
-  </ul>
-
-  <div class="tab-content">
-
-    <!-- CODES TAB -->
-    <div class="tab-pane fade show active" id="codes" role="tabpanel">
-      <div class="table-container">
-        <div class="tab-header">
-          <h6><i class="fas fa-key text-primary me-1"></i> All Codes</h6>
-          <button class="btn-delete-all" id="deleteAllCodesBtn">
-            <i class="fas fa-trash-alt"></i> Delete All Codes & Devices
-          </button>
-        </div>
-        <div class="table-responsive">
-          <table class="table table-hover" id="codesTable">
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Used / Max</th>
-                <th>Status</th>
-                <th>Username</th>
-                <th>Created At</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="codesTableBody">
-              <tr id="loadingCodesRow">
-                <td colspan="6" class="text-center">
-                  <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
-                  Loading codes...
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- DEVICES TAB -->
-    <div class="tab-pane fade" id="devices" role="tabpanel">
-      <div class="table-container">
-        <div class="tab-header">
-          <h6><i class="fas fa-laptop text-primary me-1"></i> All Devices</h6>
-          <button class="btn-delete-all" id="deleteAllDevicesBtn">
-            <i class="fas fa-trash-alt"></i> Delete All Devices
-          </button>
-        </div>
-        <div class="table-responsive">
-          <table class="table table-hover" id="devicesTable">
-            <thead>
-              <tr>
-                <th>Device ID</th>
-                <th>Code</th>
-                <th>Status</th>
-                <th>IP Address</th>
-                <th>Last Ping</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="devicesTableBody">
-              <tr id="loadingDevicesRow">
-                <td colspan="6" class="text-center">
-                  <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
-                  Loading devices...
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-
-  // ============================================
-  // TOAST NOTIFICATION
-  // ============================================
-  function showToast(message, type = 'success') {
-    const container = document.getElementById('toastContainer');
-    if (!container) return;
-    const toast = document.createElement('div');
-    toast.className = `toast-custom ${type}`;
-    const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
-    toast.innerHTML = `${icon} ${message}`;
-    container.appendChild(toast);
-    setTimeout(() => {
-      toast.style.opacity = '0';
-      toast.style.transition = 'opacity 0.3s';
-      setTimeout(() => toast.remove(), 300);
-    }, 3000);
-  }
-
-  // ============================================
-  // UPDATE LAST UPDATED TIME
-  // ============================================
-  function updateLastUpdated() {
-    const now = new Date();
-    const el = document.getElementById('lastUpdated');
-    if (el) el.textContent = '🔄 ' + now.toLocaleTimeString();
-  }
-
-  // ============================================
-  // FORCE CACHE REFRESH
-  // ============================================
-  async function forceRefreshCache() {
-    try {
-      const response = await fetch('/api/force-refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const data = await response.json();
-      console.log('✅ Cache force refreshed:', data);
-      return data;
-    } catch (error) {
-      console.error('Force refresh error:', error);
-      return null;
-    }
-  }
-
-  // ============================================
-  // UPDATE STATS COUNTS
-  // ============================================
-  async function updateStats() {
-    try {
-      const response = await fetch('/api/stats?_=' + Date.now());
-      const stats = await response.json();
-      
-      document.getElementById('totalDevices').textContent = stats.total || 0;
-      document.getElementById('totalCodes').textContent = stats.totalCodes || 0;
-      document.getElementById('codeCountBadge').textContent = stats.totalCodes || 0;
-      document.getElementById('deviceCountBadge').textContent = stats.total || 0;
-      
-      return stats;
-    } catch (error) {
-      console.error('Error updating stats:', error);
-      return null;
-    }
-  }
-
-  // ============================================
-  // SHOW NO CODES MESSAGE
-  // ============================================
-  function showNoCodesMessage() {
-    const codesBody = document.getElementById('codesTableBody');
-    codesBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No codes generated yet</td></tr>';
-  }
-
-  function showNoDevicesMessage() {
-    const devicesBody = document.getElementById('devicesTableBody');
-    devicesBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No devices registered</td></tr>';
-  }
-
-  // ============================================
-  // LOAD DATA FROM SERVER
-  // ============================================
-  let isLoading = false;
-  
-  async function loadData(forceRefresh = false) {
-    if (isLoading) return;
-    isLoading = true;
-    
-    try {
-      if (forceRefresh) {
-        await forceRefreshCache();
-      }
-      
-      const [statsRes, codesRes, devicesRes] = await Promise.all([
-        fetch('/api/stats?_=' + Date.now()),
-        fetch('/api/codes?_=' + Date.now()),
-        fetch('/api/dashboard-data?_=' + Date.now())
-      ]);
-      
-      const stats = await statsRes.json();
-      const codes = await codesRes.json();
-      const dashboardData = await devicesRes.json();
-      const devices = dashboardData.devices || [];
-      
-      document.getElementById('totalDevices').textContent = stats.total || 0;
-      document.getElementById('totalCodes').textContent = stats.totalCodes || 0;
-      document.getElementById('codeCountBadge').textContent = codes ? codes.length : 0;
-      document.getElementById('deviceCountBadge').textContent = stats.total || 0;
-      
-      const codesBody = document.getElementById('codesTableBody');
-      if (codes && codes.length > 0) {
-        let html = '';
-        codes.forEach(function(code) {
-          html += `
-            <tr id="code-row-${code.code}">
-              <td><strong class="code-text">${code.code}</strong></td>
-              <td>
-                <span class="badge bg-primary">${code.used_count || 0}</span>
-                /
-                <span class="badge bg-secondary">${code.max_devices}</span>
-              </td>
-              <td>
-                <span class="badge ${code.is_active ? 'bg-success' : 'bg-danger'}">
-                  ${code.is_active ? 'Active' : 'Inactive'}
-                </span>
-              </td>
-              <td>${code.username || 'N/A'}</td>
-              <td>${new Date(code.created_at).toLocaleDateString()}</td>
-              <td>
-                <div class="btn-group btn-group-sm">
-                  <button class="btn btn-danger btn-action delete-code" data-code="${code.code}">
-                    <i class="fas fa-trash"></i> Delete
-                  </button>
-                  <button class="btn btn-outline-primary btn-action extend-code" data-code="${code.code}">
-                    <i class="fas fa-plus"></i> Extend
-                  </button>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-left">
+                <h1>📊 Admin Panel</h1>
+                <div class="powered">
+                    💕 Powered by <span class="highlight">SamePerson</span> @ <span class="brand">METHOWDS</span>
                 </div>
-              </td>
-            </tr>
-          `;
-        });
-        codesBody.innerHTML = html;
-      } else {
-        showNoCodesMessage();
-      }
-      
-      const devicesBody = document.getElementById('devicesTableBody');
-      if (devices && devices.length > 0) {
-        let html = '';
-        devices.forEach(function(device) {
-          html += `
-            <tr id="device-row-${device.device_id}">
-              <td><small>${device.device_id.substring(0, 20)}...</small></td>
-              <td><span class="code-text">${device.code || 'N/A'}</span></td>
-              <td>
-                <span class="badge ${device.status === 'approved' ? 'bg-success' : 'bg-danger'}">
-                  ${device.status}
-                </span>
-              </td>
-              <td>${device.ip_address || 'N/A'}</td>
-              <td>${device.last_ping ? new Date(device.last_ping).toLocaleString() : 'Never'}</td>
-              <td>
-                <button class="btn btn-outline-danger btn-sm btn-action remove-device" data-device="${device.device_id}">
-                  <i class="fas fa-trash"></i> Remove
-                </button>
-              </td>
-            </tr>
-          `;
-        });
-        devicesBody.innerHTML = html;
-      } else {
-        showNoDevicesMessage();
-      }
-      
-      updateLastUpdated();
-      
-    } catch (error) {
-      console.error('Error loading data:', error);
-      showToast('Error loading data', 'error');
-    } finally {
-      isLoading = false;
-    }
-  }
+            </div>
+            <div class="header-right">
+                <span class="username">👤 <%= username %></span>
+                <button class="refresh-btn" onclick="refreshData()">🔄 Refresh</button>
+                <a href="/logout"><button class="logout-btn">🚪 Logout</button></a>
+            </div>
+        </div>
 
-  // ============================================
-  // DELETE CODE - INSTANT REMOVE + CLEAR CACHE
-  // ============================================
-  async function deleteCode(code) {
-    if (!confirm(`⚠️⚠️⚠️ PERMANENTLY DELETE code: ${code}?\n\nThis will REMOVE the code from the database FOREVER.\nAll devices using this code will also be removed.\n\nThis action CANNOT be undone!`)) return;
-    
-    const row = document.getElementById(`code-row-${code}`);
-    if (row) {
-      row.classList.add('row-deleting');
-    }
-    
-    try {
-      const response = await fetch(`/api/code/${code}`, {
-        method: 'DELETE'
-      });
-      const data = await response.json();
-      
-      if (data.success) {
-        showToast(`Code ${code} permanently deleted!`, 'success');
-        
-        await forceRefreshCache();
-        
-        if (row) {
-          row.classList.remove('row-deleting');
-          row.classList.add('row-removed');
-          setTimeout(() => {
-            row.remove();
-            const codesBody = document.getElementById('codesTableBody');
-            if (codesBody.children.length === 0 || codesBody.children[0].id === 'loadingCodesRow') {
-              showNoCodesMessage();
-            }
-          }, 300);
-        }
-        
-        await updateStats();
-        
-        document.querySelectorAll(`#devicesTableBody tr`).forEach(tr => {
-          if (tr.textContent.includes(code)) {
-            tr.classList.add('row-removed');
+        <!-- Stats -->
+        <div class="stats-grid" id="stats-grid">
+            <div class="stat-card">
+                <div class="number" id="stat-total">0</div>
+                <div class="label">Total Devices</div>
+            </div>
+            <div class="stat-card">
+                <div class="number gold" id="stat-active-codes">0</div>
+                <div class="label">Active Codes</div>
+            </div>
+            <div class="stat-card">
+                <div class="number blue" id="stat-total-codes">0</div>
+                <div class="label">Total Codes</div>
+            </div>
+            <div class="stat-card">
+                <div class="number" id="stat-approved">0</div>
+                <div class="label">Approved Devices</div>
+            </div>
+            <div class="stat-card">
+                <div class="number red" id="stat-revoked">0</div>
+                <div class="label">Revoked Devices</div>
+            </div>
+            <div class="stat-card">
+                <div class="number gold" id="stat-pending-requests">0</div>
+                <div class="label">Pending Requests</div>
+            </div>
+        </div>
+
+        <!-- Create Code Section -->
+        <div class="section" id="create-code-section">
+            <div class="section-title">
+                <span>🔑 Create New Code</span>
+                <span class="badge">Press Enter to create</span>
+            </div>
+            <form id="create-code-form" onsubmit="return false;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="new-username" placeholder="Enter username" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Code (auto-generated)</label>
+                        <input type="text" id="new-code-display" placeholder="XXXX-XXXX" readonly style="background:#222;color:#FF9800;font-weight:bold;font-family:monospace;">
+                    </div>
+                    <div class="form-group">
+                        <label>Access</label>
+                        <select id="new-access">
+                            <option value="VIP">VIP</option>
+                            <option value="SVIP">SVIP</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Subscription</label>
+                        <select id="new-subscription">
+                            <option value="Lifetime">Lifetime</option>
+                            <option value="3 Months">3 Months</option>
+                            <option value="6 Months">6 Months</option>
+                            <option value="9 Months">9 Months</option>
+                            <option value="12 Months">12 Months</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="justify-content:flex-end;">
+                        <button type="submit" class="btn btn-primary" id="create-code-btn">🔑 Create Code</button>
+                    </div>
+                </div>
+                <div id="create-code-status" style="font-size:12px;color:#888;margin-top:8px;"></div>
+            </form>
+        </div>
+
+        <!-- Codes Table -->
+        <div class="section" id="codes-section">
+            <div class="section-title">
+                <span>📋 All Codes</span>
+                <span class="badge" id="codes-count">0 codes</span>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Code</th>
+                            <th>Access</th>
+                            <th>Subscription</th>
+                            <th>Expiration</th>
+                            <th>Status</th>
+                            <th>Devices</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="codes-table-body">
+                        <tr>
+                            <td colspan="8" class="empty-state">
+                                <div class="icon">📭</div>
+                                <p>No codes created yet</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Devices Table -->
+        <div class="section" id="devices-section">
+            <div class="section-title">
+                <span>📱 Devices</span>
+                <span class="badge" id="devices-count">0 devices</span>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Device ID</th>
+                            <th>Code</th>
+                            <th>Status</th>
+                            <th>Registered</th>
+                            <th>Last Ping</th>
+                            <th>Pings</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="devices-table-body">
+                        <tr>
+                            <td colspan="7" class="empty-state">
+                                <div class="icon">📱</div>
+                                <p>No devices registered</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Pending Requests -->
+        <div class="section" id="requests-section">
+            <div class="section-title">
+                <span>📨 Pending Code Requests</span>
+                <span class="badge" id="requests-count">0 requests</span>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Device ID</th>
+                            <th>Reason</th>
+                            <th>Requested</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="requests-table-body">
+                        <tr>
+                            <td colspan="4" class="empty-state">
+                                <div class="icon">📨</div>
+                                <p>No pending requests</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal" id="modal-content">
+            <h3 id="modal-title">Action</h3>
+            <div id="modal-body"></div>
+            <div class="modal-actions" id="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" id="modal-confirm-btn">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentAction = null;
+        let currentCode = null;
+
+        // ============================================
+        // TOAST NOTIFICATIONS
+        // ============================================
+
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
             setTimeout(() => {
-              tr.remove();
-              const devicesBody = document.getElementById('devicesTableBody');
-              if (devicesBody.children.length === 0 || devicesBody.children[0].id === 'loadingDevicesRow') {
-                showNoDevicesMessage();
-              }
-            }, 300);
-          }
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.5s';
+                setTimeout(() => toast.remove(), 500);
+            }, 3000);
+        }
+
+        // ============================================
+        // MODAL
+        // ============================================
+
+        function openModal(title, bodyHTML, confirmText, onConfirm) {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-body').innerHTML = bodyHTML;
+            document.getElementById('modal-overlay').classList.add('show');
+            const confirmBtn = document.getElementById('modal-confirm-btn');
+            confirmBtn.textContent = confirmText || 'Confirm';
+            currentAction = onConfirm;
+        }
+
+        function closeModal() {
+            document.getElementById('modal-overlay').classList.remove('show');
+            currentAction = null;
+        }
+
+        document.getElementById('modal-overlay').addEventListener('click', function(e) {
+            if (e.target === this) closeModal();
         });
-        
-        await loadData(false);
-        
-      } else {
-        showToast(data.error || 'Failed to delete code', 'error');
-        if (row) {
-          row.classList.remove('row-deleting');
-        }
-      }
-    } catch (error) {
-      showToast('Error deleting code', 'error');
-      if (row) {
-        row.classList.remove('row-deleting');
-      }
-    }
-  }
 
-  // ============================================
-  // REMOVE DEVICE - INSTANT REMOVE + CLEAR CACHE
-  // ============================================
-  async function removeDevice(deviceId) {
-    if (!confirm(`⚠️ Remove this device?\n\nDevice ID: ${deviceId.substring(0, 20)}...`)) return;
-    
-    const row = document.getElementById(`device-row-${deviceId}`);
-    if (row) {
-      row.classList.add('row-deleting');
-    }
-    
-    try {
-      const response = await fetch(`/api/device/${encodeURIComponent(deviceId)}`, {
-        method: 'DELETE'
-      });
-      const data = await response.json();
-      
-      if (data.success) {
-        showToast('Device removed successfully!', 'success');
-        
-        await forceRefreshCache();
-        
-        if (row) {
-          row.classList.remove('row-deleting');
-          row.classList.add('row-removed');
-          setTimeout(() => {
-            row.remove();
-            const devicesBody = document.getElementById('devicesTableBody');
-            if (devicesBody.children.length === 0 || devicesBody.children[0].id === 'loadingDevicesRow') {
-              showNoDevicesMessage();
+        document.getElementById('modal-confirm-btn').addEventListener('click', function() {
+            if (currentAction) {
+                const result = currentAction();
+                if (result !== false) closeModal();
+            } else {
+                closeModal();
             }
-          }, 300);
-        }
-        
-        await updateStats();
-        
-        if (data.code) {
-          const codeRows = document.querySelectorAll(`#codesTableBody tr`);
-          codeRows.forEach(tr => {
-            if (tr.id === `code-row-${data.code}`) {
-              const usedSpan = tr.querySelector('.badge.bg-primary');
-              if (usedSpan) {
-                const currentCount = parseInt(usedSpan.textContent);
-                usedSpan.textContent = Math.max(0, currentCount - 1);
-              }
-            }
-          });
-        }
-        
-        await loadData(false);
-        
-      } else {
-        showToast(data.error || 'Failed to remove device', 'error');
-        if (row) {
-          row.classList.remove('row-deleting');
-        }
-      }
-    } catch (error) {
-      showToast('Error removing device', 'error');
-      if (row) {
-        row.classList.remove('row-deleting');
-      }
-    }
-  }
-
-  // ============================================
-  // EXTEND CODE
-  // ============================================
-  async function extendCode(code) {
-    const newLimit = prompt(`Enter new max devices for code: ${code}`, '15');
-    if (newLimit && parseInt(newLimit) > 0) {
-      try {
-        const response = await fetch(`/api/code/${code}/extend`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ maxDevices: parseInt(newLimit) })
         });
-        if (response.ok) {
-          showToast(`Code ${code} extended to ${newLimit} devices`, 'success');
-          const row = document.getElementById(`code-row-${code}`);
-          if (row) {
-            const maxSpan = row.querySelector('.badge.bg-secondary');
-            if (maxSpan) {
-              maxSpan.textContent = newLimit;
-            }
-          }
-          await updateStats();
+
+        // ============================================
+        // REFRESH DATA
+        // ============================================
+
+        function refreshData() {
+            fetch('/api/dashboard-data')
+                .then(res => res.json())
+                .then(data => {
+                    renderStats(data.stats);
+                    renderCodes(data.codes);
+                    renderDevices(data.devices);
+                    renderRequests(data.requests);
+                })
+                .catch(err => {
+                    console.error('Refresh error:', err);
+                    showToast('Failed to refresh data', 'error');
+                });
         }
-      } catch (error) {
-        showToast('Error extending code', 'error');
-      }
-    }
-  }
 
-  // ============================================
-  // EVENT DELEGATION
-  // ============================================
-  
-  document.addEventListener('click', function(e) {
-    const btn = e.target.closest('.delete-code');
-    if (btn) {
-      e.preventDefault();
-      deleteCode(btn.dataset.code);
-    }
-  });
+        // ============================================
+        // RENDER STATS
+        // ============================================
 
-  document.addEventListener('click', function(e) {
-    const btn = e.target.closest('.extend-code');
-    if (btn) {
-      e.preventDefault();
-      extendCode(btn.dataset.code);
-    }
-  });
+        function renderStats(stats) {
+            document.getElementById('stat-total').textContent = stats.total || 0;
+            document.getElementById('stat-approved').textContent = stats.approved || 0;
+            document.getElementById('stat-revoked').textContent = stats.revoked || 0;
+            document.getElementById('stat-total-codes').textContent = stats.totalCodes || 0;
+            document.getElementById('stat-active-codes').textContent = stats.activeCodes || 0;
+            document.getElementById('stat-pending-requests').textContent = stats.pendingRequests || 0;
+        }
 
-  document.addEventListener('click', function(e) {
-    const btn = e.target.closest('.remove-device');
-    if (btn) {
-      e.preventDefault();
-      removeDevice(btn.dataset.device);
-    }
-  });
+        // ============================================
+        // RENDER CODES
+        // ============================================
 
-  // ============================================
-  // GENERATE CODE
-  // ============================================
-  document.getElementById('generateCodeBtn').addEventListener('click', async function() {
-    const username = document.getElementById('generateUsername').value.trim();
-    const resultDiv = document.getElementById('generateResult');
-    
-    if (!username) {
-      resultDiv.innerHTML = '<div class="alert alert-danger">Please enter a username</div>';
-      return;
-    }
-    
-    resultDiv.innerHTML = '<div class="alert alert-info">⏳ Generating code...</div>';
-    
-    try {
-      const response = await fetch('/api/generate-code', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username })
-      });
-      const data = await response.json();
-      
-      if (data.success) {
-        resultDiv.innerHTML = `
-          <div class="alert alert-success">
-            <strong>✅ Code Generated!</strong><br>
-            Code: <code class="fs-5">${data.code}</code><br>
-            Username: ${data.username}
-          </div>
-        `;
-        document.getElementById('generateUsername').value = '';
-        showToast(`Code ${data.code} generated for ${username}`, 'success');
-        await forceRefreshCache();
-        await loadData(false);
-      } else {
-        resultDiv.innerHTML = `<div class="alert alert-danger">❌ ${data.error || 'Failed to generate code'}</div>`;
-        showToast(data.error || 'Failed to generate code', 'error');
-      }
-    } catch (error) {
-      resultDiv.innerHTML = '<div class="alert alert-danger">❌ Error generating code</div>';
-      showToast('Error generating code', 'error');
-    }
-  });
+        function renderCodes(codes) {
+            const tbody = document.getElementById('codes-table-body');
+            const countEl = document.getElementById('codes-count');
+            countEl.textContent = `${codes.length} codes`;
 
-  // ============================================
-  // REFRESH BUTTON
-  // ============================================
-  document.getElementById('refreshBtn').addEventListener('click', async function() {
-    showToast('🔄 Refreshing data from database...', 'info');
-    await forceRefreshCache();
-    await loadData(false);
-    showToast('✅ Data refreshed!', 'success');
-  });
+            if (!codes || codes.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="empty-state">
+                            <div class="icon">📭</div>
+                            <p>No codes created yet</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
 
-  // ============================================
-  // DELETE ALL BUTTONS
-  // ============================================
-  document.getElementById('deleteAllCodesBtn').addEventListener('click', async function() {
-    if (!confirm('⚠️ Delete ALL codes and ALL devices?')) return;
-    try {
-      const response = await fetch('/api/delete-all-codes', { method: 'POST' });
-      const data = await response.json();
-      if (data.success) {
-        showToast(data.message, 'success');
-        await forceRefreshCache();
-        await loadData(false);
-      }
-    } catch (error) {
-      showToast('Error deleting all codes', 'error');
-    }
-  });
+            let html = '';
+            codes.forEach(code => {
+                const isActive = code.is_active !== false && code.status === 'active';
+                const statusClass = isActive ? 'active' : (code.status === 'expired' ? 'expired' : 'inactive');
+                const statusLabel = isActive ? 'Active' : (code.status === 'expired' ? 'Expired' : 'Inactive');
+                const accessClass = code.access_level === 'SVIP' ? 'svip' : 'vip';
+                const expires = code.expires_at ? new Date(code.expires_at).toLocaleDateString() : 'Never';
+                const devices = code.used_count || 0;
 
-  document.getElementById('deleteAllDevicesBtn').addEventListener('click', async function() {
-    if (!confirm('⚠️ Delete ALL devices?')) return;
-    try {
-      const response = await fetch('/api/delete-all-devices', { method: 'POST' });
-      const data = await response.json();
-      if (data.success) {
-        showToast(data.message, 'success');
-        await forceRefreshCache();
-        await loadData(false);
-      }
-    } catch (error) {
-      showToast('Error deleting all devices', 'error');
-    }
-  });
+                html += `
+                    <tr>
+                        <td><strong>${code.username || 'N/A'}</strong></td>
+                        <td><span class="code-highlight">${code.code}</span></td>
+                        <td><span class="access-badge ${accessClass}">${code.access_level || 'VIP'}</span></td>
+                        <td>${code.subscription_type || 'Lifetime'}</td>
+                        <td>${expires}</td>
+                        <td><span class="status-badge ${statusClass}">${statusLabel}</span></td>
+                        <td><span class="device-count">${devices}</span></td>
+                        <td>
+                            <div class="actions-dropdown">
+                                <button class="dropdown-btn" onclick="toggleDropdown(this)">⚙️ ▼</button>
+                                <div class="dropdown-menu">
+                                    <button onclick="editUsername('${code.code}')">✏️ Edit Username</button>
+                                    <button onclick="changeAccess('${code.code}')">🔑 Change Access</button>
+                                    <button onclick="changeSubscription('${code.code}')">📅 Change Subscription</button>
+                                    ${!isActive ? `<button class="success" onclick="reactivateCode('${code.code}')">🔄 Activate</button>` : `<button onclick="deactivateCode('${code.code}')" class="danger">⛔ Deactivate</button>`}
+                                    <button onclick="deleteCode('${code.code}')" class="danger">🗑️ Delete</button>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
 
-  // ============================================
-  // INITIAL LOAD
-  // ============================================
-  loadData(true);
+            tbody.innerHTML = html;
+        }
 
-});
-</script>
+        // ============================================
+        // RENDER DEVICES
+        // ============================================
+
+        function renderDevices(devices) {
+            const tbody = document.getElementById('devices-table-body');
+            const countEl = document.getElementById('devices-count');
+            countEl.textContent = `${devices.length} devices`;
+
+            if (!devices || devices.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="empty-state">
+                            <div class="icon">📱</div>
+                            <p>No devices registered</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            let html = '';
+            devices.forEach(device => {
+                const statusClass = device.status === 'approved' ? 'active' : 'inactive';
+                const statusLabel = device.status === 'approved' ? 'Active' : 'Revoked';
+                const registered = device.created_at ? new Date(device.created_at).toLocaleString() : 'N/A';
+                const lastPing = device.last_ping ? new Date(device.last_ping).toLocaleString() : 'Never';
+                const pings = device.ping_count || 0;
+
+                html += `
+                    <tr>
+                        <td style="font-family:monospace;font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${device.device_id || 'N/A'}</td>
+                        <td><span class="code-highlight">${device.code || 'N/A'}</span></td>
+                        <td><span class="status-badge ${statusClass}">${statusLabel}</span></td>
+                        <td>${registered}</td>
+                        <td>${lastPing}</td>
+                        <td>${pings}</td>
+                        <td>
+                            <button class="btn btn-danger btn-xs" onclick="removeDevice('${device.device_id}')">🗑️ Remove</button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        // ============================================
+        // RENDER REQUESTS
+        // ============================================
+
+        function renderRequests(requests) {
+            const tbody = document.getElementById('requests-table-body');
+            const countEl = document.getElementById('requests-count');
+            const pending = requests.filter(r => r.status === 'pending');
+            countEl.textContent = `${pending.length} requests`;
+
+            if (!pending || pending.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4" class="empty-state">
+                            <div class="icon">📨</div>
+                            <p>No pending requests</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            let html = '';
+            pending.forEach(req => {
+                const requested = req.requested_at ? new Date(req.requested_at).toLocaleString() : 'N/A';
+
+                html += `
+                    <tr>
+                        <td style="font-family:monospace;font-size:11px;">${req.device_id || 'N/A'}</td>
+                        <td>${req.reason || 'No reason provided'}</td>
+                        <td>${requested}</td>
+                        <td>
+                            <button class="btn btn-success btn-xs" onclick="approveRequest('${req.id}')">✅ Approve</button>
+                            <button class="btn btn-danger btn-xs" onclick="rejectRequest('${req.id}')">❌ Reject</button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        // ============================================
+        // DROPDOWN TOGGLE
+        // ============================================
+
+        function toggleDropdown(btn) {
+            const menu = btn.nextElementSibling;
+            const isOpen = menu.classList.contains('show');
+            // Close all dropdowns
+            document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
+            if (!isOpen) {
+                menu.classList.add('show');
+            }
+        }
+
+        // Close dropdowns on click outside
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.actions-dropdown')) {
+                document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.remove('show'));
+            }
+        });
+
+        // ============================================
+        // CREATE CODE
+        // ============================================
+
+        document.getElementById('create-code-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            createCode();
+        });
+
+        document.getElementById('new-username').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                createCode();
+            }
+        });
+
+        document.getElementById('new-code-display').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                createCode();
+            }
+        });
+
+        function generateRandomCode() {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let code = '';
+            for (let i = 0; i < 8; i++) {
+                code += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return code.slice(0, 4) + '-' + code.slice(4);
+        }
+
+        function createCode() {
+            const username = document.getElementById('new-username').value.trim();
+            const access = document.getElementById('new-access').value;
+            const subscription = document.getElementById('new-subscription').value;
+            const btn = document.getElementById('create-code-btn');
+            const statusEl = document.getElementById('create-code-status');
+
+            if (!username) {
+                showToast('Please enter a username', 'error');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = '⏳ Creating...';
+            statusEl.textContent = '⏳ Creating code...';
+
+            fetch('/api/generate-code', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, accessLevel: access, subscriptionType: subscription })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(`✅ Code ${data.code} created for ${username}`, 'success');
+                    statusEl.textContent = `✅ Created: ${data.code} (${access}, ${subscription})`;
+                    document.getElementById('new-username').value = '';
+                    document.getElementById('new-code-display').value = generateRandomCode();
+                    refreshData();
+                } else {
+                    showToast(`❌ ${data.error}`, 'error');
+                    statusEl.textContent = `❌ ${data.error}`;
+                }
+            })
+            .catch(err => {
+                showToast('❌ Failed to create code', 'error');
+                statusEl.textContent = '❌ Failed to create code';
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = '🔑 Create Code';
+                setTimeout(() => { statusEl.textContent = ''; }, 3000);
+            });
+        }
+
+        // Auto-generate code display on load
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('new-code-display').value = generateRandomCode();
+            refreshData();
+
+            // Refresh every 30 seconds
+            setInterval(refreshData, 30000);
+        });
+
+        // ============================================
+        // EDIT USERNAME
+        // ============================================
+
+        function editUsername(code) {
+            currentCode = code;
+            openModal(
+                '✏️ Edit Username',
+                `
+                    <div class="form-group">
+                        <label>New Username</label>
+                        <input type="text" id="edit-username-input" placeholder="Enter new username">
+                    </div>
+                `,
+                'Save',
+                function() {
+                    const newUsername = document.getElementById('edit-username-input').value.trim();
+                    if (!newUsername) {
+                        showToast('Please enter a username', 'error');
+                        return false;
+                    }
+
+                    fetch(`/api/code/${code}/username`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username: newUsername })
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            showToast(`✅ Username updated to ${newUsername}`, 'success');
+                            refreshData();
+                        } else {
+                            showToast(`❌ ${data.error}`, 'error');
+                        }
+                    })
+                    .catch(() => showToast('❌ Failed to update username', 'error'));
+                    return true;
+                }
+            );
+        }
+
+        // ============================================
+        // CHANGE ACCESS
+        // ============================================
+
+        function changeAccess(code) {
+            currentCode = code;
+
+            // Get current access
+            fetch('/api/codes')
+                .then(res => res.json())
+                .then(codes => {
+                    const found = codes.find(c => c.code === code);
+                    const currentAccess = found ? found.access_level : 'VIP';
+
+                    openModal(
+                        '🔑 Change Access',
+                        `
+                            <div class="form-group">
+                                <label>Access Level</label>
+                                <select id="edit-access-select">
+                                    <option value="VIP" ${currentAccess === 'VIP' ? 'selected' : ''}>VIP</option>
+                                    <option value="SVIP" ${currentAccess === 'SVIP' ? 'selected' : ''}>SVIP</option>
+                                </select>
+                            </div>
+                        `,
+                        'Save',
+                        function() {
+                            const access = document.getElementById('edit-access-select').value;
+
+                            fetch(`/api/code/${code}/access`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ accessLevel: access })
+                            })
+                            .then(res => res.json())
+                            .then(data => {
+                                if (data.success) {
+                                    showToast(`✅ Access updated to ${access}`, 'success');
+                                    refreshData();
+                                } else {
+                                    showToast(`❌ ${data.error}`, 'error');
+                                }
+                            })
+                            .catch(() => showToast('❌ Failed to update access', 'error'));
+                            return true;
+                        }
+                    );
+                });
+        }
+
+        // ============================================
+        // CHANGE SUBSCRIPTION
+        // ============================================
+
+        function changeSubscription(code) {
+            currentCode = code;
+
+            fetch('/api/codes')
+                .then(res => res.json())
+                .then(codes => {
+                    const found = codes.find(c => c.code === code);
+                    const currentSub = found ? found.subscription_type : 'Lifetime';
+
+                    openModal(
+                        '📅 Change Subscription',
+                        `
+                            <div class="form-group">
+                                <label>Subscription</label>
+                                <select id="edit-subscription-select">
+                                    <option value="Lifetime" ${currentSub === 'Lifetime' ? 'selected' : ''}>Lifetime</option>
+                                    <option value="3 Months" ${currentSub === '3 Months' ? 'selected' : ''}>3 Months</option>
+                                    <option value="6 Months" ${currentSub === '6 Months' ? 'selected' : ''}>6 Months</option>
+                                    <option value="9 Months" ${currentSub === '9 Months' ? 'selected' : ''}>9 Months</option>
+                                    <option value="12 Months" ${currentSub === '12 Months' ? 'selected' : ''}>12 Months</option>
+                                </select>
+                            </div>
+                            <div style="font-size:12px;color:#888;margin-top:8px;">
+                                ⚠️ Changing subscription will reset the expiration date to today + selected period.
+                            </div>
+                        `,
+                        'Save',
+                        function() {
+                            const subscription = document.getElementById('edit-subscription-select').value;
+
+                            fetch(`/api/code/${code}/subscription`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ subscriptionType: subscription })
+                            })
+                            .then(res => res.json())
+                            .then(data => {
+                                if (data.success) {
+                                    showToast(`✅ Subscription updated to ${subscription}`, 'success');
+                                    refreshData();
+                                } else {
+                                    showToast(`❌ ${data.error}`, 'error');
+                                }
+                            })
+                            .catch(() => showToast('❌ Failed to update subscription', 'error'));
+                            return true;
+                        }
+                    );
+                });
+        }
+
+        // ============================================
+        // REACTIVATE CODE
+        // ============================================
+
+        function reactivateCode(code) {
+            currentCode = code;
+
+            openModal(
+                '🔄 Reactivate Code',
+                `
+                    <div class="form-group">
+                        <label>New Subscription</label>
+                        <select id="reactivate-subscription-select">
+                            <option value="Lifetime">Lifetime</option>
+                            <option value="3 Months">3 Months</option>
+                            <option value="6 Months">6 Months</option>
+                            <option value="9 Months">9 Months</option>
+                            <option value="12 Months">12 Months</option>
+                        </select>
+                    </div>
+                    <div style="font-size:12px;color:#888;margin-top:8px;">
+                        ⚠️ This will reactivate the code with the selected subscription.
+                    </div>
+                `,
+                'Reactivate',
+                function() {
+                    const subscription = document.getElementById('reactivate-subscription-select').value;
+
+                    fetch(`/api/code/${code}/reactivate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ subscriptionType: subscription })
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            showToast(`✅ Code reactivated with ${subscription}`, 'success');
+                            refreshData();
+                        } else {
+                            showToast(`❌ ${data.error}`, 'error');
+                        }
+                    })
+                    .catch(() => showToast('❌ Failed to reactivate code', 'error'));
+                    return true;
+                }
+            );
+        }
+
+        // ============================================
+        // DEACTIVATE CODE
+        // ============================================
+
+        function deactivateCode(code) {
+            if (!confirm(`⚠️ Are you sure you want to deactivate code ${code}?\n\nThis will remove all associated devices.`)) return;
+
+            fetch(`/api/code/${code}/deactivate`, {
+                method: 'POST'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(`✅ ${data.message}`, 'success');
+                    refreshData();
+                } else {
+                    showToast(`❌ ${data.error}`, 'error');
+                }
+            })
+            .catch(() => showToast('❌ Failed to deactivate code', 'error'));
+        }
+
+        // ============================================
+        // DELETE CODE
+        // ============================================
+
+        function deleteCode(code) {
+            if (!confirm(`⚠️ Are you sure you want to PERMANENTLY DELETE code ${code}?\n\nThis cannot be undone!`)) return;
+
+            fetch(`/api/code/${code}`, {
+                method: 'DELETE'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(`✅ ${data.message}`, 'success');
+                    refreshData();
+                } else {
+                    showToast(`❌ ${data.error}`, 'error');
+                }
+            })
+            .catch(() => showToast('❌ Failed to delete code', 'error'));
+        }
+
+        // ============================================
+        // REMOVE DEVICE
+        // ============================================
+
+        function removeDevice(deviceId) {
+            if (!confirm(`⚠️ Remove device ${deviceId}?`)) return;
+
+            fetch(`/api/device/${deviceId}`, {
+                method: 'DELETE'
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('✅ Device removed', 'success');
+                    refreshData();
+                } else {
+                    showToast(`❌ ${data.error}`, 'error');
+                }
+            })
+            .catch(() => showToast('❌ Failed to remove device', 'error'));
+        }
+
+        // ============================================
+        // APPROVE/REJECT REQUEST
+        // ============================================
+
+        function approveRequest(id) {
+            fetch(`/api/request/${id}/respond`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'approved', response: 'Approved by admin' })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('✅ Request approved', 'success');
+                    refreshData();
+                } else {
+                    showToast(`❌ ${data.error}`, 'error');
+                }
+            })
+            .catch(() => showToast('❌ Failed to approve request', 'error'));
+        }
+
+        function rejectRequest(id) {
+            fetch(`/api/request/${id}/respond`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'rejected', response: 'Rejected by admin' })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    showToast('✅ Request rejected', 'success');
+                    refreshData();
+                } else {
+                    showToast(`❌ ${data.error}`, 'error');
+                }
+            })
+            .catch(() => showToast('❌ Failed to reject request', 'error'));
+        }
+    </script>
 </body>
 </html>
