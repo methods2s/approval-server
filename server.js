@@ -198,7 +198,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// HWID CODE MANAGEMENT (NEW)
+// HWID CODE MANAGEMENT
 // ============================================
 
 // ADMIN: Add HWID Code
@@ -276,6 +276,48 @@ app.post('/api/verify-hwid', async (req, res) => {
     } catch (error) {
         console.error('Verify HWID error:', error);
         res.status(500).json({ error: 'Verification failed' });
+    }
+});
+
+// ============================================
+// UPDATE HWID (NEW)
+// ============================================
+
+app.put('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
+    const { code } = req.params;
+    const { hwid } = req.body;
+    
+    try {
+        // Check if HWID is already used by another code
+        if (hwid) {
+            const existing = await db.get(
+                'SELECT * FROM codes WHERE hwid = $1 AND code != $2',
+                [hwid, code]
+            );
+            if (existing) {
+                return res.status(400).json({ 
+                    error: `HWID is already assigned to code: ${existing.code}` 
+                });
+            }
+        }
+        
+        await db.run(
+            'UPDATE codes SET hwid = $1 WHERE code = $2',
+            [hwid || null, code]
+        );
+        
+        await db.logUsage('admin', code, 'hwid_updated', 
+            `HWID updated for code ${code} by ${req.session.username}`);
+        
+        await db.refreshCache();
+        
+        res.json({ 
+            success: true, 
+            message: `HWID updated for code ${code}` 
+        });
+    } catch (error) {
+        console.error('Update HWID error:', error);
+        res.status(500).json({ error: 'Failed to update HWID' });
     }
 });
 
@@ -789,6 +831,7 @@ app.post('/api/code/:code/deactivate', isApiAuthenticated, async (req, res) => {
 // DEVICE MANAGEMENT
 // ============================================
 
+// REMOVE DEVICE - DELETE (Permanent)
 app.delete('/api/device/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
   
@@ -798,14 +841,14 @@ app.delete('/api/device/:deviceId', async (req, res) => {
     if (success) {
       res.json({ 
         success: true, 
-        message: `User removed`
+        message: `Device removed successfully`
       });
     } else {
       res.status(404).json({ error: 'Device not found' });
     }
   } catch (error) {
-    console.error('Remove user error:', error);
-    res.status(500).json({ error: 'Failed to remove user' });
+    console.error('Remove device error:', error);
+    res.status(500).json({ error: 'Failed to remove device' });
   }
 });
 
