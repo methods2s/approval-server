@@ -91,7 +91,6 @@ app.get('/real_automation.js', (req, res) => {
                 return res.status(403).send('Access Denied: Code Deactivated');
             }
 
-            // Check if code is expired
             if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
                 const now = new Date();
                 const expires = new Date(codeInfo.expires_at);
@@ -156,7 +155,6 @@ app.get('/logout', (req, res) => {
 
 app.get('/dashboard', isAuthenticated, async (req, res) => {
   try {
-    // Run cleanup on dashboard load
     await db.cleanupInactiveDevices();
     
     const cached = db.getCachedData();
@@ -200,11 +198,93 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - WITH FULL ACCOUNT INFO
+// HWID CODE MANAGEMENT (NEW)
+// ============================================
+
+// ADMIN: Add HWID Code
+app.post('/api/admin/add-hwid-code', isApiAuthenticated, async (req, res) => {
+    const { code, hwid, fingerprint, username, accessLevel, subscriptionType } = req.body;
+    
+    if (!code || !hwid || !username) {
+        return res.status(400).json({ 
+            error: 'Code, HWID, and Username are required' 
+        });
+    }
+    
+    if (hwid.length !== 64) {
+        return res.status(400).json({ 
+            error: 'HWID must be exactly 64 characters' 
+        });
+    }
+    
+    try {
+        const result = await db.addHwidCode(
+            code.toUpperCase(),
+            hwid,
+            fingerprint || hwid.substring(0, 16) + '...',
+            username.trim(),
+            accessLevel || 'VIP',
+            subscriptionType || 'Lifetime',
+            req.session.username
+        );
+        
+        if (result.success) {
+            res.json({
+                success: true,
+                message: `Code ${code} added for ${username}`,
+                code: result.code,
+                username: result.username,
+                hwid: hwid.substring(0, 16) + '...',
+                access: result.access,
+                subscription: result.subscription
+            });
+        } else {
+            res.status(400).json({ error: result.error });
+        }
+    } catch (error) {
+        console.error('Add HWID code error:', error);
+        res.status(500).json({ error: 'Failed to add code' });
+    }
+});
+
+// ADMIN: Get HWID Codes
+app.get('/api/admin/hwid-codes', isApiAuthenticated, async (req, res) => {
+    try {
+        const codes = await db.getHwidCodes();
+        const masked = codes.map(c => ({
+            ...c,
+            hwid: c.hwid ? c.hwid.substring(0, 16) + '...' : null
+        }));
+        res.json(masked);
+    } catch (error) {
+        console.error('Get HWID codes error:', error);
+        res.status(500).json({ error: 'Failed to get codes' });
+    }
+});
+
+// Verify HWID
+app.post('/api/verify-hwid', async (req, res) => {
+    const { hwid, code } = req.body;
+    
+    if (!hwid || !code) {
+        return res.status(400).json({ error: 'HWID and code are required' });
+    }
+    
+    try {
+        const result = await db.verifyHwidCode(code.toUpperCase(), hwid);
+        res.json(result);
+    } catch (error) {
+        console.error('Verify HWID error:', error);
+        res.status(500).json({ error: 'Verification failed' });
+    }
+});
+
+// ============================================
+// REGISTER DEVICE - WITH HWID VERIFICATION
 // ============================================
 
 app.post('/api/register', async (req, res) => {
-  const { deviceId, userAgent, browserInfo, code } = req.body;
+  const { deviceId, userAgent, browserInfo, code, hwid } = req.body;
   
   if (!deviceId) {
     return res.status(400).json({ error: 'Device ID is required' });
@@ -214,10 +294,27 @@ app.post('/api/register', async (req, res) => {
     return res.status(400).json({ error: 'Activation code is required' });
   }
 
+  // Check if HWID is provided
+  if (!hwid) {
+    return res.status(403).json({
+      error: '❌ This computer is not registered. Please run the Python software first.',
+      status: 'hwid_required'
+    });
+  }
+
+  // Verify HWID matches the code
+  const hwidCheck = await db.verifyHwidCode(code.toUpperCase(), hwid);
+  if (!hwidCheck.valid) {
+    return res.status(403).json({
+      error: '❌ Invalid code or this computer is not authorized.',
+      status: 'hwid_mismatch'
+    });
+  }
+
   const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
   
   try {
-    const result = await db.registerDeviceWithCode(deviceId, userAgent || '', ip, browserInfo || '', code.toUpperCase());
+    const result = await db.registerDeviceWithCode(deviceId, userAgent || '', ip, browserInfo || '', code.toUpperCase(), hwid);
     
     if (!result.success) {
       return res.status(400).json({ 
@@ -236,6 +333,7 @@ app.post('/api/register', async (req, res) => {
       subscription_started_at: result.subscription_started_at,
       subscription_expires_at: result.subscription_expires_at,
       status_code: result.status_code,
+      hwid_verified: true,
       message: `Device registered and auto-approved!`
     });
   } catch (error) {
@@ -305,7 +403,6 @@ app.get('/api/status/:deviceId', async (req, res) => {
       });
     }
 
-    // Check expiration
     if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
       const now = new Date();
       const expires = new Date(codeInfo.expires_at);
@@ -467,7 +564,6 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
   }
   
   try {
-    // Check if username already exists
     const existing = await db.get(
       'SELECT * FROM codes WHERE username = $1',
       [username.trim()]
@@ -511,7 +607,6 @@ app.put('/api/code/:code/username', isApiAuthenticated, async (req, res) => {
   }
   
   try {
-    // Check if new username is already taken by another code
     const existing = await db.get(
       'SELECT * FROM codes WHERE username = $1 AND code != $2',
       [username.trim(), code]
