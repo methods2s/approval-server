@@ -1100,6 +1100,7 @@ app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
         const limit = await db.getCodeHwidLimit(code);
         const count = await db.getCodeHwidCount(code);
         
+        // ENSURE hwids is an array
         const hwidArray = Array.isArray(hwids) ? hwids : [];
         
         const masked = hwidArray.map(h => ({
@@ -1120,7 +1121,7 @@ app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
         console.error('Get HWIDs error:', error);
         res.status(500).json({ 
             success: false, 
-            error: 'Failed to get HWIDs',
+            error: 'Failed to get HWIDs: ' + error.message,
             hwids: [],
             max_hwid_limit: 1,
             current_count: 0,
