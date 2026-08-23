@@ -1,4 +1,4 @@
-// server.js - Complete with hardware update UNCOMMENTED
+// server.js - Complete with hardware update REMOVED from codes table
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -239,7 +239,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - WITH HARDWARE UPDATE
+// REGISTER DEVICE - WITH HARDWARE UPDATE REMOVED FROM CODES TABLE
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -396,29 +396,9 @@ app.post('/api/register', async (req, res) => {
         console.log(`   Device: ${deviceName}`);
 
         // ============================================
-        // UPDATE CODES TABLE WITH HARDWARE SPECS
+        // REMOVED: Update codes table with hardware specs
+        // Hardware specs will ONLY be stored in devices table
         // ============================================
-        await db.run(
-            `UPDATE codes SET 
-                cpu_name = $1,
-                gpu_name = $2,
-                ram_total_gb = $3,
-                storage_total_gb = $4,
-                device_name = $5,
-                profile_name = $6,
-                hwid = $7
-            WHERE code = $8`,
-            [
-                cpuName,
-                gpuName,
-                ramTotal,
-                storageTotal,
-                deviceName,
-                profileName,
-                hwid,
-                code.toUpperCase()
-            ]
-        );
 
         // Check if device already exists
         const existingDevice = await db.getDevice(deviceId);
@@ -434,9 +414,15 @@ app.post('/api/register', async (req, res) => {
                     status = 'approved',
                     updated_at = CURRENT_TIMESTAMP,
                     browser_profile = $6,
+                    cpu_name = $7,
+                    gpu_name = $8,
+                    ram_total_gb = $9,
+                    storage_total_gb = $10,
+                    profile_name = $11,
+                    device_name = $12,
                     approved_at = CURRENT_TIMESTAMP,
                     revoked_at = NULL
-                WHERE device_id = $7`,
+                WHERE device_id = $13`,
                 [
                     userAgent || '',
                     ip,
@@ -444,6 +430,12 @@ app.post('/api/register', async (req, res) => {
                     code.toUpperCase(),
                     hwid,
                     profileName,
+                    cpuName,
+                    gpuName,
+                    ramTotal,
+                    storageTotal,
+                    profileName,
+                    deviceName,
                     deviceId
                 ]
             );
@@ -458,8 +450,14 @@ app.post('/api/register', async (req, res) => {
                     hwid,
                     status, 
                     approved_at,
-                    browser_profile
-                ) VALUES ($1, $2, $3, $4, $5, $6, 'approved', CURRENT_TIMESTAMP, $7)`,
+                    browser_profile,
+                    cpu_name,
+                    gpu_name,
+                    ram_total_gb,
+                    storage_total_gb,
+                    profile_name,
+                    device_name
+                ) VALUES ($1, $2, $3, $4, $5, $6, 'approved', CURRENT_TIMESTAMP, $7, $8, $9, $10, $11, $12, $13)`,
                 [
                     deviceId,
                     userAgent || '',
@@ -467,7 +465,13 @@ app.post('/api/register', async (req, res) => {
                     JSON.stringify(parsedBrowserInfo),
                     code.toUpperCase(),
                     hwid,
-                    profileName
+                    profileName,
+                    cpuName,
+                    gpuName,
+                    ramTotal,
+                    storageTotal,
+                    profileName,
+                    deviceName
                 ]
             );
         }
