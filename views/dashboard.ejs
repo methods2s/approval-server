@@ -285,7 +285,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: PROFILES (SIMPLIFIED) -->
+        <!-- TAB: PROFILES -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-profiles">
             <div class="card">
@@ -332,7 +332,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID MANAGER (WITH HARDWARE SPECS) -->
+        <!-- TAB: HWID MANAGER (COMPLETE FIX) -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwid">
             <div class="card">
@@ -379,7 +379,7 @@
                     
                     <!-- HARDWARE SPECS SUMMARY -->
                     <div id="hwid-hardware-summary" style="display:block;background:rgba(255,255,255,0.05);padding:15px;border-radius:8px;margin-bottom:15px;border:1px solid rgba(255,255,255,0.08);">
-                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
                             <div>
                                 <div class="hw-spec-label">🔧 CPU</div>
                                 <div class="hw-spec-value" id="hw-spec-cpu" style="color:#4CAF50;">N/A</div>
@@ -409,9 +409,6 @@
                     
                     <div id="hwid-limit-status" style="text-align:center;padding:8px;border-radius:6px;margin-bottom:15px;display:none;"></div>
                 </div>
-
-                <!-- REMOVED: Add New HWID Section -->
-                <!-- REMOVED: Assigned At, Last Used, Auto-Assigned columns -->
 
                 <div id="hwid-list-section" style="display:none;">
                     <h4>📋 Assigned Computers</h4>
@@ -807,7 +804,7 @@
         }
 
         // ============================================
-        // HWID MANAGEMENT FUNCTIONS
+        // HWID MANAGEMENT FUNCTIONS - COMPLETE FIX
         // ============================================
 
         function populateHwidCodeDropdown() {
@@ -838,29 +835,38 @@
             }
             
             try {
+                // Show loading
+                document.getElementById('hwid-info').style.display = 'block';
+                document.getElementById('hwid-list-section').style.display = 'block';
+                document.getElementById('hwid-list-body').innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">Loading...</td></tr>';
+                
+                // Get HWID limit
                 const limitResponse = await fetch(`/api/code/${code}/hwid-limit`);
                 const limitData = await limitResponse.json();
                 
+                // Get all devices for this code
                 const devicesResponse = await fetch('/api/dashboard-data');
                 const devicesData = await devicesResponse.json();
                 const allDevicesForCode = (devicesData.devices || []).filter(d => d.code === code);
                 
-                document.getElementById('hwid-info').style.display = 'block';
-                document.getElementById('hwid-list-section').style.display = 'block';
+                // Get HWIDs
+                const hwidResponse = await fetch(`/api/code/${code}/hwids`);
+                const hwidData = await hwidResponse.json();
                 
-                const currentCount = limitData.current_hwid_count || 0;
+                const currentCount = hwidData.hwids ? hwidData.hwids.length : 0;
                 const maxLimit = limitData.max_hwid_limit || 1;
-                const availableSlots = limitData.available_slots || 0;
+                const availableSlots = maxLimit - currentCount;
                 
                 document.getElementById('hwid-current-count').textContent = currentCount;
                 document.getElementById('hwid-max-limit').textContent = maxLimit;
-                document.getElementById('hwid-available-slots').textContent = availableSlots;
+                document.getElementById('hwid-available-slots').textContent = availableSlots < 0 ? 0 : availableSlots;
                 document.getElementById('hwid-total-profiles').textContent = allDevicesForCode.length || 0;
                 document.getElementById('hwid-limit-input').value = maxLimit;
                 
                 // Get code info for hardware specs
                 const codeInfo = allCodes.find(c => c.code === code);
                 
+                // Update hardware specs from the FIRST device (or code info)
                 if (codeInfo) {
                     document.getElementById('hw-spec-cpu').textContent = codeInfo.cpu_name || 'N/A';
                     document.getElementById('hw-spec-gpu').textContent = codeInfo.gpu_name || 'N/A';
@@ -869,14 +875,26 @@
                     document.getElementById('hw-spec-device').textContent = codeInfo.device_name || 'N/A';
                     document.getElementById('hw-spec-profile').textContent = codeInfo.profile_name || 'N/A';
                 } else {
-                    document.getElementById('hw-spec-cpu').textContent = 'N/A';
-                    document.getElementById('hw-spec-gpu').textContent = 'N/A';
-                    document.getElementById('hw-spec-ram').textContent = 'N/A';
-                    document.getElementById('hw-spec-storage').textContent = 'N/A';
-                    document.getElementById('hw-spec-device').textContent = 'N/A';
-                    document.getElementById('hw-spec-profile').textContent = 'N/A';
+                    // Try to get from devices
+                    const firstDevice = allDevicesForCode[0];
+                    if (firstDevice) {
+                        document.getElementById('hw-spec-cpu').textContent = firstDevice.cpu_name || 'N/A';
+                        document.getElementById('hw-spec-gpu').textContent = firstDevice.gpu_name || 'N/A';
+                        document.getElementById('hw-spec-ram').textContent = firstDevice.ram_total_gb ? firstDevice.ram_total_gb + ' GB' : 'N/A';
+                        document.getElementById('hw-spec-storage').textContent = firstDevice.storage_total_gb ? firstDevice.storage_total_gb + ' GB' : 'N/A';
+                        document.getElementById('hw-spec-device').textContent = firstDevice.device_name || 'N/A';
+                        document.getElementById('hw-spec-profile').textContent = firstDevice.browser_profile || 'N/A';
+                    } else {
+                        document.getElementById('hw-spec-cpu').textContent = 'N/A';
+                        document.getElementById('hw-spec-gpu').textContent = 'N/A';
+                        document.getElementById('hw-spec-ram').textContent = 'N/A';
+                        document.getElementById('hw-spec-storage').textContent = 'N/A';
+                        document.getElementById('hw-spec-device').textContent = 'N/A';
+                        document.getElementById('hw-spec-profile').textContent = 'N/A';
+                    }
                 }
                 
+                // Update limit status
                 const statusEl = document.getElementById('hwid-limit-status');
                 if (availableSlots <= 0) {
                     statusEl.style.display = 'block';
@@ -894,18 +912,22 @@
                     statusEl.style.display = 'none';
                 }
                 
-                const hwidResponse = await fetch(`/api/code/${code}/hwids`);
-                const hwidData = await hwidResponse.json();
-                renderHwidList(hwidData, allDevicesForCode, codeInfo);
+                // Render HWID list
+                renderHwidList(hwidData, allDevicesForCode);
                 
             } catch (error) {
                 console.error('Load HWID details error:', error);
+                document.getElementById('hwid-list-body').innerHTML = `<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">❌ Error loading HWIDs: ${error.message}</td></tr>`;
                 showMessage('❌ Error loading HWID details: ' + error.message, 'error');
             }
         }
 
-        function renderHwidList(hwids, devices, codeInfo) {
+        function renderHwidList(hwidData, devices) {
             const tbody = document.getElementById('hwid-list-body');
+            
+            // Check if hwidData has hwids array
+            const hwids = (hwidData && hwidData.hwids && Array.isArray(hwidData.hwids)) ? hwidData.hwids : [];
+            
             if (!hwids || hwids.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">No HWIDs assigned to this code</td></tr>';
                 return;
@@ -913,23 +935,25 @@
             
             tbody.innerHTML = hwids.map((h, index) => {
                 const deviceCount = devices ? devices.filter(d => d.hwid === h.hwid && d.status === 'approved').length : 0;
-                const btnId = 'remove-hwid-btn-' + index + '-' + Date.now();
-                const hasDevices = deviceCount > 0;
+                const canRemove = hwids.length > 1;
                 
-                const cpu = codeInfo?.cpu_name || 'N/A';
-                const gpu = codeInfo?.gpu_name || 'N/A';
-                const ram = codeInfo?.ram_total_gb ? codeInfo.ram_total_gb + ' GB' : 'N/A';
-                const storage = codeInfo?.storage_total_gb ? codeInfo.storage_total_gb + ' GB' : 'N/A';
-                const device = codeInfo?.device_name || 'N/A';
+                // Get hardware specs from devices
+                const device = devices ? devices.find(d => d.hwid === h.hwid) : null;
+                const cpu = device?.cpu_name || 'N/A';
+                const gpu = device?.gpu_name || 'N/A';
+                const ram = device?.ram_total_gb ? device.ram_total_gb + ' GB' : 'N/A';
+                const storage = device?.storage_total_gb ? device.storage_total_gb + ' GB' : 'N/A';
+                const deviceName = device?.device_name || 'N/A';
+                const profile = device?.browser_profile || 'N/A';
                 
                 return `
-                    <tr id="hwid-row-${index}">
+                    <tr>
                         <td>${index + 1}</td>
                         <td><code style="font-size:11px;">${h.hwid_masked || h.hwid.substring(0,16) + '...'}</code></td>
                         <td>
                             <span class="device-count-badge">
                                 ${deviceCount} ${deviceCount === 1 ? 'Profile' : 'Profiles'}
-                                ${hasDevices ? '👤' : ''}
+                                ${deviceCount > 0 ? '👤' : ''}
                             </span>
                         </td>
                         <td style="font-size:11px;">
@@ -937,16 +961,56 @@
                             <span class="hw-spec-item hw-spec-gpu">GPU: ${gpu}</span>
                             <span class="hw-spec-item hw-spec-ram">RAM: ${ram}</span>
                             <span class="hw-spec-item hw-spec-storage">Storage: ${storage}</span>
-                            <span class="hw-spec-item hw-spec-device">Device: ${device}</span>
+                            <span class="hw-spec-item hw-spec-device">Device: ${deviceName}</span>
+                            <span class="hw-spec-item hw-spec-profile">Profile: ${profile}</span>
                         </td>
                         <td>
-                            <button id="${btnId}" onclick="removeHwid('${h.hwid}', '${index}')" class="btn-small btn-danger" ${hwids.length <= 1 ? 'disabled title="Cannot remove the last HWID"' : ''}>
-                                🗑️ Remove
-                            </button>
+                            ${canRemove ? `
+                                <button onclick="removeHwid('${h.hwid}')" class="btn-small btn-remove">
+                                    🗑️ Remove
+                                </button>
+                            ` : `
+                                <button class="btn-small" style="background:#555;color:#888;cursor:not-allowed;" disabled>
+                                    🔒 Last HWID
+                                </button>
+                            `}
                         </td>
                     </tr>
                 `;
             }).join('');
+        }
+
+        async function removeHwid(hwid) {
+            const code = document.getElementById('hwid-code-select').value;
+            
+            if (!code || !hwid) {
+                showMessage('❌ Invalid code or HWID', 'error');
+                return;
+            }
+            
+            if (!confirm(`⚠️ Remove this computer (HWID: ${hwid.substring(0,16)}...)?\n\nThis will revoke access for this computer.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/code/${code}/hwid/${hwid}`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    setTimeout(() => hideMessage(), 2000);
+                    // Reload everything
+                    await loadHwidDetails();
+                    await loadAll();
+                    await loadDevices();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
         }
 
         async function updateHwidLimit() {
@@ -981,68 +1045,6 @@
                 }
             } catch (error) {
                 showMessage('❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        // REMOVED: addHwid function (Add New HWID removed)
-
-        async function removeHwid(hwid, rowIndex) {
-            const code = document.getElementById('hwid-code-select').value;
-            
-            try {
-                const devicesResponse = await fetch('/api/dashboard-data');
-                const devicesData = await devicesResponse.json();
-                const deviceCount = (devicesData.devices || []).filter(d => d.hwid === hwid && d.status === 'approved').length;
-                
-                if (deviceCount > 0) {
-                    if (!confirm(`⚠️ This HWID has ${deviceCount} active profile(s).\n\nRemoving this HWID will revoke access for all ${deviceCount} profile(s).\n\nContinue?`)) {
-                        return;
-                    }
-                } else {
-                    if (!confirm(`⚠️ Remove this computer (HWID: ${hwid.substring(0,16)}...)?\n\nThis will revoke access for this computer.`)) {
-                        return;
-                    }
-                }
-            } catch (error) {
-                if (!confirm(`⚠️ Remove this computer (HWID: ${hwid.substring(0,16)}...)?`)) {
-                    return;
-                }
-            }
-            
-            const btn = document.getElementById('remove-hwid-btn-' + rowIndex);
-            if (btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<span class="spinner"></span>';
-            }
-            
-            try {
-                const response = await fetch(`/api/code/${code}/hwid`, {
-                    method: 'DELETE',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ hwid })
-                });
-                const result = await response.json();
-                
-                if (result.success) {
-                    showMessage(`✅ ${result.message}`, 'success');
-                    setTimeout(() => hideMessage(), 2000);
-                    // Reload everything
-                    await loadHwidDetails();
-                    await loadAll();
-                    await loadDevices();
-                } else {
-                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
-                    if (btn) {
-                        btn.disabled = false;
-                        btn.innerHTML = '🗑️ Remove';
-                    }
-                }
-            } catch (error) {
-                showMessage('❌ Error: ' + error.message, 'error');
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '🗑️ Remove';
-                }
             }
         }
 
