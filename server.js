@@ -201,7 +201,6 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 // HWID CODE MANAGEMENT
 // ============================================
 
-// ADMIN: Add HWID Code
 app.post('/api/admin/add-hwid-code', isApiAuthenticated, async (req, res) => {
     const { code, hwid, fingerprint, username, accessLevel, subscriptionType } = req.body;
     
@@ -247,7 +246,6 @@ app.post('/api/admin/add-hwid-code', isApiAuthenticated, async (req, res) => {
     }
 });
 
-// ADMIN: Get HWID Codes
 app.get('/api/admin/hwid-codes', isApiAuthenticated, async (req, res) => {
     try {
         const codes = await db.getHwidCodes();
@@ -262,7 +260,6 @@ app.get('/api/admin/hwid-codes', isApiAuthenticated, async (req, res) => {
     }
 });
 
-// Verify HWID
 app.post('/api/verify-hwid', async (req, res) => {
     const { hwid, code } = req.body;
     
@@ -280,7 +277,7 @@ app.post('/api/verify-hwid', async (req, res) => {
 });
 
 // ============================================
-// UPDATE HWID (NEW)
+// UPDATE HWID
 // ============================================
 
 app.put('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
@@ -288,7 +285,6 @@ app.put('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
     const { hwid } = req.body;
     
     try {
-        // Check if HWID is already used by another code
         if (hwid) {
             const existing = await db.get(
                 'SELECT * FROM codes WHERE hwid = $1 AND code != $2',
@@ -322,7 +318,7 @@ app.put('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - WITH HWID VERIFICATION
+// REGISTER DEVICE - WITH AUTO-DETECTION
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -344,13 +340,102 @@ app.post('/api/register', async (req, res) => {
     });
   }
 
-  // Verify HWID matches the code
-  const hwidCheck = await db.verifyHwidCode(code.toUpperCase(), hwid);
-  if (!hwidCheck.valid) {
+  // ============================================
+  // AUTO-DETECT UNAUTHORIZED USAGE
+  // ============================================
+  
+  // Check if code exists first
+  const codeInfo = await db.get('SELECT * FROM codes WHERE code = $1', [code.toUpperCase()]);
+  
+  if (codeInfo && codeInfo.hwid && codeInfo.hwid !== hwid) {
+    console.log(`🚨 UNAUTHORIZED USAGE DETECTED!`);
+    console.log(`📌 Code: ${code}`);
+    console.log(`🖥️ Original HWID: ${codeInfo.hwid.substring(0, 16)}...`);
+    console.log(`🖥️ Attempted HWID: ${hwid.substring(0, 16)}...`);
+    console.log(`📱 Device: ${deviceId}`);
+    
+    // AUTO-DEACTIVATE the code
+    await db.deactivateCode(code.toUpperCase());
+    
+    // Log the unauthorized attempt
+    await db.logUsage(
+      deviceId, 
+      code, 
+      'unauthorized_attempt_auto_deactivated', 
+      `🚨 UNAUTHORIZED: Code ${code} used on different computer. AUTO-DEACTIVATED! Original HWID: ${codeInfo.hwid.substring(0, 16)}..., Attempted HWID: ${hwid.substring(0, 16)}...`
+    );
+    
+    // Get all devices using this code
+    const devices = await db.all(
+      'SELECT device_id FROM devices WHERE code = $1 AND status != $2',
+      [code.toUpperCase(), 'revoked']
+    );
+    
+    // Revoke all devices
+    for (const dev of devices) {
+      await db.run(
+        'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
+        ['revoked', dev.device_id]
+      );
+      await db.logUsage(
+        dev.device_id, 
+        code, 
+        'auto_revoked_due_to_unauthorized', 
+        `🔒 Device auto-revoked due to unauthorized usage of code ${code}`
+      );
+    }
+    
+    await db.refreshCache();
+    
     return res.status(403).json({
-      error: '❌ Invalid code or this computer is not authorized.',
-      status: 'hwid_mismatch'
+      error: `🚨 UNAUTHORIZED! Code ${code} has been AUTO-DEACTIVATED. This code is registered to a different computer.`,
+      status: 'unauthorized_deactivated',
+      code: code,
+      original_hwid: codeInfo.hwid.substring(0, 16) + '...',
+      devices_revoked: devices.length
     });
+  }
+  
+  // Check if HWID is already used by another code
+  if (hwid) {
+    const existingHwid = await db.get(
+      'SELECT * FROM codes WHERE hwid = $1 AND code != $2',
+      [hwid, code.toUpperCase()]
+    );
+    
+    if (existingHwid) {
+      console.log(`🚨 HWID ALREADY REGISTERED TO ANOTHER CODE!`);
+      console.log(`🖥️ HWID: ${hwid.substring(0, 16)}...`);
+      console.log(`📌 Existing Code: ${existingHwid.code}`);
+      
+      await db.logUsage(
+        deviceId, 
+        code, 
+        'hwid_already_registered_attempt', 
+        `⚠️ HWID ${hwid.substring(0, 16)}... already registered to code ${existingHwid.code}`
+      );
+      
+      return res.status(403).json({
+        error: `⚠️ This computer is already registered to code: ${existingHwid.code}`,
+        status: 'hwid_already_registered',
+        existing_code: existingHwid.code
+      });
+    }
+  }
+
+  // ============================================
+  // PROCEED WITH NORMAL REGISTRATION
+  // ============================================
+  
+  // Verify HWID matches the code (if code has HWID)
+  if (codeInfo && codeInfo.hwid) {
+    const hwidCheck = await db.verifyHwidCode(code.toUpperCase(), hwid);
+    if (!hwidCheck.valid) {
+      return res.status(403).json({
+        error: '❌ Invalid code or this computer is not authorized.',
+        status: 'hwid_mismatch'
+      });
+    }
   }
 
   const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
@@ -376,7 +461,7 @@ app.post('/api/register', async (req, res) => {
       subscription_expires_at: result.subscription_expires_at,
       status_code: result.status_code,
       hwid_verified: true,
-      message: `Device registered and auto-approved!`
+      message: `✅ Device registered and auto-approved!`
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -831,7 +916,6 @@ app.post('/api/code/:code/deactivate', isApiAuthenticated, async (req, res) => {
 // DEVICE MANAGEMENT
 // ============================================
 
-// REMOVE DEVICE - DELETE (Permanent)
 app.delete('/api/device/:deviceId', async (req, res) => {
   const { deviceId } = req.params;
   

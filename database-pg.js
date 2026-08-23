@@ -196,7 +196,124 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // HWID CODE MANAGEMENT (NEW)
+  // AUTO-DETECT UNAUTHORIZED HWID USAGE
+  // ============================================
+
+  async autoDetectUnauthorizedUsage(code, newHwid, deviceId) {
+    try {
+      // Get the code info
+      const codeInfo = await this.get('SELECT * FROM codes WHERE code = $1', [code]);
+      
+      if (!codeInfo) {
+        return { 
+          detected: false, 
+          message: 'Code not found' 
+        };
+      }
+      
+      // Check if the code is already assigned to a different HWID
+      if (codeInfo.hwid && codeInfo.hwid !== newHwid) {
+        console.log(`🚨 UNAUTHORIZED USAGE DETECTED!`);
+        console.log(`📌 Code: ${code}`);
+        console.log(`🖥️ Original HWID: ${codeInfo.hwid.substring(0, 16)}...`);
+        console.log(`🖥️ Attempted HWID: ${newHwid.substring(0, 16)}...`);
+        console.log(`📱 Device: ${deviceId}`);
+        
+        // Log the unauthorized attempt
+        await this.logUsage(
+          deviceId, 
+          code, 
+          'unauthorized_attempt', 
+          `⚠️ UNAUTHORIZED: Code ${code} attempted on different computer. Original HWID: ${codeInfo.hwid.substring(0, 16)}..., Attempted HWID: ${newHwid.substring(0, 16)}...`
+        );
+        
+        // AUTO-DEACTIVATE the code
+        await this.deactivateCode(code);
+        
+        // Log the deactivation
+        await this.logUsage(
+          'system', 
+          code, 
+          'auto_deactivated', 
+          `🔒 AUTO-DEACTIVATED: Code ${code} was deactivated due to unauthorized usage on different computer.`
+        );
+        
+        // Get all devices using this code
+        const devices = await this.all(
+          'SELECT device_id FROM devices WHERE code = $1',
+          [code]
+        );
+        
+        // Revoke all devices
+        for (const dev of devices) {
+          await this.run(
+            'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
+            ['revoked', dev.device_id]
+          );
+          await this.logUsage(
+            dev.device_id, 
+            code, 
+            'auto_revoked', 
+            `🔒 Device auto-revoked due to unauthorized usage of code ${code}`
+          );
+        }
+        
+        await this.refreshCache();
+        
+        return {
+          detected: true,
+          action: 'deactivated',
+          code: code,
+          original_hwid: codeInfo.hwid,
+          attempted_hwid: newHwid,
+          devices_revoked: devices.length,
+          message: `⚠️ UNAUTHORIZED! Code ${code} has been auto-deactivated. ${devices.length} devices revoked.`
+        };
+      }
+      
+      // Check if HWID is already used by another code
+      const existingHwid = await this.get(
+        'SELECT * FROM codes WHERE hwid = $1 AND code != $2',
+        [newHwid, code]
+      );
+      
+      if (existingHwid) {
+        console.log(`🚨 HWID ALREADY REGISTERED TO ANOTHER CODE!`);
+        console.log(`🖥️ HWID: ${newHwid.substring(0, 16)}...`);
+        console.log(`📌 Existing Code: ${existingHwid.code}`);
+        
+        await this.logUsage(
+          deviceId, 
+          code, 
+          'hwid_already_registered', 
+          `⚠️ HWID ${newHwid.substring(0, 16)}... already registered to code ${existingHwid.code}`
+        );
+        
+        return {
+          detected: true,
+          action: 'blocked',
+          code: code,
+          existing_code: existingHwid.code,
+          message: `⚠️ This computer is already registered to code: ${existingHwid.code}`
+        };
+      }
+      
+      return {
+        detected: false,
+        message: 'No unauthorized usage detected'
+      };
+      
+    } catch (error) {
+      console.error('Auto-detect unauthorized usage error:', error);
+      return { 
+        detected: false, 
+        error: error.message 
+      };
+    }
+  }
+
+  // ============================================
+  // HWID CODE MANAGEMENT
   // ============================================
 
   async getCodeByHwid(hwid) {
