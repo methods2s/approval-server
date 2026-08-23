@@ -81,7 +81,9 @@ class DeviceDatabase {
 
   async initTables() {
     try {
-      // Codes table with hardware specs columns
+      // ============================================
+      // CODES TABLE - WITH ALL HARDWARE SPECS COLUMNS
+      // ============================================
       await this.query(`
         CREATE TABLE IF NOT EXISTS codes (
           code TEXT PRIMARY KEY,
@@ -110,7 +112,9 @@ class DeviceDatabase {
         )
       `);
 
-      // Add missing columns if they don't exist
+      // ============================================
+      // ADD ALL MISSING COLUMNS - THIS WILL ADD THEM IF NOT EXISTS
+      // ============================================
       const columnsToAdd = [
         { name: 'username', type: 'TEXT' },
         { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
@@ -133,12 +137,15 @@ class DeviceDatabase {
       for (const col of columnsToAdd) {
         try {
           await this.query(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
+          console.log(`✅ Added column: ${col.name}`);
         } catch (e) {
-          // Column might already exist
+          console.log(`⚠️ Could not add column ${col.name}: ${e.message}`);
         }
       }
 
-      // code_hwids table
+      // ============================================
+      // CODE_HWIDS TABLE
+      // ============================================
       await this.query(`
         CREATE TABLE IF NOT EXISTS code_hwids (
           id SERIAL PRIMARY KEY,
@@ -150,7 +157,9 @@ class DeviceDatabase {
         )
       `);
 
-      // Devices table - simplified
+      // ============================================
+      // DEVICES TABLE - SIMPLIFIED
+      // ============================================
       await this.query(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -180,12 +189,15 @@ class DeviceDatabase {
       for (const col of deviceColumns) {
         try {
           await this.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
+          console.log(`✅ Added column: ${col.name} to devices`);
         } catch (e) {
-          // Column might already exist
+          console.log(`⚠️ Could not add column ${col.name}: ${e.message}`);
         }
       }
 
-      // Requests table
+      // ============================================
+      // REQUESTS TABLE
+      // ============================================
       await this.query(`
         CREATE TABLE IF NOT EXISTS requests (
           id SERIAL PRIMARY KEY,
@@ -199,7 +211,9 @@ class DeviceDatabase {
         )
       `);
 
-      // Usage logs table
+      // ============================================
+      // USAGE LOGS TABLE
+      // ============================================
       await this.query(`
         CREATE TABLE IF NOT EXISTS usage_logs (
           id SERIAL PRIMARY KEY,
@@ -211,7 +225,9 @@ class DeviceDatabase {
         )
       `);
 
-      // Admins table
+      // ============================================
+      // ADMINS TABLE
+      // ============================================
       await this.query(`
         CREATE TABLE IF NOT EXISTS admins (
           id SERIAL PRIMARY KEY,
@@ -221,7 +237,9 @@ class DeviceDatabase {
         )
       `);
 
-      // Indexes
+      // ============================================
+      // INDEXES
+      // ============================================
       await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
