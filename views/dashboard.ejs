@@ -106,13 +106,6 @@
         .hw-spec-label { font-size: 10px; color: #888; }
         .hw-spec-value { font-weight: bold; color: #e0e0e0; }
         
-        /* Deactivation Reason Colors */
-        .reason-multiple-hwids { color: #f44336; }
-        .reason-limit-exceeded { color: #f44336; }
-        .reason-unauthorized { color: #f44336; }
-        .reason-inactive { color: #FF9800; }
-        .reason-expired { color: #FF9800; }
-        
         @media (max-width: 768px) { .form-row { flex-direction: column; } .stats-grid { grid-template-columns: repeat(2, 1fr); } }
     </style>
 </head>
@@ -292,7 +285,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: PROFILES (REMOVED IP AND CREATED) -->
+        <!-- TAB: PROFILES (SIMPLIFIED) -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-profiles">
             <div class="card">
@@ -385,7 +378,7 @@
                     </div>
                     
                     <!-- HARDWARE SPECS SUMMARY -->
-                    <div id="hwid-hardware-summary" style="display:none;background:rgba(255,255,255,0.05);padding:15px;border-radius:8px;margin-bottom:15px;border:1px solid rgba(255,255,255,0.08);">
+                    <div id="hwid-hardware-summary" style="display:block;background:rgba(255,255,255,0.05);padding:15px;border-radius:8px;margin-bottom:15px;border:1px solid rgba(255,255,255,0.08);">
                         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
                             <div>
                                 <div class="hw-spec-label">🔧 CPU</div>
@@ -417,20 +410,8 @@
                     <div id="hwid-limit-status" style="text-align:center;padding:8px;border-radius:6px;margin-bottom:15px;display:none;"></div>
                 </div>
 
-                <div id="hwid-add-section" style="display:none;margin-bottom:15px;">
-                    <h4>➕ Add New Computer (HWID)</h4>
-                    <div class="form-row">
-                        <div class="form-group" style="flex:3;">
-                            <label>HWID (64 characters)</label>
-                            <input type="text" id="hwid-add-input" placeholder="Enter 64-character HWID" style="font-family:monospace;font-size:12px;">
-                        </div>
-                        <div class="form-group" style="flex:1;">
-                            <label>&nbsp;</label>
-                            <button onclick="addHwid()" class="btn-success" style="padding:10px 25px;width:100%;">➕ Add HWID</button>
-                        </div>
-                    </div>
-                    <div id="hwid-add-result" class="mt-10" style="display:none;"></div>
-                </div>
+                <!-- REMOVED: Add New HWID Section -->
+                <!-- REMOVED: Assigned At, Last Used, Auto-Assigned columns -->
 
                 <div id="hwid-list-section" style="display:none;">
                     <h4>📋 Assigned Computers</h4>
@@ -440,16 +421,13 @@
                                 <tr>
                                     <th>#</th>
                                     <th>HWID (masked)</th>
-                                    <th>Assigned At</th>
-                                    <th>Last Used</th>
-                                    <th>Auto-Assigned</th>
                                     <th>Profiles</th>
                                     <th>Hardware Specs</th>
                                     <th>Action</th>
                                 </tr>
                             </thead>
                             <tbody id="hwid-list-body">
-                                <tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">No HWIDs assigned</td></tr>
+                                <tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">No HWIDs assigned</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -594,7 +572,7 @@
         }
 
         // ============================================
-        // RENDER PROFILES (REMOVED IP AND CREATED)
+        // RENDER PROFILES
         // ============================================
         function renderDevices() {
             const tbody = document.getElementById('devices-body');
@@ -662,7 +640,6 @@
                 const statusText = c.status || 'active';
                 const isAutoDeactivated = !c.is_active && (statusText.includes('auto_deactivated') || statusText === 'inactive');
                 const deactivationReason = !c.is_active ? getDeactivationReason(statusText) : '';
-                const reasonClass = !c.is_active ? getDeactivationClass(statusText) : '';
                 
                 if (isEditing) {
                     return `
@@ -856,9 +833,7 @@
             const code = document.getElementById('hwid-code-select').value;
             if (!code) {
                 document.getElementById('hwid-info').style.display = 'none';
-                document.getElementById('hwid-add-section').style.display = 'none';
                 document.getElementById('hwid-list-section').style.display = 'none';
-                document.getElementById('hwid-hardware-summary').style.display = 'none';
                 return;
             }
             
@@ -871,7 +846,6 @@
                 const allDevicesForCode = (devicesData.devices || []).filter(d => d.code === code);
                 
                 document.getElementById('hwid-info').style.display = 'block';
-                document.getElementById('hwid-add-section').style.display = 'block';
                 document.getElementById('hwid-list-section').style.display = 'block';
                 
                 const currentCount = limitData.current_hwid_count || 0;
@@ -888,7 +862,6 @@
                 const codeInfo = allCodes.find(c => c.code === code);
                 
                 if (codeInfo) {
-                    document.getElementById('hwid-hardware-summary').style.display = 'block';
                     document.getElementById('hw-spec-cpu').textContent = codeInfo.cpu_name || 'N/A';
                     document.getElementById('hw-spec-gpu').textContent = codeInfo.gpu_name || 'N/A';
                     document.getElementById('hw-spec-ram').textContent = codeInfo.ram_total_gb ? codeInfo.ram_total_gb + ' GB' : 'N/A';
@@ -896,7 +869,6 @@
                     document.getElementById('hw-spec-device').textContent = codeInfo.device_name || 'N/A';
                     document.getElementById('hw-spec-profile').textContent = codeInfo.profile_name || 'N/A';
                 } else {
-                    document.getElementById('hwid-hardware-summary').style.display = 'block';
                     document.getElementById('hw-spec-cpu').textContent = 'N/A';
                     document.getElementById('hw-spec-gpu').textContent = 'N/A';
                     document.getElementById('hw-spec-ram').textContent = 'N/A';
@@ -935,12 +907,11 @@
         function renderHwidList(hwids, devices, codeInfo) {
             const tbody = document.getElementById('hwid-list-body');
             if (!hwids || hwids.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">No HWIDs assigned to this code</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">No HWIDs assigned to this code</td></tr>';
                 return;
             }
             
             tbody.innerHTML = hwids.map((h, index) => {
-                const isAutoAssigned = index === 0 && hwids.length === 1;
                 const deviceCount = devices ? devices.filter(d => d.hwid === h.hwid && d.status === 'approved').length : 0;
                 const btnId = 'remove-hwid-btn-' + index + '-' + Date.now();
                 const hasDevices = deviceCount > 0;
@@ -955,11 +926,6 @@
                     <tr id="hwid-row-${index}">
                         <td>${index + 1}</td>
                         <td><code style="font-size:11px;">${h.hwid_masked || h.hwid.substring(0,16) + '...'}</code></td>
-                        <td>${h.assigned_at ? new Date(h.assigned_at).toLocaleString() : 'N/A'}</td>
-                        <td>${h.last_used ? new Date(h.last_used).toLocaleString() : 'Never'}</td>
-                        <td>
-                            ${isAutoAssigned ? '<span class="badge" style="background:rgba(33,150,243,0.2);color:#2196F3;">🤖 Auto</span>' : '<span class="text-muted">Manual</span>'}
-                        </td>
                         <td>
                             <span class="device-count-badge">
                                 ${deviceCount} ${deviceCount === 1 ? 'Profile' : 'Profiles'}
@@ -1018,62 +984,7 @@
             }
         }
 
-        async function addHwid() {
-            const code = document.getElementById('hwid-code-select').value;
-            const hwid = document.getElementById('hwid-add-input').value.trim();
-            const resultEl = document.getElementById('hwid-add-result');
-            
-            if (!code) {
-                showMessage('❌ Please select a code first', 'error');
-                return;
-            }
-            
-            if (!hwid) {
-                showMessage('❌ Please enter an HWID', 'error');
-                return;
-            }
-            
-            if (hwid.length !== 64) {
-                showMessage('❌ HWID must be exactly 64 characters', 'error');
-                return;
-            }
-            
-            resultEl.style.display = 'block';
-            resultEl.className = 'loading';
-            resultEl.textContent = '⏳ Adding HWID...';
-            
-            try {
-                const response = await fetch(`/api/code/${code}/hwid`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ hwid })
-                });
-                const result = await response.json();
-                
-                if (result.success) {
-                    resultEl.className = 'success';
-                    resultEl.textContent = `✅ ${result.message}`;
-                    document.getElementById('hwid-add-input').value = '';
-                    setTimeout(() => {
-                        resultEl.style.display = 'none';
-                    }, 3000);
-                    loadHwidDetails();
-                    await loadAll();
-                } else {
-                    resultEl.className = 'error';
-                    resultEl.textContent = `❌ ${result.error}`;
-                    setTimeout(() => {
-                        resultEl.style.display = 'none';
-                    }, 5000);
-                }
-            } catch (error) {
-                resultEl.className = 'error';
-                resultEl.textContent = `❌ Error: ${error.message}`;
-                setTimeout(() => {
-                    resultEl.style.display = 'none';
-                }, 5000);
-            }
-        }
+        // REMOVED: addHwid function (Add New HWID removed)
 
         async function removeHwid(hwid, rowIndex) {
             const code = document.getElementById('hwid-code-select').value;
@@ -1115,6 +1026,7 @@
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
                     setTimeout(() => hideMessage(), 2000);
+                    // Reload everything
                     await loadHwidDetails();
                     await loadAll();
                     await loadDevices();
