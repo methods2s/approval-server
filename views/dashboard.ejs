@@ -107,6 +107,24 @@
         .hw-spec-value { font-weight: bold; color: #e0e0e0; }
         
         @media (max-width: 768px) { .form-row { flex-direction: column; } .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+        
+        .btn-remove-hwid {
+            background: #f44336;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 12px;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        .btn-remove-hwid:hover {
+            background: #d32f2f;
+        }
+        .btn-remove-hwid:disabled {
+            background: #555;
+            color: #888;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -377,7 +395,7 @@
                         </div>
                     </div>
                     
-                    <!-- HARDWARE SPECS SUMMARY - GETS FROM DEVICES TABLE -->
+                    <!-- HARDWARE SPECS SUMMARY -->
                     <div id="hwid-hardware-summary" style="display:block;background:rgba(255,255,255,0.05);padding:15px;border-radius:8px;margin-bottom:15px;border:1px solid rgba(255,255,255,0.08);">
                         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
                             <div>
@@ -411,16 +429,16 @@
                 </div>
 
                 <div id="hwid-list-section" style="display:none;">
-                    <h4>📋 Assigned Computers</h4>
+                    <h4>📋 Assigned Computers <span style="font-size:12px;color:#888;font-weight:normal;">(Hardware specs from Python file)</span></h4>
                     <div class="scroll-table">
                         <table>
                             <thead>
                                 <tr>
-                                    <th>#</th>
-                                    <th>HWID (masked)</th>
-                                    <th>Profiles</th>
-                                    <th>Hardware Specs</th>
-                                    <th>Action</th>
+                                    <th style="width:40px;">#</th>
+                                    <th style="min-width:180px;">HWID</th>
+                                    <th style="width:100px;">Profiles</th>
+                                    <th style="min-width:350px;">Hardware Specs</th>
+                                    <th style="width:100px;">Action</th>
                                 </tr>
                             </thead>
                             <tbody id="hwid-list-body">
@@ -863,14 +881,10 @@
                 document.getElementById('hwid-total-profiles').textContent = allDevicesForCode.length || 0;
                 document.getElementById('hwid-limit-input').value = maxLimit;
                 
-                // ============================================
-                // FIX: Get hardware specs from DEVICES table
-                // ============================================
-                // Find the first approved device with hardware specs
+                // Get hardware specs from DEVICES table
                 const firstDevice = allDevicesForCode.find(d => d.status === 'approved' && d.cpu_name && d.cpu_name !== 'Unknown' && d.cpu_name !== 'N/A');
                 
                 if (firstDevice) {
-                    // Get specs from the first device
                     document.getElementById('hw-spec-cpu').textContent = firstDevice.cpu_name || 'N/A';
                     document.getElementById('hw-spec-gpu').textContent = firstDevice.gpu_name || 'N/A';
                     document.getElementById('hw-spec-ram').textContent = firstDevice.ram_total_gb ? firstDevice.ram_total_gb + ' GB' : 'N/A';
@@ -878,7 +892,6 @@
                     document.getElementById('hw-spec-device').textContent = firstDevice.device_name || 'N/A';
                     document.getElementById('hw-spec-profile').textContent = firstDevice.browser_profile || 'N/A';
                 } else {
-                    // Try to find any device with hardware specs
                     const anyDevice = allDevicesForCode.find(d => d.cpu_name && d.cpu_name !== 'Unknown' && d.cpu_name !== 'N/A');
                     if (anyDevice) {
                         document.getElementById('hw-spec-cpu').textContent = anyDevice.cpu_name || 'N/A';
@@ -888,7 +901,6 @@
                         document.getElementById('hw-spec-device').textContent = anyDevice.device_name || 'N/A';
                         document.getElementById('hw-spec-profile').textContent = anyDevice.browser_profile || 'N/A';
                     } else {
-                        // No device found with hardware specs
                         document.getElementById('hw-spec-cpu').textContent = 'No device registered';
                         document.getElementById('hw-spec-gpu').textContent = 'No device registered';
                         document.getElementById('hw-spec-ram').textContent = 'No device registered';
@@ -916,7 +928,7 @@
                     statusEl.style.display = 'none';
                 }
                 
-                // Render HWID list with hardware specs from devices
+                // Render HWID list
                 renderHwidList(hwidData, allDevicesForCode);
                 
             } catch (error) {
@@ -938,46 +950,51 @@
             }
             
             tbody.innerHTML = hwids.map((h, index) => {
-                // Find devices with this HWID
+                // Find ALL devices with this HWID
                 const hwidDevices = devices ? devices.filter(d => d.hwid === h.hwid) : [];
                 const approvedDevices = hwidDevices.filter(d => d.status === 'approved');
                 const deviceCount = approvedDevices.length;
                 const canRemove = hwids.length > 1;
                 
-                // Get hardware specs from the FIRST approved device with this HWID
+                // Get specs from the FIRST device with this HWID
                 const device = approvedDevices[0] || hwidDevices[0] || null;
+                
                 const cpu = device?.cpu_name || 'N/A';
                 const gpu = device?.gpu_name || 'N/A';
                 const ram = device?.ram_total_gb ? device.ram_total_gb + ' GB' : 'N/A';
                 const storage = device?.storage_total_gb ? device.storage_total_gb + ' GB' : 'N/A';
                 const deviceName = device?.device_name || 'N/A';
-                const profile = device?.browser_profile || 'N/A';
+                const profile = device?.browser_profile || 'Default';
+                const hwidFull = h.hwid || '';
+                const hwidMasked = h.hwid_masked || (hwidFull ? hwidFull.substring(0, 16) + '...' : 'N/A');
                 
                 return `
                     <tr>
-                        <td>${index + 1}</td>
-                        <td><code style="font-size:11px;">${h.hwid_masked || h.hwid.substring(0,16) + '...'}</code></td>
+                        <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
+                        <td>
+                            <code style="font-size:11px;font-weight:bold;color:#4CAF50;word-break:break-all;" title="${hwidFull}">${hwidMasked}</code>
+                        </td>
                         <td>
                             <span class="device-count-badge">
                                 ${deviceCount} ${deviceCount === 1 ? 'Profile' : 'Profiles'}
-                                ${deviceCount > 0 ? '👤' : ''}
+                                ${deviceCount > 0 ? ' 👤' : ''}
                             </span>
                         </td>
-                        <td style="font-size:11px;">
-                            <span class="hw-spec-item hw-spec-cpu">CPU: ${cpu}</span>
-                            <span class="hw-spec-item hw-spec-gpu">GPU: ${gpu}</span>
-                            <span class="hw-spec-item hw-spec-ram">RAM: ${ram}</span>
-                            <span class="hw-spec-item hw-spec-storage">Storage: ${storage}</span>
-                            <span class="hw-spec-item hw-spec-device">Device: ${deviceName}</span>
-                            <span class="hw-spec-item hw-spec-profile">Profile: ${profile}</span>
+                        <td style="font-size:11px;line-height:1.8;">
+                            <div><span class="hw-spec-item hw-spec-cpu">🔧 CPU: ${cpu}</span></div>
+                            <div><span class="hw-spec-item hw-spec-gpu">🎮 GPU: ${gpu}</span></div>
+                            <div><span class="hw-spec-item hw-spec-ram">💾 RAM: ${ram}</span></div>
+                            <div><span class="hw-spec-item hw-spec-storage">💿 Storage: ${storage}</span></div>
+                            <div><span class="hw-spec-item hw-spec-device">💻 Device: ${deviceName}</span></div>
+                            <div><span class="hw-spec-item hw-spec-profile">👤 Profile: ${profile}</span></div>
                         </td>
-                        <td>
+                        <td style="text-align:center;">
                             ${canRemove ? `
-                                <button onclick="removeHwid('${h.hwid}')" class="btn-small btn-remove">
+                                <button onclick="removeHwid('${hwidFull}')" class="btn-remove-hwid" id="remove-btn-${index}">
                                     🗑️ Remove
                                 </button>
                             ` : `
-                                <button class="btn-small" style="background:#555;color:#888;cursor:not-allowed;" disabled>
+                                <button class="btn-remove-hwid" style="background:#555;color:#888;cursor:not-allowed;" disabled>
                                     🔒 Last HWID
                                 </button>
                             `}
@@ -999,6 +1016,12 @@
                 return;
             }
             
+            // Disable all remove buttons
+            document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
+                btn.disabled = true;
+                btn.textContent = '⏳';
+            });
+            
             try {
                 const response = await fetch(`/api/code/${code}/hwid/${hwid}`, {
                     method: 'DELETE'
@@ -1014,9 +1037,19 @@
                     await loadDevices();
                 } else {
                     showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
+                    // Re-enable buttons
+                    document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
+                        btn.disabled = false;
+                        btn.textContent = '🗑️ Remove';
+                    });
                 }
             } catch (error) {
                 showMessage('❌ Error: ' + error.message, 'error');
+                // Re-enable buttons
+                document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
+                    btn.disabled = false;
+                    btn.textContent = '🗑️ Remove';
+                });
             }
         }
 
