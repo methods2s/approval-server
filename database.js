@@ -1,4 +1,4 @@
-// database-pg.js
+// database-pg.js - COMPLETE with all fixes
 const { Pool } = require('pg');
 
 class DeviceDatabase {
@@ -81,9 +81,7 @@ class DeviceDatabase {
 
   async initTables() {
     try {
-      // ============================================
-      // CODES TABLE - WITH ALL HARDWARE SPECS COLUMNS
-      // ============================================
+      // Codes table
       await this.query(`
         CREATE TABLE IF NOT EXISTS codes (
           code TEXT PRIMARY KEY,
@@ -102,19 +100,11 @@ class DeviceDatabase {
           hwid TEXT,
           fingerprint TEXT,
           machine_info JSONB,
-          max_hwid_limit INTEGER DEFAULT 1,
-          cpu_name TEXT,
-          gpu_name TEXT,
-          ram_total_gb DECIMAL,
-          storage_total_gb DECIMAL,
-          device_name TEXT,
-          profile_name TEXT
+          max_hwid_limit INTEGER DEFAULT 1
         )
       `);
 
-      // ============================================
-      // ADD ALL MISSING COLUMNS - THIS WILL ADD THEM IF NOT EXISTS
-      // ============================================
+      // Add missing columns to codes table
       const columnsToAdd = [
         { name: 'username', type: 'TEXT' },
         { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
@@ -125,27 +115,18 @@ class DeviceDatabase {
         { name: 'hwid', type: 'TEXT' },
         { name: 'fingerprint', type: 'TEXT' },
         { name: 'machine_info', type: 'JSONB' },
-        { name: 'max_hwid_limit', type: 'INTEGER DEFAULT 1' },
-        { name: 'cpu_name', type: 'TEXT' },
-        { name: 'gpu_name', type: 'TEXT' },
-        { name: 'ram_total_gb', type: 'DECIMAL' },
-        { name: 'storage_total_gb', type: 'DECIMAL' },
-        { name: 'device_name', type: 'TEXT' },
-        { name: 'profile_name', type: 'TEXT' }
+        { name: 'max_hwid_limit', type: 'INTEGER DEFAULT 1' }
       ];
 
       for (const col of columnsToAdd) {
         try {
           await this.query(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-          console.log(`✅ Added column: ${col.name}`);
         } catch (e) {
-          console.log(`⚠️ Could not add column ${col.name}: ${e.message}`);
+          // Column might already exist
         }
       }
 
-      // ============================================
-      // CODE_HWIDS TABLE
-      // ============================================
+      // code_hwids table
       await this.query(`
         CREATE TABLE IF NOT EXISTS code_hwids (
           id SERIAL PRIMARY KEY,
@@ -157,9 +138,7 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
-      // DEVICES TABLE - SIMPLIFIED
-      // ============================================
+      // Devices table with hardware specs
       await this.query(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -176,28 +155,41 @@ class DeviceDatabase {
           ping_count INTEGER DEFAULT 0,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          browser_profile TEXT
+          browser_profile TEXT,
+          cpu_name TEXT,
+          gpu_name TEXT,
+          ram_total_gb DECIMAL,
+          storage_total_gb DECIMAL,
+          profile_name TEXT,
+          device_name TEXT
         )
       `);
 
-      // Add device columns if not exist
+      // ============================================
+      // ADD HARDWARE COLUMNS TO DEVICES TABLE
+      // ============================================
       const deviceColumns = [
         { name: 'hwid', type: 'TEXT' },
-        { name: 'browser_profile', type: 'TEXT' }
+        { name: 'browser_profile', type: 'TEXT' },
+        { name: 'cpu_name', type: 'TEXT' },
+        { name: 'gpu_name', type: 'TEXT' },
+        { name: 'ram_total_gb', type: 'DECIMAL' },
+        { name: 'storage_total_gb', type: 'DECIMAL' },
+        { name: 'profile_name', type: 'TEXT' },
+        { name: 'device_name', type: 'TEXT' }
       ];
 
       for (const col of deviceColumns) {
         try {
           await this.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-          console.log(`✅ Added column: ${col.name} to devices`);
+          console.log(`✅ Added column ${col.name} to devices table`);
         } catch (e) {
-          console.log(`⚠️ Could not add column ${col.name}: ${e.message}`);
+          // Column might already exist
+          console.log(`ℹ️ Column ${col.name} already exists or error:`, e.message);
         }
       }
 
-      // ============================================
-      // REQUESTS TABLE
-      // ============================================
+      // Requests table
       await this.query(`
         CREATE TABLE IF NOT EXISTS requests (
           id SERIAL PRIMARY KEY,
@@ -211,9 +203,7 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
-      // USAGE LOGS TABLE
-      // ============================================
+      // Usage logs table
       await this.query(`
         CREATE TABLE IF NOT EXISTS usage_logs (
           id SERIAL PRIMARY KEY,
@@ -225,9 +215,7 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
-      // ADMINS TABLE
-      // ============================================
+      // Admins table
       await this.query(`
         CREATE TABLE IF NOT EXISTS admins (
           id SERIAL PRIMARY KEY,
@@ -237,9 +225,7 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
-      // INDEXES
-      // ============================================
+      // Indexes
       await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
@@ -549,11 +535,172 @@ class DeviceDatabase {
             status: status
         };
     } catch (error) {
-      console.error('Auto-deactivate code error:', error);
+        console.error('Auto-deactivate code error:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+  }
+
+  // ============================================
+  // HWID CODE MANAGEMENT
+  // ============================================
+
+  async getCodeByHwid(hwid) {
+    try {
+      return await this.get(
+        'SELECT * FROM codes WHERE hwid = $1 AND is_active = true',
+        [hwid]
+      );
+    } catch (error) {
+      console.error('Get code by HWID error:', error);
+      return null;
+    }
+  }
+
+  async verifyHwidCode(code, hwid) {
+    try {
+      const authorized = await this.isHwidAuthorized(code, hwid);
+      if (!authorized) {
+        return { valid: false, error: 'Invalid HWID/code combination' };
+      }
+
+      const result = await this.get(
+        'SELECT * FROM codes WHERE code = $1 AND is_active = true',
+        [code]
+      );
+      
+      if (!result) {
+        return { valid: false, error: 'Invalid code' };
+      }
+      
+      if (result.subscription_type !== 'Lifetime' && result.expires_at) {
+        const now = new Date();
+        const expires = new Date(result.expires_at);
+        if (now > expires) {
+          await this.run(`UPDATE codes SET status = 'expired' WHERE code = $1`, [code]);
+          return { valid: false, error: 'Subscription expired' };
+        }
+      }
+      
       return {
-        success: false,
-        error: error.message
+        valid: true,
+        username: result.username,
+        access: result.access_level,
+        subscription: result.subscription_type,
+        subscription_started_at: result.subscription_started_at,
+        subscription_expires_at: result.expires_at,
+        status_code: result.status
       };
+    } catch (error) {
+      console.error('Verify HWID code error:', error);
+      return { valid: false, error: 'Verification failed' };
+    }
+  }
+
+  async addHwidCode(code, hwid, fingerprint, username, accessLevel = 'VIP', subscriptionType = 'Lifetime', createdBy = 'admin', maxHwidLimit = 1) {
+    try {
+      const existingHwid = await this.get(
+        'SELECT code FROM code_hwids WHERE hwid = $1',
+        [hwid]
+      );
+      if (existingHwid) {
+        return {
+          success: false,
+          error: `This computer is already registered with code: ${existingHwid.code}`,
+          existing_code: existingHwid.code
+        };
+      }
+
+      const existingCode = await this.get('SELECT * FROM codes WHERE code = $1', [code]);
+      if (existingCode) {
+        return {
+          success: false,
+          error: `Code ${code} already exists`
+        };
+      }
+
+      const now = new Date().toISOString();
+      const expiresAt = subscriptionType === 'Lifetime' ? null : this.calculateExpiration(now, subscriptionType);
+
+      await this.run(
+        `INSERT INTO codes (code, hwid, fingerprint, username, max_devices, created_by, notes, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, max_hwid_limit)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', true, $12)`,
+        [code, hwid, fingerprint || hwid.substring(0, 16) + '...', username.trim(), 10, createdBy, `HWID: ${fingerprint || hwid.substring(0, 16)}`, accessLevel, subscriptionType, now, expiresAt, maxHwidLimit]
+      );
+
+      await this.run(
+        'INSERT INTO code_hwids (code, hwid, assigned_at) VALUES ($1, $2, CURRENT_TIMESTAMP)',
+        [code, hwid]
+      );
+
+      await this.logUsage('admin', code, 'hwid_code_added', 
+        `HWID code ${code} added for ${username} by ${createdBy} (limit: ${maxHwidLimit})`);
+
+      await this.refreshCache();
+
+      return {
+        success: true,
+        code: code,
+        username: username,
+        hwid: hwid,
+        fingerprint: fingerprint,
+        access: accessLevel,
+        subscription: subscriptionType,
+        expires_at: expiresAt,
+        max_hwid_limit: maxHwidLimit
+      };
+
+    } catch (error) {
+      console.error('Add HWID code error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async getHwidCodes() {
+    try {
+      return await this.all(`
+        SELECT code, hwid, fingerprint, username, access_level, subscription_type, 
+               is_active, used_count, created_at, expires_at, status, created_by, max_hwid_limit
+        FROM codes 
+        WHERE hwid IS NOT NULL
+        ORDER BY created_at DESC
+      `);
+    } catch (error) {
+      console.error('Get HWID codes error:', error);
+      return [];
+    }
+  }
+
+  // ============================================
+  // CLEANUP INACTIVE DEVICES
+  // ============================================
+
+  async cleanupInactiveDevices() {
+    try {
+      const result = await this.query(`
+        DELETE FROM devices 
+        WHERE last_ping < NOW() - INTERVAL '7 days'
+        AND status != 'revoked'
+        RETURNING device_id, code
+      `);
+      
+      if (result.rowCount > 0) {
+        console.log(`🧹 Cleaned up ${result.rowCount} inactive devices`);
+        
+        for (const row of result.rows) {
+          await this.query(
+            `UPDATE codes SET used_count = used_count - 1 WHERE code = $1`,
+            [row.code]
+          );
+        }
+      }
+      
+      return result.rowCount;
+    } catch (error) {
+      console.error('Cleanup inactive devices error:', error);
+      return 0;
     }
   }
 
@@ -673,7 +820,7 @@ class DeviceDatabase {
   async getAllCodes() {
     try {
       const result = await this.all(
-        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit, cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name
+        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit
          FROM codes ORDER BY created_at DESC`
       );
       return result || [];
@@ -709,13 +856,7 @@ class DeviceDatabase {
         username: codeInfo ? codeInfo.username : null,
         access_level: codeInfo ? codeInfo.access_level : null,
         subscription_type: codeInfo ? codeInfo.subscription_type : null,
-        status: codeInfo ? codeInfo.status : null,
-        cpu: codeInfo ? codeInfo.cpu_name : null,
-        gpu: codeInfo ? codeInfo.gpu_name : null,
-        ram: codeInfo ? codeInfo.ram_total_gb : null,
-        storage: codeInfo ? codeInfo.storage_total_gb : null,
-        device: codeInfo ? codeInfo.device_name : null,
-        profile: codeInfo ? codeInfo.profile_name : null
+        status: codeInfo ? codeInfo.status : null
       };
     } catch (error) {
       console.error('Get code usage error:', error);
@@ -882,7 +1023,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // DEVICE REGISTRATION
+  // DEVICE REGISTRATION WITH HWID
   // ============================================
 
   async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null) {

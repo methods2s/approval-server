@@ -1,4 +1,4 @@
-// server.js - Complete with hardware update REMOVED from codes table
+// server.js - Complete with all fixes
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -953,7 +953,9 @@ app.put('/api/code/:code/access', isApiAuthenticated, async (req, res) => {
     const { accessLevel } = req.body;
     
     if (!accessLevel || !['VIP', 'SVIP'].includes(accessLevel)) {
-        return res.status(400).json({ error: 'Access level must be VIP or SVIP' });
+        return res.status(400).json({ 
+            error: 'Access level must be VIP or SVIP' 
+        });
     }
     
     try {
@@ -1003,36 +1005,6 @@ app.put('/api/code/:code/subscription', isApiAuthenticated, async (req, res) => 
     } catch (error) {
         console.error('Update subscription error:', error);
         res.status(500).json({ error: 'Failed to update subscription' });
-    }
-});
-
-app.put('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
-    const { code } = req.params;
-    const { limit } = req.body;
-    
-    if (!limit || limit < 1 || limit > 10) {
-        return res.status(400).json({ 
-            error: 'Limit must be between 1 and 10' 
-        });
-    }
-
-    try {
-        const success = await db.updateCodeHwidLimit(code, limit);
-        if (success) {
-            await db.logUsage('admin', code, 'hwid_limit_updated', 
-                `HWID limit updated to ${limit} for code ${code} by ${req.session.username}`);
-            await db.refreshCache();
-            res.json({ 
-                success: true, 
-                message: `HWID limit updated to ${limit} for code ${code}`,
-                max_hwid_limit: limit
-            });
-        } else {
-            res.status(404).json({ error: 'Code not found' });
-        }
-    } catch (error) {
-        console.error('Update HWID limit error:', error);
-        res.status(500).json({ error: 'Failed to update HWID limit' });
     }
 });
 
@@ -1135,9 +1107,38 @@ app.delete('/api/device/:deviceId', async (req, res) => {
 });
 
 // ============================================
-// HWID MANAGEMENT
+// HWID MANAGER - COMPLETE
 // ============================================
 
+// Get HWIDs for a code
+app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
+    const { code } = req.params;
+    try {
+        const hwids = await db.getCodeHwids(code);
+        const limit = await db.getCodeHwidLimit(code);
+        const count = await db.getCodeHwidCount(code);
+        
+        const masked = hwids.map(h => ({
+            ...h,
+            hwid_masked: h.hwid ? h.hwid.substring(0, 16) + '...' + h.hwid.substring(48) : null,
+            hwid_full: h.hwid
+        }));
+        
+        res.json({
+            success: true,
+            code: code,
+            hwids: masked,
+            max_hwid_limit: limit,
+            current_count: count,
+            available_slots: limit - count
+        });
+    } catch (error) {
+        console.error('Get HWIDs error:', error);
+        res.status(500).json({ error: 'Failed to get HWIDs' });
+    }
+});
+
+// Get HWID limit for a code
 app.get('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
     const { code } = req.params;
     try {
@@ -1155,21 +1156,38 @@ app.get('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
     }
 });
 
-app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
+// Update HWID limit
+app.put('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
     const { code } = req.params;
+    const { limit } = req.body;
+    
+    if (!limit || limit < 1 || limit > 10) {
+        return res.status(400).json({ 
+            error: 'Limit must be between 1 and 10' 
+        });
+    }
+
     try {
-        const hwids = await db.getCodeHwids(code);
-        const masked = hwids.map(h => ({
-            ...h,
-            hwid_masked: h.hwid ? h.hwid.substring(0, 16) + '...' : null
-        }));
-        res.json(masked);
+        const success = await db.updateCodeHwidLimit(code, limit);
+        if (success) {
+            await db.logUsage('admin', code, 'hwid_limit_updated', 
+                `HWID limit updated to ${limit} for code ${code} by ${req.session.username}`);
+            await db.refreshCache();
+            res.json({ 
+                success: true, 
+                message: `HWID limit updated to ${limit} for code ${code}`,
+                max_hwid_limit: limit
+            });
+        } else {
+            res.status(404).json({ error: 'Code not found' });
+        }
     } catch (error) {
-        console.error('Get HWIDs error:', error);
-        res.status(500).json({ error: 'Failed to get HWIDs' });
+        console.error('Update HWID limit error:', error);
+        res.status(500).json({ error: 'Failed to update HWID limit' });
     }
 });
 
+// Assign HWID to code
 app.post('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
     const { code } = req.params;
     const { hwid } = req.body;
@@ -1194,27 +1212,69 @@ app.post('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
     }
 });
 
-app.delete('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
-    const { code } = req.params;
-    const { hwid } = req.body;
-
-    if (!hwid || hwid.length !== 64) {
-        return res.status(400).json({ error: 'HWID must be exactly 64 characters' });
-    }
-
+// Remove HWID from code
+app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) => {
+    const { code, hwid } = req.params;
+    
     try {
         const result = await db.removeHwidFromCode(code.toUpperCase(), hwid);
+        
         if (result.success) {
             await db.logUsage('admin', code, 'hwid_removed', 
-                `HWID removed from code ${code} by ${req.session.username}`);
+                `HWID ${hwid.substring(0, 16)}... removed from code ${code} by ${req.session.username}`);
             await db.refreshCache();
-            res.json(result);
+            
+            res.json({
+                success: true,
+                message: 'HWID removed successfully',
+                code: code,
+                hwid: hwid
+            });
         } else {
-            res.status(400).json(result);
+            res.status(400).json({
+                success: false,
+                error: result.error || 'Failed to remove HWID'
+            });
         }
     } catch (error) {
         console.error('Remove HWID error:', error);
         res.status(500).json({ error: 'Failed to remove HWID' });
+    }
+});
+
+// ============================================
+// REQUEST HANDLING
+// ============================================
+
+app.post('/api/request/:id/approve', isApiAuthenticated, async (req, res) => {
+    const { id } = req.params;
+    try {
+        const success = await db.respondToRequest(id, 'approved', 'Approved by admin');
+        if (success) {
+            await db.refreshCache();
+            res.json({ success: true, message: 'Request approved' });
+        } else {
+            res.status(404).json({ error: 'Request not found' });
+        }
+    } catch (error) {
+        console.error('Approve request error:', error);
+        res.status(500).json({ error: 'Failed to approve request' });
+    }
+});
+
+app.post('/api/request/:id/reject', isApiAuthenticated, async (req, res) => {
+    const { id } = req.params;
+    try {
+        const success = await db.respondToRequest(id, 'rejected', 'Rejected by admin');
+        if (success) {
+            await db.refreshCache();
+            res.json({ success: true, message: 'Request rejected' });
+        } else {
+            res.status(404).json({ error: 'Request not found' });
+        }
+    } catch (error) {
+        console.error('Reject request error:', error);
+        res.status(500).json({ error: 'Failed to reject request' });
     }
 });
 
