@@ -377,7 +377,7 @@
                         </div>
                     </div>
                     
-                    <!-- HARDWARE SPECS SUMMARY -->
+                    <!-- HARDWARE SPECS SUMMARY - GETS FROM DEVICES TABLE -->
                     <div id="hwid-hardware-summary" style="display:block;background:rgba(255,255,255,0.05);padding:15px;border-radius:8px;margin-bottom:15px;border:1px solid rgba(255,255,255,0.08);">
                         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
                             <div>
@@ -863,34 +863,38 @@
                 document.getElementById('hwid-total-profiles').textContent = allDevicesForCode.length || 0;
                 document.getElementById('hwid-limit-input').value = maxLimit;
                 
-                // Get code info for hardware specs
-                const codeInfo = allCodes.find(c => c.code === code);
+                // ============================================
+                // FIX: Get hardware specs from DEVICES table
+                // ============================================
+                // Find the first approved device with hardware specs
+                const firstDevice = allDevicesForCode.find(d => d.status === 'approved' && d.cpu_name && d.cpu_name !== 'Unknown' && d.cpu_name !== 'N/A');
                 
-                // Update hardware specs from the FIRST device (or code info)
-                if (codeInfo) {
-                    document.getElementById('hw-spec-cpu').textContent = codeInfo.cpu_name || 'N/A';
-                    document.getElementById('hw-spec-gpu').textContent = codeInfo.gpu_name || 'N/A';
-                    document.getElementById('hw-spec-ram').textContent = codeInfo.ram_total_gb ? codeInfo.ram_total_gb + ' GB' : 'N/A';
-                    document.getElementById('hw-spec-storage').textContent = codeInfo.storage_total_gb ? codeInfo.storage_total_gb + ' GB' : 'N/A';
-                    document.getElementById('hw-spec-device').textContent = codeInfo.device_name || 'N/A';
-                    document.getElementById('hw-spec-profile').textContent = codeInfo.profile_name || 'N/A';
+                if (firstDevice) {
+                    // Get specs from the first device
+                    document.getElementById('hw-spec-cpu').textContent = firstDevice.cpu_name || 'N/A';
+                    document.getElementById('hw-spec-gpu').textContent = firstDevice.gpu_name || 'N/A';
+                    document.getElementById('hw-spec-ram').textContent = firstDevice.ram_total_gb ? firstDevice.ram_total_gb + ' GB' : 'N/A';
+                    document.getElementById('hw-spec-storage').textContent = firstDevice.storage_total_gb ? firstDevice.storage_total_gb + ' GB' : 'N/A';
+                    document.getElementById('hw-spec-device').textContent = firstDevice.device_name || 'N/A';
+                    document.getElementById('hw-spec-profile').textContent = firstDevice.browser_profile || 'N/A';
                 } else {
-                    // Try to get from devices
-                    const firstDevice = allDevicesForCode[0];
-                    if (firstDevice) {
-                        document.getElementById('hw-spec-cpu').textContent = firstDevice.cpu_name || 'N/A';
-                        document.getElementById('hw-spec-gpu').textContent = firstDevice.gpu_name || 'N/A';
-                        document.getElementById('hw-spec-ram').textContent = firstDevice.ram_total_gb ? firstDevice.ram_total_gb + ' GB' : 'N/A';
-                        document.getElementById('hw-spec-storage').textContent = firstDevice.storage_total_gb ? firstDevice.storage_total_gb + ' GB' : 'N/A';
-                        document.getElementById('hw-spec-device').textContent = firstDevice.device_name || 'N/A';
-                        document.getElementById('hw-spec-profile').textContent = firstDevice.browser_profile || 'N/A';
+                    // Try to find any device with hardware specs
+                    const anyDevice = allDevicesForCode.find(d => d.cpu_name && d.cpu_name !== 'Unknown' && d.cpu_name !== 'N/A');
+                    if (anyDevice) {
+                        document.getElementById('hw-spec-cpu').textContent = anyDevice.cpu_name || 'N/A';
+                        document.getElementById('hw-spec-gpu').textContent = anyDevice.gpu_name || 'N/A';
+                        document.getElementById('hw-spec-ram').textContent = anyDevice.ram_total_gb ? anyDevice.ram_total_gb + ' GB' : 'N/A';
+                        document.getElementById('hw-spec-storage').textContent = anyDevice.storage_total_gb ? anyDevice.storage_total_gb + ' GB' : 'N/A';
+                        document.getElementById('hw-spec-device').textContent = anyDevice.device_name || 'N/A';
+                        document.getElementById('hw-spec-profile').textContent = anyDevice.browser_profile || 'N/A';
                     } else {
-                        document.getElementById('hw-spec-cpu').textContent = 'N/A';
-                        document.getElementById('hw-spec-gpu').textContent = 'N/A';
-                        document.getElementById('hw-spec-ram').textContent = 'N/A';
-                        document.getElementById('hw-spec-storage').textContent = 'N/A';
-                        document.getElementById('hw-spec-device').textContent = 'N/A';
-                        document.getElementById('hw-spec-profile').textContent = 'N/A';
+                        // No device found with hardware specs
+                        document.getElementById('hw-spec-cpu').textContent = 'No device registered';
+                        document.getElementById('hw-spec-gpu').textContent = 'No device registered';
+                        document.getElementById('hw-spec-ram').textContent = 'No device registered';
+                        document.getElementById('hw-spec-storage').textContent = 'No device registered';
+                        document.getElementById('hw-spec-device').textContent = 'No device registered';
+                        document.getElementById('hw-spec-profile').textContent = 'No device registered';
                     }
                 }
                 
@@ -912,7 +916,7 @@
                     statusEl.style.display = 'none';
                 }
                 
-                // Render HWID list
+                // Render HWID list with hardware specs from devices
                 renderHwidList(hwidData, allDevicesForCode);
                 
             } catch (error) {
@@ -934,11 +938,14 @@
             }
             
             tbody.innerHTML = hwids.map((h, index) => {
-                const deviceCount = devices ? devices.filter(d => d.hwid === h.hwid && d.status === 'approved').length : 0;
+                // Find devices with this HWID
+                const hwidDevices = devices ? devices.filter(d => d.hwid === h.hwid) : [];
+                const approvedDevices = hwidDevices.filter(d => d.status === 'approved');
+                const deviceCount = approvedDevices.length;
                 const canRemove = hwids.length > 1;
                 
-                // Get hardware specs from devices
-                const device = devices ? devices.find(d => d.hwid === h.hwid) : null;
+                // Get hardware specs from the FIRST approved device with this HWID
+                const device = approvedDevices[0] || hwidDevices[0] || null;
                 const cpu = device?.cpu_name || 'N/A';
                 const gpu = device?.gpu_name || 'N/A';
                 const ram = device?.ram_total_gb ? device.ram_total_gb + ' GB' : 'N/A';
