@@ -1,4 +1,4 @@
-// server.js
+// server.js - Complete with auto-assign HWID and auto-deactivation
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -353,7 +353,7 @@ app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// ASSIGN HWID TO CODE
+// ASSIGN HWID TO CODE (Admin)
 // ============================================
 
 app.post('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
@@ -365,7 +365,7 @@ app.post('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
   }
 
   try {
-    const result = await db.assignHwidToCode(code.toUpperCase(), hwid);
+    const result = await db.assignHwidToCode(code.toUpperCase(), hwid, false);
     if (result.success) {
       await db.logUsage('admin', code, 'hwid_assigned', 
         `HWID assigned to code ${code} by ${req.session.username}`);
@@ -450,7 +450,7 @@ app.put('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - WITH AUTO-DEACTIVATION AND LIMIT CHECK
+// REGISTER DEVICE - WITH AUTO-ASSIGN AND AUTO-DEACTIVATION
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -488,128 +488,84 @@ app.post('/api/register', async (req, res) => {
   }
 
   // ============================================
-  // 🔥 CHECK HWID AUTHORIZATION WITH LIMIT
+  // CHECK IF HWID IS AUTHORIZED
   // ============================================
-  
-  // Check if this HWID is authorized for this code
-  const authorized = await db.isHwidAuthorized(code.toUpperCase(), hwid);
-  
-  if (!authorized) {
-    console.log(`🚨 UNAUTHORIZED HWID DETECTED!`);
-    console.log(`📌 Code: ${code}`);
-    console.log(`🖥️ Attempted HWID: ${hwid.substring(0, 16)}...`);
-    console.log(`📱 Device: ${deviceId}`);
-    
-    // Check if HWID is assigned to another code
-    const otherCode = await db.get(
-      'SELECT code FROM code_hwids WHERE hwid = $1',
-      [hwid]
-    );
-    
-    if (otherCode) {
-      await db.logUsage(
-        deviceId, 
-        code, 
-        'hwid_already_registered_attempt', 
-        `⚠️ HWID ${hwid.substring(0, 16)}... already registered to code ${otherCode.code}`
-      );
-      
-      return res.status(403).json({
-        error: `⚠️ This computer is already registered to code: ${otherCode.code}`,
-        status: 'hwid_already_registered',
-        existing_code: otherCode.code
-      });
-    }
+  const isAuthorized = await db.isHwidAuthorized(code.toUpperCase(), hwid);
 
-    // ============================================
-    // CHECK HWID LIMIT
-    // ============================================
-    const currentCount = await db.getCodeHwidCount(code.toUpperCase());
-    const limit = await db.getCodeHwidLimit(code.toUpperCase());
-
-    // If limit is reached, auto-deactivate
-    if (currentCount >= limit) {
-      console.log(`🔥 HWID LIMIT EXCEEDED! Code: ${code}, Limit: ${limit}, Current: ${currentCount}`);
-      console.log(`🖥️ Attempted HWID: ${hwid.substring(0, 16)}...`);
-      
-      // Log the limit exceeded attempt
-      await db.logUsage(
-        deviceId, 
-        code, 
-        'hwid_limit_exceeded_auto_deactivated', 
-        `🚨 HWID limit exceeded for code ${code}. Limit: ${limit}, Current: ${currentCount}, Attempted HWID: ${hwid.substring(0, 16)}...`
-      );
-      
-      // ============================================
-      // 🚨 AUTO-DEACTIVATE THE CODE
-      // ============================================
-      console.log(`🔥 AUTO-DEACTIVATING CODE ${code} DUE TO HWID LIMIT EXCEEDED!`);
-      
-      await db.run(
-        'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
-        ['auto_deactivated_limit_exceeded', code.toUpperCase()]
-      );
-      
-      // Get all devices using this code
-      const devices = await db.all(
-        'SELECT device_id FROM devices WHERE code = $1',
-        [code.toUpperCase()]
-      );
-      
-      // Revoke all devices
-      let revokedCount = 0;
-      for (const dev of devices) {
-        await db.run(
-          'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
-          ['revoked', dev.device_id]
-        );
+  if (!isAuthorized) {
+    console.log(`🔄 HWID not authorized for code ${code}, attempting auto-assignment...`);
+    
+    // Try to auto-assign the HWID
+    const assignResult = await db.assignHwidToCode(code.toUpperCase(), hwid, true);
+    
+    if (!assignResult.success) {
+      // Check if auto-deactivation is needed
+      if (assignResult.auto_deactivate) {
+        console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
+        
+        // Auto-deactivate the code
+        const deactivateResult = await db.autoDeactivateCode(code.toUpperCase(), 'hwid_limit_exceeded_auto_assign');
+        
         await db.logUsage(
-          dev.device_id, 
+          deviceId, 
           code, 
-          'auto_revoked_limit_exceeded', 
-          `🔒 Device auto-revoked due to HWID limit exceeded for code ${code}`
+          'hwid_limit_exceeded_auto_deactivated', 
+          `🚨 HWID limit exceeded for code ${code}. Limit: ${assignResult.max_limit}, Current: ${assignResult.current_count}. AUTO-DEACTIVATED!`
         );
-        revokedCount++;
+        
+        return res.status(403).json({
+          error: `🚨 HWID LIMIT EXCEEDED! Code ${code} has been AUTO-DEACTIVATED. Limit: ${assignResult.max_limit}, Current: ${assignResult.current_count}.`,
+          status: 'unauthorized_deactivated',
+          code: code,
+          devices_revoked: deactivateResult.devices_revoked || 0,
+          max_hwid_limit: assignResult.max_limit,
+          current_hwid_count: assignResult.current_count,
+          message: `Code auto-deactivated. ${deactivateResult.devices_revoked || 0} devices revoked.`
+        });
       }
       
-      // Clear all HWIDs for this code
-      await db.run(
-        'DELETE FROM code_hwids WHERE code = $1',
-        [code.toUpperCase()]
+      // Check if HWID is assigned to another code
+      const otherCode = await db.get(
+        'SELECT code FROM code_hwids WHERE hwid = $1',
+        [hwid]
       );
       
-      await db.refreshCache();
+      if (otherCode) {
+        await db.logUsage(
+          deviceId, 
+          code, 
+          'hwid_already_registered_attempt', 
+          `⚠️ HWID ${hwid.substring(0, 16)}... already registered to code ${otherCode.code}`
+        );
+        
+        return res.status(403).json({
+          error: `⚠️ This computer is already registered to code: ${otherCode.code}`,
+          status: 'hwid_already_registered',
+          existing_code: otherCode.code
+        });
+      }
       
       return res.status(403).json({
-        error: `🚨 HWID LIMIT EXCEEDED! Code ${code} has been AUTO-DEACTIVATED. Limit: ${limit}, Current: ${currentCount}.`,
-        status: 'unauthorized_deactivated',
-        code: code,
-        devices_revoked: revokedCount,
-        max_hwid_limit: limit,
-        current_hwid_count: currentCount,
-        message: `Code auto-deactivated. ${revokedCount} devices revoked.`
+        error: `❌ ${assignResult.error}`,
+        status: 'hwid_not_authorized',
+        current_hwid_count: assignResult.current_count || 0,
+        max_hwid_limit: assignResult.max_limit || 0
       });
     }
-
-    // ============================================
-    // LIMIT NOT REACHED - ALLOW REGISTRATION BUT DON'T AUTO-ASSIGN
-    // ============================================
-    // For security, we don't auto-assign HWIDs even if limit is not reached.
-    // Admin must manually add HWIDs.
     
-    return res.status(403).json({
-      error: `❌ This computer is not authorized for this code. Current HWIDs: ${currentCount}/${limit}.`,
-      status: 'hwid_not_authorized',
-      current_hwid_count: currentCount,
-      max_hwid_limit: limit,
-      available_slots: limit - currentCount
-    });
+    console.log(`✅ HWID auto-assigned to code ${code}`);
+    
+    await db.logUsage(
+      deviceId, 
+      code, 
+      'hwid_auto_assigned', 
+      `✅ HWID ${hwid.substring(0, 16)}... auto-assigned to code ${code}`
+    );
   }
 
   // ============================================
-  // HWID IS AUTHORIZED - PROCEED WITH REGISTRATION
+  // PROCEED WITH REGISTRATION
   // ============================================
-
   const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
 
   try {
@@ -629,12 +585,6 @@ app.post('/api/register', async (req, res) => {
       });
     }
 
-    // Update last_used for this HWID
-    await db.run(
-      'UPDATE code_hwids SET last_used = CURRENT_TIMESTAMP WHERE code = $1 AND hwid = $2',
-      [code.toUpperCase(), hwid]
-    );
-
     res.json({
       success: true,
       status: result.status,
@@ -646,7 +596,10 @@ app.post('/api/register', async (req, res) => {
       subscription_expires_at: result.subscription_expires_at,
       status_code: result.status_code,
       hwid_verified: true,
-      message: `✅ Device registered and auto-approved!`
+      hwid_auto_assigned: result.hwid_auto_assigned || false,
+      message: result.hwid_auto_assigned ? 
+        `✅ Device registered! HWID auto-assigned.` : 
+        `✅ Device registered and auto-approved!`
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -865,7 +818,7 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// GENERATE CODE - WITH ACCESS LEVEL AND SUBSCRIPTION
+// GENERATE CODE - WITHOUT HWID AND FINGERPRINT
 // ============================================
 
 app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {

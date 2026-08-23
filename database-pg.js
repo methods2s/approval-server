@@ -288,7 +288,7 @@ class DeviceDatabase {
   }
 
   // Assign HWID to a code (with limit check)
-  async assignHwidToCode(code, hwid) {
+  async assignHwidToCode(code, hwid, autoAssign = false) {
     try {
       if (!hwid || hwid.length !== 64) {
         return { success: false, error: 'Invalid HWID format' };
@@ -324,9 +324,24 @@ class DeviceDatabase {
       const limit = await this.getCodeHwidLimit(code);
 
       if (currentCount >= limit) {
-        return { 
-          success: false, 
-          error: `HWID limit reached (${limit}). Remove some HWIDs first.` 
+        // If autoAssign is false or limit reached, return error
+        if (!autoAssign) {
+          return { 
+            success: false, 
+            error: `HWID limit reached (${limit}). Remove some HWIDs first.`,
+            limit_reached: true,
+            current_count: currentCount,
+            max_limit: limit
+          };
+        }
+        // If autoAssign is true and limit reached, auto-deactivate
+        return {
+          success: false,
+          error: `HWID limit reached (${limit}). Auto-deactivating code.`,
+          limit_reached: true,
+          current_count: currentCount,
+          max_limit: limit,
+          auto_deactivate: true
         };
       }
 
@@ -343,7 +358,7 @@ class DeviceDatabase {
       );
 
       await this.refreshCache();
-      return { success: true, message: 'HWID assigned successfully' };
+      return { success: true, message: 'HWID assigned successfully', auto_assigned: autoAssign };
     } catch (error) {
       console.error('Assign HWID error:', error);
       return { success: false, error: error.message };
@@ -477,11 +492,17 @@ class DeviceDatabase {
             [code]
         );
         
+        // Clear hwid field in codes table
+        await this.run(
+            'UPDATE codes SET hwid = NULL WHERE code = $1',
+            [code]
+        );
+        
         await this.logUsage(
             'system', 
             code, 
             'auto_deactivated', 
-            `🔒 Code ${code} auto-deactivated due to ${reason}. ${devices.length} devices revoked.`
+            `🔒 Code ${code} auto-deactivated due to ${reason}. ${devices.length} devices revoked. All HWIDs cleared.`
         );
         
         await this.refreshCache();
@@ -498,156 +519,6 @@ class DeviceDatabase {
             success: false,
             error: error.message
         };
-    }
-  }
-
-  // Check HWID limit and auto-deactivate if exceeded
-  async checkHwidLimitAndDeactivate(code, newHwid, deviceId) {
-    try {
-      const currentCount = await this.getCodeHwidCount(code);
-      const limit = await this.getCodeHwidLimit(code);
-      
-      // Check if HWID is already assigned
-      const isAuthorized = await this.isHwidAuthorized(code, newHwid);
-      
-      if (isAuthorized) {
-        return { 
-          allowed: true, 
-          message: 'HWID is authorized',
-          current_count: currentCount,
-          max_limit: limit
-        };
-      }
-      
-      // Check if limit has been reached
-      if (currentCount >= limit) {
-        console.log(`🚨 HWID LIMIT EXCEEDED! Code: ${code}, Limit: ${limit}, Current: ${currentCount}`);
-        console.log(`🖥️ Attempted HWID: ${newHwid.substring(0, 16)}...`);
-        console.log(`📱 Device: ${deviceId}`);
-        
-        // Log the limit exceeded attempt
-        await this.logUsage(
-          deviceId, 
-          code, 
-          'hwid_limit_exceeded', 
-          `⚠️ HWID limit exceeded for code ${code}. Limit: ${limit}, Current: ${currentCount}, Attempted HWID: ${newHwid.substring(0, 16)}...`
-        );
-        
-        // AUTO-DEACTIVATE the code
-        const result = await this.autoDeactivateCode(code, 'hwid_limit_exceeded');
-        
-        return {
-          allowed: false,
-          action: 'deactivated',
-          code: code,
-          current_count: currentCount,
-          max_limit: limit,
-          attempted_hwid: newHwid,
-          devices_revoked: result.devices_revoked || 0,
-          message: `⚠️ HWID LIMIT EXCEEDED! Code ${code} has been auto-deactivated. Limit: ${limit}, Current: ${currentCount}. ${result.devices_revoked || 0} devices revoked.`
-        };
-      }
-      
-      // Limit not reached, but HWID is not authorized
-      return {
-        allowed: false,
-        action: 'not_authorized',
-        code: code,
-        current_count: currentCount,
-        max_limit: limit,
-        attempted_hwid: newHwid,
-        message: `HWID not authorized. Current: ${currentCount}/${limit} slots used.`
-      };
-      
-    } catch (error) {
-      console.error('Check HWID limit error:', error);
-      return { 
-        allowed: false, 
-        error: error.message 
-      };
-    }
-  }
-
-  // ============================================
-  // AUTO-DETECT UNAUTHORIZED HWID USAGE
-  // ============================================
-
-  async autoDetectUnauthorizedUsage(code, newHwid, deviceId) {
-    try {
-      const codeInfo = await this.get('SELECT * FROM codes WHERE code = $1', [code]);
-      
-      if (!codeInfo) {
-        return { 
-          detected: false, 
-          message: 'Code not found' 
-        };
-      }
-      
-      // Check if the code is already assigned to a different HWID
-      if (codeInfo.hwid && codeInfo.hwid !== newHwid) {
-        console.log(`🚨 UNAUTHORIZED USAGE DETECTED!`);
-        console.log(`📌 Code: ${code}`);
-        console.log(`🖥️ Original HWID: ${codeInfo.hwid.substring(0, 16)}...`);
-        console.log(`🖥️ Attempted HWID: ${newHwid.substring(0, 16)}...`);
-        console.log(`📱 Device: ${deviceId}`);
-        
-        await this.logUsage(
-          deviceId, 
-          code, 
-          'unauthorized_attempt', 
-          `⚠️ UNAUTHORIZED: Code ${code} attempted on different computer. Original HWID: ${codeInfo.hwid.substring(0, 16)}..., Attempted HWID: ${newHwid.substring(0, 16)}...`
-        );
-        
-        const result = await this.autoDeactivateCode(code, 'unauthorized_use');
-        
-        return {
-          detected: true,
-          action: 'deactivated',
-          code: code,
-          original_hwid: codeInfo.hwid,
-          attempted_hwid: newHwid,
-          devices_revoked: result.devices_revoked || 0,
-          message: `⚠️ UNAUTHORIZED! Code ${code} has been auto-deactivated. ${result.devices_revoked || 0} devices revoked.`
-        };
-      }
-      
-      const existingHwid = await this.get(
-        'SELECT * FROM codes WHERE hwid = $1 AND code != $2',
-        [newHwid, code]
-      );
-      
-      if (existingHwid) {
-        console.log(`🚨 HWID ALREADY REGISTERED TO ANOTHER CODE!`);
-        console.log(`🖥️ HWID: ${newHwid.substring(0, 16)}...`);
-        console.log(`📌 Existing Code: ${existingHwid.code}`);
-        
-        await this.logUsage(
-          deviceId, 
-          code, 
-          'hwid_already_registered', 
-          `⚠️ HWID ${newHwid.substring(0, 16)}... already registered to code ${existingHwid.code}`
-        );
-        
-        return {
-          detected: true,
-          action: 'blocked',
-          code: code,
-          existing_code: existingHwid.code,
-          message: `⚠️ This computer is already registered to code: ${existingHwid.code}`
-        };
-      }
-      
-      return {
-        detected: false,
-        message: 'No unauthorized usage detected'
-      };
-      
-    } catch (error) {
-      console.error('Auto-detect unauthorized usage error:', error);
-      return { 
-        detected: false, 
-        error: error.message 
-      };
     }
   }
 
@@ -1131,7 +1002,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // DEVICE REGISTRATION WITH HWID
+  // DEVICE REGISTRATION WITH AUTO-ASSIGN HWID
   // ============================================
 
   async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null) {
@@ -1143,22 +1014,6 @@ class DeviceDatabase {
 
       if (!codeInfo.is_active) {
         return { success: false, error: 'Code is inactive' };
-      }
-
-      if (hwid) {
-        const hwidCheck = await this.verifyHwidAccess(code, hwid);
-        if (!hwidCheck.valid) {
-          return { 
-            success: false, 
-            error: 'This computer is not authorized for this code',
-            needsRegistration: true
-          };
-        }
-      } else {
-        return { 
-          success: false, 
-          error: 'HWID is required for registration' 
-        };
       }
 
       if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
@@ -1177,6 +1032,58 @@ class DeviceDatabase {
         return { success: false, error: `Code is ${codeInfo.status}` };
       }
 
+      // Check if HWID is authorized or needs auto-assignment
+      let isAuthorized = false;
+      if (hwid) {
+        isAuthorized = await this.isHwidAuthorized(code, hwid);
+      }
+
+      // If HWID is not authorized, try to auto-assign
+      if (!isAuthorized && hwid) {
+        console.log(`🔄 HWID not authorized for code ${code}, attempting auto-assignment...`);
+        
+        const assignResult = await this.assignHwidToCode(code, hwid, true);
+        
+        if (!assignResult.success) {
+          // Check if auto-deactivation is needed
+          if (assignResult.auto_deactivate) {
+            console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
+            const deactivateResult = await this.autoDeactivateCode(code, 'hwid_limit_exceeded_auto_assign');
+            
+            return {
+              success: false,
+              error: `HWID limit reached (${assignResult.max_limit}). Code auto-deactivated.`,
+              auto_deactivated: true,
+              devices_revoked: deactivateResult.devices_revoked || 0
+            };
+          }
+          return { success: false, error: assignResult.error };
+        }
+        
+        console.log(`✅ HWID auto-assigned to code ${code}`);
+        isAuthorized = true;
+        
+        await this.logUsage(deviceId, code, 'hwid_auto_assigned', 
+          `HWID ${hwid.substring(0, 16)}... auto-assigned to code ${code}`);
+      }
+
+      // If still not authorized, return error
+      if (!isAuthorized && hwid) {
+        return { 
+          success: false, 
+          error: 'This computer is not authorized for this code',
+          needsRegistration: true
+        };
+      }
+
+      if (!hwid) {
+        return { 
+          success: false, 
+          error: 'HWID is required for registration' 
+        };
+      }
+
+      // Check existing device
       const existingDevice = await this.getDevice(deviceId);
       if (existingDevice) {
         if (existingDevice.code === code) {
@@ -1200,11 +1107,13 @@ class DeviceDatabase {
             subscription: codeInfo.subscription_type,
             subscription_started_at: codeInfo.subscription_started_at,
             subscription_expires_at: codeInfo.expires_at,
-            status_code: codeInfo.status
+            status_code: codeInfo.status,
+            hwid_auto_assigned: !isAuthorized
           };
         }
       }
 
+      // Register new device
       await this.run(
         'INSERT INTO devices (device_id, user_agent, ip_address, browser_info, code, status, approved_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)',
         [deviceId, userAgent || '', ip || '', browserInfo || '', code, 'approved']
@@ -1228,7 +1137,8 @@ class DeviceDatabase {
         subscription: codeInfo.subscription_type,
         subscription_started_at: codeInfo.subscription_started_at,
         subscription_expires_at: codeInfo.expires_at,
-        status_code: codeInfo.status
+        status_code: codeInfo.status,
+        hwid_auto_assigned: !isAuthorized
       };
     } catch (error) {
       console.error('Register device error:', error);
