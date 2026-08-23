@@ -9,7 +9,6 @@
         body { font-family: Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
         .container { max-width: 1400px; margin: 0 auto; }
         
-        /* Header */
         .header { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: rgba(255,255,255,0.05); border-radius: 10px; margin-bottom: 20px; }
         .header h1 { font-size: 24px; color: #fff; }
         .header .user { font-size: 14px; color: #aaa; }
@@ -17,29 +16,23 @@
         .header .logout-btn { padding: 8px 20px; background: #f44336; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
         .header .logout-btn:hover { background: #d32f2f; }
         
-        /* Stats */
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
         .stat-card { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.08); }
         .stat-card .number { font-size: 32px; font-weight: bold; color: #4CAF50; }
         .stat-card .label { font-size: 13px; color: #888; margin-top: 5px; }
         
-        /* Cards */
         .card { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.08); }
         .card h3 { color: #fff; margin-bottom: 15px; font-size: 18px; }
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
         .card-header h3 { margin-bottom: 0; }
         
-        /* Forms */
         .form-group { margin-bottom: 12px; }
         .form-group label { display: block; font-size: 13px; color: #aaa; margin-bottom: 4px; font-weight: bold; }
         .form-group input, .form-group select { width: 100%; padding: 10px; border: 1px solid #555; border-radius: 6px; background: #222; color: #fff; font-size: 14px; }
         .form-group input:focus, .form-group select:focus { border-color: #4CAF50; outline: none; }
-        .form-group input.editable { border-color: #FF9800; background: #2a1f0a; }
-        .form-group input.editable:focus { border-color: #FF9800; }
         .form-row { display: flex; gap: 15px; flex-wrap: wrap; }
         .form-row .form-group { flex: 1; min-width: 150px; }
         
-        /* Buttons */
         .btn-primary { padding: 10px 25px; background: #4CAF50; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; }
         .btn-primary:hover { background: #45a049; }
         .btn-warning { padding: 8px 15px; background: #FF9800; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
@@ -60,7 +53,6 @@
         .btn-refresh { background: #2196F3; color: #fff; padding: 6px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
         .btn-refresh:hover { background: #1976D2; }
         
-        /* Tables */
         .scroll-table { overflow-x: auto; max-height: 500px; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
         table th { text-align: left; padding: 10px 8px; background: rgba(255,255,255,0.05); color: #aaa; border-bottom: 2px solid #333; position: sticky; top: 0; z-index: 10; }
@@ -68,30 +60,18 @@
         table tr:hover { background: rgba(255,255,255,0.03); }
         table tr.editing { background: rgba(255,152,0,0.15); }
         
-        /* Badges */
         .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
         .badge.active { background: rgba(76,175,80,0.2); color: #4CAF50; }
         .badge.inactive { background: rgba(244,67,54,0.2); color: #f44336; }
         .badge.vip { background: rgba(255,152,0,0.2); color: #FF9800; }
         .badge.svip { background: rgba(76,175,80,0.2); color: #4CAF50; }
-        .badge.lifetime { background: rgba(255,152,0,0.2); color: #FF9800; }
-        .badge.approved { background: rgba(76,175,80,0.2); color: #4CAF50; }
         .badge.auto-deactivated { background: rgba(244,67,54,0.2); color: #f44336; }
         
-        /* Deactivation Reason Colors */
-        .reason-multiple-hwids { color: #f44336; }
-        .reason-limit-exceeded { color: #f44336; }
-        .reason-unauthorized { color: #f44336; }
-        .reason-inactive { color: #FF9800; }
-        .reason-expired { color: #FF9800; }
-        
-        /* Inline editing */
         .edit-input { width: 100%; padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; min-width: 60px; }
         .edit-input:focus { outline: none; border-color: #4CAF50; }
         .edit-select { padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; }
         .edit-select:focus { outline: none; border-color: #4CAF50; }
         
-        /* Tabs */
         .tab-buttons { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
         .tab-btn { padding: 8px 20px; border: 2px solid #555; border-radius: 6px; background: transparent; color: #aaa; cursor: pointer; font-size: 14px; }
         .tab-btn.active { border-color: #4CAF50; color: #4CAF50; background: rgba(76,175,80,0.1); }
@@ -104,7 +84,6 @@
         .code-font { font-family: monospace; font-size: 13px; }
         .text-muted { color: #888; }
         .mt-10 { margin-top: 10px; }
-        .mb-10 { margin-bottom: 10px; }
         .action-buttons { display: flex; gap: 4px; flex-wrap: wrap; }
         
         #result-message { margin-top: 10px; padding: 10px; border-radius: 6px; display: none; }
@@ -112,29 +91,16 @@
         #result-message.error { display: block; color: #f44336; border: 1px solid #f44336; background: rgba(244,67,54,0.1); }
         #result-message.loading { display: block; color: #FF9800; border: 1px solid #FF9800; background: rgba(255,152,0,0.1); }
         
-        .status-active { color: #4CAF50; }
-        .status-inactive { color: #FF9800; }
-        .status-expired { color: #f44336; }
-        .status-auto-deactivated { color: #f44336; }
-        
-        .hwid-limit-full { color: #f44336; font-weight: bold; }
-        .hwid-limit-available { color: #4CAF50; }
-        
-        /* Loading spinner */
         .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%; border-top-color: transparent; animation: spin 0.6s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         
-        /* Device count badge */
         .device-count-badge { background: rgba(33,150,243,0.15); color: #2196F3; padding: 2px 8px; border-radius: 10px; font-size: 10px; }
-        
-        /* Hardware specs styling */
-        .hw-spec { font-size: 11px; }
-        .hw-spec.cpu { color: #4CAF50; }
-        .hw-spec.gpu { color: #9C27B0; }
-        .hw-spec.ram { color: #FF9800; }
-        .hw-spec.storage { color: #2196F3; }
-        .hw-spec.profile { color: #00BCD4; }
-        .hw-spec.device { color: #FF5722; }
+        .hw-spec-cpu { color: #4CAF50; }
+        .hw-spec-gpu { color: #9C27B0; }
+        .hw-spec-ram { color: #FF9800; }
+        .hw-spec-storage { color: #2196F3; }
+        .hw-spec-device { color: #FF5722; }
+        .hw-spec-profile { color: #00BCD4; }
         
         @media (max-width: 768px) { .form-row { flex-direction: column; } .stats-grid { grid-template-columns: repeat(2, 1fr); } }
     </style>
@@ -178,7 +144,7 @@
             <button class="tab-btn active" onclick="switchTab('codes')">🔑 All Codes</button>
             <button class="tab-btn" onclick="switchTab('svip')">⭐ SVIP</button>
             <button class="tab-btn" onclick="switchTab('vip')">🔶 VIP</button>
-            <button class="tab-btn" onclick="switchTab('devices')">📱 Profiles</button>
+            <button class="tab-btn" onclick="switchTab('profiles')">📱 Profiles</button>
             <button class="tab-btn" onclick="switchTab('hwid')">🖥️ HWID Manager</button>
         </div>
 
@@ -220,7 +186,7 @@
                 <div id="gen-result" class="mt-10"></div>
             </div>
 
-            <!-- Codes Table -->
+            <!-- Codes Table with Hardware Specs -->
             <div class="card">
                 <div class="card-header">
                     <h3>📋 All Codes</h3>
@@ -239,13 +205,18 @@
                                 <th>Expires</th>
                                 <th>Profiles</th>
                                 <th>HWID Limit</th>
+                                <th>CPU</th>
+                                <th>GPU</th>
+                                <th>RAM</th>
+                                <th>Storage</th>
+                                <th>Device</th>
                                 <th>Status</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
                                 <th style="width:220px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="codes-body">
-                            <tr><td colspan="10" style="text-align:center;color:#888;padding:30px;">Loading codes...</td></tr>
+                            <tr><td colspan="15" style="text-align:center;color:#888;padding:30px;">Loading codes...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -271,13 +242,18 @@
                                 <th>Expires</th>
                                 <th>Profiles</th>
                                 <th>HWID Limit</th>
+                                <th>CPU</th>
+                                <th>GPU</th>
+                                <th>RAM</th>
+                                <th>Storage</th>
+                                <th>Device</th>
                                 <th>Status</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="svip-body">
-                            <tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>
+                            <tr><td colspan="14" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -303,13 +279,18 @@
                                 <th>Expires</th>
                                 <th>Profiles</th>
                                 <th>HWID Limit</th>
+                                <th>CPU</th>
+                                <th>GPU</th>
+                                <th>RAM</th>
+                                <th>Storage</th>
+                                <th>Device</th>
                                 <th>Status</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="vip-body">
-                            <tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>
+                            <tr><td colspan="14" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -317,19 +298,18 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: PROFILES (with Hardware Specs) -->
+        <!-- TAB: PROFILES (SIMPLIFIED) -->
         <!-- ============================================ -->
-        <div class="tab-content" id="tab-devices">
+        <div class="tab-content" id="tab-profiles">
             <div class="card">
                 <div class="card-header">
                     <h3>📱 Profile Manager</h3>
                     <div>
                         <span class="text-muted">Total: <strong id="device-total-count">0</strong> profiles</span>
-                        <button onclick="refreshDevices()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
+                        <button onclick="refreshProfiles()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
                     </div>
                 </div>
                 
-                <!-- Filter -->
                 <div class="form-row" style="margin-bottom:15px;">
                     <div class="form-group" style="flex:1;">
                         <label>🔍 Filter by Code</label>
@@ -346,27 +326,21 @@
                     </div>
                 </div>
 
-                <!-- Profiles Table with Hardware Specs -->
+                <!-- Simplified Profiles Table -->
                 <div class="scroll-table">
                     <table>
                         <thead>
                             <tr>
-                                <th>Profile ID</th>
+                                <th>Profile Name</th>
                                 <th>Code</th>
-                                <th>IP</th>
-                                <th>CPU</th>
-                                <th>GPU</th>
-                                <th>RAM</th>
-                                <th>Storage</th>
-                                <th>Profile</th>
-                                <th>Device</th>
+                                <th>IP Address</th>
                                 <th>Status</th>
                                 <th>Created</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
                         <tbody id="devices-body">
-                            <tr><td colspan="12" style="text-align:center;color:#888;padding:30px;">Loading profiles...</td></tr>
+                            <tr><td colspan="6" style="text-align:center;color:#888;padding:30px;">Loading profiles...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -383,7 +357,6 @@
                     <span class="text-muted">Manage which computers can use each code</span>
                 </div>
                 
-                <!-- Select Code -->
                 <div class="form-row" style="margin-bottom:15px;">
                     <div class="form-group" style="flex:2;">
                         <label>Select Code</label>
@@ -400,7 +373,6 @@
                     </div>
                 </div>
 
-                <!-- HWID Info -->
                 <div id="hwid-info" style="display:none;">
                     <div class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:15px;">
                         <div class="stat-card">
@@ -423,7 +395,6 @@
                     <div id="hwid-limit-status" style="text-align:center;padding:8px;border-radius:6px;margin-bottom:15px;display:none;"></div>
                 </div>
 
-                <!-- Add New HWID -->
                 <div id="hwid-add-section" style="display:none;margin-bottom:15px;">
                     <h4>➕ Add New Computer (HWID)</h4>
                     <div class="form-row">
@@ -439,7 +410,6 @@
                     <div id="hwid-add-result" class="mt-10" style="display:none;"></div>
                 </div>
 
-                <!-- HWID List -->
                 <div id="hwid-list-section" style="display:none;">
                     <h4>📋 Assigned Computers</h4>
                     <div class="scroll-table">
@@ -502,7 +472,7 @@
             document.querySelector(`.tab-btn[onclick="switchTab('${tab}')"]`).classList.add('active');
             document.getElementById(`tab-${tab}`).classList.add('active');
             
-            if (tab === 'devices') {
+            if (tab === 'profiles') {
                 loadDevices();
             } else if (tab === 'hwid') {
                 populateHwidCodeDropdown();
@@ -539,7 +509,7 @@
             }
         }
 
-        async function refreshDevices() {
+        async function refreshProfiles() {
             await loadDevices();
         }
 
@@ -601,39 +571,24 @@
         }
 
         // ============================================
-        // RENDER PROFILES WITH HARDWARE SPECS
+        // RENDER PROFILES (SIMPLIFIED)
         // ============================================
         function renderDevices() {
             const tbody = document.getElementById('devices-body');
             
             if (!filteredDevices || filteredDevices.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#888;padding:30px;">No profiles found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:30px;">No profiles found</td></tr>';
                 return;
             }
             
             tbody.innerHTML = filteredDevices.map(d => {
-                // Hardware specs from database
-                const cpu = d.cpu_name || 'N/A';
-                const gpu = d.gpu_name || 'N/A';
-                const ram = d.ram_total_gb || 'N/A';
-                const storage = d.storage_total_gb || 'N/A';
-                const profile = d.profile_name || 'N/A';
-                const device = d.device_name || 'N/A';
-                
-                // Truncate long CPU names
-                const cpuDisplay = cpu.length > 25 ? cpu.substring(0, 22) + '...' : cpu;
+                const profileName = d.browser_profile || 'Default';
                 
                 return `
                     <tr>
-                        <td><small class="code-font">${d.device_id}</small></td>
+                        <td><strong style="color:#2196F3;">${profileName}</strong></td>
                         <td><strong>${d.code || '<span class="text-muted">N/A</span>'}</strong></td>
                         <td>${d.ip_address || '<span class="text-muted">N/A</span>'}</td>
-                        <td class="hw-spec cpu" title="${cpu}">${cpuDisplay}</td>
-                        <td class="hw-spec gpu">${gpu}</td>
-                        <td class="hw-spec ram">${ram} GB</td>
-                        <td class="hw-spec storage">${storage} GB</td>
-                        <td class="hw-spec profile">${profile}</td>
-                        <td class="hw-spec device">${device}</td>
                         <td><span class="badge ${d.status === 'approved' ? 'approved' : 'inactive'}">${d.status}</span></td>
                         <td>${d.created_at ? new Date(d.created_at).toLocaleString() : 'N/A'}</td>
                         <td>
@@ -670,12 +625,12 @@
         }
 
         // ============================================
-        // RENDER ALL CODES
+        // RENDER ALL CODES WITH HARDWARE SPECS
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
             if (!allCodes || allCodes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#888;padding:30px;">No codes found. Generate one above!</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="15" style="text-align:center;color:#888;padding:30px;">No codes found. Generate one above!</td></tr>';
                 return;
             }
             
@@ -688,6 +643,14 @@
                 const statusText = c.status || 'active';
                 const isAutoDeactivated = !c.is_active && (statusText.includes('auto_deactivated') || statusText === 'inactive');
                 const deactivationReason = !c.is_active ? getDeactivationReason(statusText) : '';
+                
+                // Hardware specs from codes table
+                const cpu = c.cpu_name || 'N/A';
+                const gpu = c.gpu_name || 'N/A';
+                const ram = c.ram_total_gb || 'N/A';
+                const storage = c.storage_total_gb || 'N/A';
+                const device = c.device_name || 'N/A';
+                const profile = c.profile_name || 'N/A';
                 
                 if (isEditing) {
                     return `
@@ -713,6 +676,11 @@
                             <td>
                                 <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;">
                             </td>
+                            <td><span class="text-muted hw-spec-cpu">${cpu}</span></td>
+                            <td><span class="text-muted hw-spec-gpu">${gpu}</span></td>
+                            <td><span class="text-muted hw-spec-ram">${ram} GB</span></td>
+                            <td><span class="text-muted hw-spec-storage">${storage} GB</span></td>
+                            <td><span class="text-muted hw-spec-device">${device}</span></td>
                             <td>
                                 <span class="badge ${statusClass}">${statusLabel}</span>
                             </td>
@@ -733,6 +701,8 @@
                     `<span class="badge auto-deactivated">🚨 Auto-Deactivated</span>` :
                     `<span class="badge ${statusClass}">${statusLabel}</span>`;
                 
+                const cpuDisplay = cpu.length > 20 ? cpu.substring(0, 18) + '...' : cpu;
+                
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
@@ -742,6 +712,11 @@
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${c.used_count || 0}</td>
                         <td>${c.max_hwid_limit || 1}</td>
+                        <td class="hw-spec-cpu" title="${cpu}">${cpuDisplay}</td>
+                        <td class="hw-spec-gpu">${gpu}</td>
+                        <td class="hw-spec-ram">${ram} GB</td>
+                        <td class="hw-spec-storage">${storage} GB</td>
+                        <td class="hw-spec-device">${device}</td>
                         <td>${statusBadge}</td>
                         <td>
                             ${!c.is_active ? `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : '<span class="text-muted">—</span>'}
@@ -769,7 +744,7 @@
             document.getElementById('svip-count').textContent = svipCodes.length + ' codes';
             
             if (svipCodes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="14" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>';
                 return;
             }
             
@@ -782,6 +757,12 @@
                     `<span class="badge auto-deactivated">🚨 Auto-Deactivated</span>` :
                     `<span class="badge ${statusClass}">${statusLabel}</span>`;
                 
+                const cpu = c.cpu_name || 'N/A';
+                const gpu = c.gpu_name || 'N/A';
+                const ram = c.ram_total_gb || 'N/A';
+                const storage = c.storage_total_gb || 'N/A';
+                const device = c.device_name || 'N/A';
+                
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
@@ -790,6 +771,11 @@
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${c.used_count || 0}</td>
                         <td>${c.max_hwid_limit || 1}</td>
+                        <td class="hw-spec-cpu">${cpu}</td>
+                        <td class="hw-spec-gpu">${gpu}</td>
+                        <td class="hw-spec-ram">${ram} GB</td>
+                        <td class="hw-spec-storage">${storage} GB</td>
+                        <td class="hw-spec-device">${device}</td>
                         <td>${statusBadge}</td>
                         <td>
                             ${!c.is_active ? `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : '<span class="text-muted">—</span>'}
@@ -816,7 +802,7 @@
             document.getElementById('vip-count').textContent = vipCodes.length + ' codes';
             
             if (vipCodes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="14" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>';
                 return;
             }
             
@@ -829,6 +815,12 @@
                     `<span class="badge auto-deactivated">🚨 Auto-Deactivated</span>` :
                     `<span class="badge ${statusClass}">${statusLabel}</span>`;
                 
+                const cpu = c.cpu_name || 'N/A';
+                const gpu = c.gpu_name || 'N/A';
+                const ram = c.ram_total_gb || 'N/A';
+                const storage = c.storage_total_gb || 'N/A';
+                const device = c.device_name || 'N/A';
+                
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
@@ -837,6 +829,11 @@
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${c.used_count || 0}</td>
                         <td>${c.max_hwid_limit || 1}</td>
+                        <td class="hw-spec-cpu">${cpu}</td>
+                        <td class="hw-spec-gpu">${gpu}</td>
+                        <td class="hw-spec-ram">${ram} GB</td>
+                        <td class="hw-spec-storage">${storage} GB</td>
+                        <td class="hw-spec-device">${device}</td>
                         <td>${statusBadge}</td>
                         <td>
                             ${!c.is_active ? `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : '<span class="text-muted">—</span>'}

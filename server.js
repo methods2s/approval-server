@@ -1,4 +1,4 @@
-// server.js - Complete with all fixes
+// server.js - Complete with hardware specs in codes table
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', 1);
 
 // ============================================
-// CORS - MAKE SURE THIS IS CORRECT
+// CORS
 // ============================================
 app.use(cors({
     origin: '*',
@@ -23,7 +23,6 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
 
-// Handle preflight requests
 app.options('*', cors());
 
 // ============================================
@@ -66,10 +65,6 @@ app.use('/api/', limiter);
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
-
-// ============================================
-// SERVE STATIC FILES
-// ============================================
 app.use(express.static('public'));
 
 // ============================================
@@ -91,7 +86,7 @@ function isApiAuthenticated(req, res, next) {
 }
 
 // ============================================
-// TEST ENDPOINT - PARA MAKITA KUNG GUMAGANA
+// TEST ENDPOINTS
 // ============================================
 
 app.get('/api/test', (req, res) => {
@@ -203,7 +198,6 @@ app.get('/logout', (req, res) => {
 app.get('/dashboard', isAuthenticated, async (req, res) => {
     try {
         await db.cleanupInactiveDevices();
-        
         const cached = db.getCachedData();
         res.render('dashboard', { 
             username: req.session.username,
@@ -245,7 +239,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - WITH HARDWARE SPECS
+// REGISTER DEVICE
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -263,19 +257,15 @@ app.post('/api/register', async (req, res) => {
         detected_hwids
     } = req.body;
 
-    // Validate required fields
     if (!deviceId) {
-        console.log('❌ Missing deviceId');
         return res.status(400).json({ error: 'Device ID is required' });
     }
 
     if (!code) {
-        console.log('❌ Missing code');
         return res.status(400).json({ error: 'Activation code is required' });
     }
 
     if (!hwid) {
-        console.log('❌ Missing hwid');
         return res.status(403).json({
             error: '❌ HWID is required. Please run the Python software first.',
             status: 'hwid_required'
@@ -286,7 +276,6 @@ app.post('/api/register', async (req, res) => {
         // Check if code exists
         const codeInfo = await db.get('SELECT * FROM codes WHERE code = $1', [code.toUpperCase()]);
         if (!codeInfo) {
-            console.log('❌ Code not found:', code);
             return res.status(400).json({
                 error: '❌ Invalid code. Please check your code and try again.',
                 status: 'invalid_code'
@@ -294,7 +283,6 @@ app.post('/api/register', async (req, res) => {
         }
 
         if (!codeInfo.is_active) {
-            console.log('❌ Code is inactive:', code);
             return res.status(400).json({
                 error: '❌ This code has been deactivated. Please contact admin.',
                 status: 'code_inactive'
@@ -394,8 +382,8 @@ app.post('/api/register', async (req, res) => {
         const gpuName = parsedHardware.gpu || 'Unknown';
         const ramTotal = parsedHardware.ram_gb || 0;
         const storageTotal = parsedHardware.storage_gb || 0;
-        const profileName = parsedHardware.profile_name || 'Unknown';
         const deviceName = parsedHardware.device_name || 'Unknown';
+        const profileName = browser_profile || 'Default';
 
         console.log('🖥️ Hardware Specs Received:');
         console.log(`   CPU: ${cpuName}`);
@@ -405,11 +393,35 @@ app.post('/api/register', async (req, res) => {
         console.log(`   Profile: ${profileName}`);
         console.log(`   Device: ${deviceName}`);
 
+        // ============================================
+        // UPDATE CODES TABLE WITH HARDWARE SPECS
+        // ============================================
+        await db.run(
+            `UPDATE codes SET 
+                cpu_name = $1,
+                gpu_name = $2,
+                ram_total_gb = $3,
+                storage_total_gb = $4,
+                device_name = $5,
+                profile_name = $6,
+                hwid = $7
+            WHERE code = $8`,
+            [
+                cpuName,
+                gpuName,
+                ramTotal,
+                storageTotal,
+                deviceName,
+                profileName,
+                hwid,
+                code.toUpperCase()
+            ]
+        );
+
         // Check if device already exists
         const existingDevice = await db.getDevice(deviceId);
         
         if (existingDevice) {
-            // Update existing device
             await db.run(
                 `UPDATE devices SET 
                     user_agent = $1, 
@@ -421,32 +433,19 @@ app.post('/api/register', async (req, res) => {
                     updated_at = CURRENT_TIMESTAMP,
                     browser_profile = $6,
                     approved_at = CURRENT_TIMESTAMP,
-                    revoked_at = NULL,
-                    cpu_name = $7,
-                    gpu_name = $8,
-                    ram_total_gb = $9,
-                    storage_total_gb = $10,
-                    profile_name = $11,
-                    device_name = $12
-                WHERE device_id = $13`,
+                    revoked_at = NULL
+                WHERE device_id = $7`,
                 [
                     userAgent || '',
                     ip,
                     JSON.stringify(parsedBrowserInfo),
                     code.toUpperCase(),
                     hwid,
-                    browser_profile || 'Default',
-                    cpuName,
-                    gpuName,
-                    ramTotal,
-                    storageTotal,
                     profileName,
-                    deviceName,
                     deviceId
                 ]
             );
         } else {
-            // Insert new device
             await db.run(
                 `INSERT INTO devices (
                     device_id, 
@@ -457,14 +456,8 @@ app.post('/api/register', async (req, res) => {
                     hwid,
                     status, 
                     approved_at,
-                    browser_profile,
-                    cpu_name,
-                    gpu_name,
-                    ram_total_gb,
-                    storage_total_gb,
-                    profile_name,
-                    device_name
-                ) VALUES ($1, $2, $3, $4, $5, $6, 'approved', CURRENT_TIMESTAMP, $7, $8, $9, $10, $11, $12, $13)`,
+                    browser_profile
+                ) VALUES ($1, $2, $3, $4, $5, $6, 'approved', CURRENT_TIMESTAMP, $7)`,
                 [
                     deviceId,
                     userAgent || '',
@@ -472,13 +465,7 @@ app.post('/api/register', async (req, res) => {
                     JSON.stringify(parsedBrowserInfo),
                     code.toUpperCase(),
                     hwid,
-                    browser_profile || 'Default',
-                    cpuName,
-                    gpuName,
-                    ramTotal,
-                    storageTotal,
-                    profileName,
-                    deviceName
+                    profileName
                 ]
             );
         }
@@ -486,7 +473,7 @@ app.post('/api/register', async (req, res) => {
         // Update code usage count
         await db.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code.toUpperCase()]);
         await db.logUsage(deviceId, code, 'register', 
-            `Device registered | CPU: ${cpuName} | GPU: ${gpuName} | RAM: ${ramTotal}GB | Storage: ${storageTotal}GB | Profile: ${profileName} | Device: ${deviceName}`
+            `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName} | RAM: ${ramTotal}GB | Storage: ${storageTotal}GB`
         );
         
         await db.refreshCache();
@@ -507,14 +494,14 @@ app.post('/api/register', async (req, res) => {
             subscription_expires_at: updatedCodeInfo.expires_at,
             status_code: updatedCodeInfo.status,
             hwid_verified: true,
-            browser_profile: browser_profile || 'Default',
+            browser_profile: profileName,
             hardware: {
                 cpu: cpuName,
                 gpu: gpuName,
                 ram_gb: ramTotal,
                 storage_gb: storageTotal,
-                profile_name: profileName,
-                device_name: deviceName
+                device_name: deviceName,
+                profile_name: profileName
             },
             message: `✅ Profile registered with hardware specs`
         });
