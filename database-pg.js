@@ -81,7 +81,7 @@ class DeviceDatabase {
 
   async initTables() {
     try {
-      // Codes table with HWID support
+      // Codes table
       await this.query(`
         CREATE TABLE IF NOT EXISTS codes (
           code TEXT PRIMARY KEY,
@@ -104,7 +104,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Add missing columns if they don't exist
+      // Add missing columns
       const columnsToAdd = [
         { name: 'username', type: 'TEXT' },
         { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
@@ -126,7 +126,7 @@ class DeviceDatabase {
         }
       }
 
-      // NEW TABLE: code_hwids - stores multiple HWIDs per code
+      // code_hwids table
       await this.query(`
         CREATE TABLE IF NOT EXISTS code_hwids (
           id SERIAL PRIMARY KEY,
@@ -138,6 +138,7 @@ class DeviceDatabase {
         )
       `);
 
+      // Devices table with hardware specs
       await this.query(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -153,14 +154,38 @@ class DeviceDatabase {
           last_ping TIMESTAMP,
           ping_count INTEGER DEFAULT 0,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          browser_profile TEXT,
+          cpu_name TEXT,
+          gpu_name TEXT,
+          ram_total_gb DECIMAL,
+          storage_total_gb DECIMAL,
+          profile_name TEXT,
+          device_name TEXT
         )
       `);
 
-      try {
-        await this.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS hwid TEXT`);
-      } catch (e) {}
+      // Add device columns if not exist
+      const deviceColumns = [
+        { name: 'hwid', type: 'TEXT' },
+        { name: 'browser_profile', type: 'TEXT' },
+        { name: 'cpu_name', type: 'TEXT' },
+        { name: 'gpu_name', type: 'TEXT' },
+        { name: 'ram_total_gb', type: 'DECIMAL' },
+        { name: 'storage_total_gb', type: 'DECIMAL' },
+        { name: 'profile_name', type: 'TEXT' },
+        { name: 'device_name', type: 'TEXT' }
+      ];
 
+      for (const col of deviceColumns) {
+        try {
+          await this.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
+        } catch (e) {
+          // Column might already exist
+        }
+      }
+
+      // Requests table
       await this.query(`
         CREATE TABLE IF NOT EXISTS requests (
           id SERIAL PRIMARY KEY,
@@ -174,6 +199,7 @@ class DeviceDatabase {
         )
       `);
 
+      // Usage logs table
       await this.query(`
         CREATE TABLE IF NOT EXISTS usage_logs (
           id SERIAL PRIMARY KEY,
@@ -185,6 +211,7 @@ class DeviceDatabase {
         )
       `);
 
+      // Admins table
       await this.query(`
         CREATE TABLE IF NOT EXISTS admins (
           id SERIAL PRIMARY KEY,
@@ -194,7 +221,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Create indexes
+      // Indexes
       await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
@@ -214,7 +241,6 @@ class DeviceDatabase {
   // MULTI-HWID SUPPORT METHODS
   // ============================================
 
-  // Get HWID limit for a code
   async getCodeHwidLimit(code) {
     try {
       const result = await this.get(
@@ -228,7 +254,6 @@ class DeviceDatabase {
     }
   }
 
-  // Update HWID limit for a code
   async updateCodeHwidLimit(code, limit) {
     try {
       if (limit < 1) limit = 1;
@@ -246,7 +271,6 @@ class DeviceDatabase {
     }
   }
 
-  // Get all HWIDs assigned to a code
   async getCodeHwids(code) {
     try {
       return await this.all(
@@ -259,7 +283,6 @@ class DeviceDatabase {
     }
   }
 
-  // Get HWID count for a code
   async getCodeHwidCount(code) {
     try {
       const result = await this.get(
@@ -273,7 +296,6 @@ class DeviceDatabase {
     }
   }
 
-  // Check if HWID is authorized for a code
   async isHwidAuthorized(code, hwid) {
     try {
       const result = await this.get(
@@ -287,14 +309,12 @@ class DeviceDatabase {
     }
   }
 
-  // Assign HWID to a code (with limit check)
   async assignHwidToCode(code, hwid, autoAssign = false) {
     try {
       if (!hwid || hwid.length !== 64) {
         return { success: false, error: 'Invalid HWID format' };
       }
 
-      // Check if HWID is already assigned to this code
       const existing = await this.get(
         'SELECT * FROM code_hwids WHERE code = $1 AND hwid = $2',
         [code, hwid]
@@ -307,7 +327,6 @@ class DeviceDatabase {
         return { success: true, message: 'HWID already assigned, updated last_used' };
       }
 
-      // Check if HWID is assigned to another code
       const otherCode = await this.get(
         'SELECT code FROM code_hwids WHERE hwid = $1 AND code != $2',
         [hwid, code]
@@ -319,7 +338,6 @@ class DeviceDatabase {
         };
       }
 
-      // Check current HWID count
       const currentCount = await this.getCodeHwidCount(code);
       const limit = await this.getCodeHwidLimit(code);
 
@@ -343,13 +361,11 @@ class DeviceDatabase {
         };
       }
 
-      // Assign new HWID
       await this.run(
         'INSERT INTO code_hwids (code, hwid, assigned_at) VALUES ($1, $2, CURRENT_TIMESTAMP)',
         [code, hwid]
       );
 
-      // Update the legacy hwid field in codes for backward compatibility
       await this.run(
         'UPDATE codes SET hwid = $1 WHERE code = $2',
         [hwid, code]
@@ -363,7 +379,6 @@ class DeviceDatabase {
     }
   }
 
-  // Remove HWID from a code
   async removeHwidFromCode(code, hwid) {
     try {
       const count = await this.getCodeHwidCount(code);
@@ -397,7 +412,6 @@ class DeviceDatabase {
     }
   }
 
-  // Verify if HWID can access a code (checks all assigned HWIDs)
   async verifyHwidAccess(code, hwid) {
     try {
       const authorized = await this.isHwidAuthorized(code, hwid);
@@ -453,12 +467,11 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // AUTO-DEACTIVATE CODE WITH REASON
+  // AUTO-DEACTIVATE CODE
   // ============================================
 
   async autoDeactivateCode(code, reason = 'unauthorized_use') {
     try {
-        // Determine status based on reason
         let status = 'auto_deactivated';
         if (reason === 'multiple_hwids_detected') {
             status = 'auto_deactivated_multiple_hwids';
@@ -468,19 +481,16 @@ class DeviceDatabase {
             status = 'auto_deactivated_unauthorized';
         }
         
-        // Deactivate the code
         await this.run(
             'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
             [status, code]
         );
         
-        // Get all devices using this code
         const devices = await this.all(
             'SELECT device_id FROM devices WHERE code = $1',
             [code]
         );
         
-        // Revoke all devices
         for (const dev of devices) {
             await this.run(
                 'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
@@ -494,13 +504,11 @@ class DeviceDatabase {
             );
         }
         
-        // Clear all HWIDs for this code
         await this.run(
             'DELETE FROM code_hwids WHERE code = $1',
             [code]
         );
         
-        // Clear hwid field in codes table
         await this.run(
             'UPDATE codes SET hwid = NULL WHERE code = $1',
             [code]
@@ -1011,7 +1019,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // DEVICE REGISTRATION WITH AUTO-ASSIGN HWID
+  // DEVICE REGISTRATION WITH HWID
   // ============================================
 
   async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null) {
@@ -1041,20 +1049,17 @@ class DeviceDatabase {
         return { success: false, error: `Code is ${codeInfo.status}` };
       }
 
-      // Check if HWID is authorized or needs auto-assignment
       let isAuthorized = false;
       if (hwid) {
         isAuthorized = await this.isHwidAuthorized(code, hwid);
       }
 
-      // If HWID is not authorized, try to auto-assign
       if (!isAuthorized && hwid) {
         console.log(`🔄 HWID not authorized for code ${code}, attempting auto-assignment...`);
         
         const assignResult = await this.assignHwidToCode(code, hwid, true);
         
         if (!assignResult.success) {
-          // Check if auto-deactivation is needed
           if (assignResult.auto_deactivate) {
             console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
             const deactivateResult = await this.autoDeactivateCode(code, 'hwid_limit_exceeded_auto_assign');
@@ -1076,7 +1081,6 @@ class DeviceDatabase {
           `HWID ${hwid.substring(0, 16)}... auto-assigned to code ${code}`);
       }
 
-      // If still not authorized, return error
       if (!isAuthorized && hwid) {
         return { 
           success: false, 
@@ -1092,7 +1096,6 @@ class DeviceDatabase {
         };
       }
 
-      // Check existing device
       const existingDevice = await this.getDevice(deviceId);
       if (existingDevice) {
         if (existingDevice.code === code) {
@@ -1122,7 +1125,6 @@ class DeviceDatabase {
         }
       }
 
-      // Register new device
       await this.run(
         'INSERT INTO devices (device_id, user_agent, ip_address, browser_info, code, status, approved_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)',
         [deviceId, userAgent || '', ip || '', browserInfo || '', code, 'approved']

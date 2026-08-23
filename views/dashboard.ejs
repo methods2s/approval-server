@@ -77,7 +77,6 @@
         .badge.lifetime { background: rgba(255,152,0,0.2); color: #FF9800; }
         .badge.approved { background: rgba(76,175,80,0.2); color: #4CAF50; }
         .badge.auto-deactivated { background: rgba(244,67,54,0.2); color: #f44336; }
-        .badge.device-count { background: rgba(33,150,243,0.2); color: #2196F3; }
         
         /* Deactivation Reason Colors */
         .reason-multiple-hwids { color: #f44336; }
@@ -113,13 +112,6 @@
         #result-message.error { display: block; color: #f44336; border: 1px solid #f44336; background: rgba(244,67,54,0.1); }
         #result-message.loading { display: block; color: #FF9800; border: 1px solid #FF9800; background: rgba(255,152,0,0.1); }
         
-        .device-list { max-height: 300px; overflow-y: auto; }
-        .device-item { padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
-        .device-item:hover { background: rgba(255,255,255,0.03); }
-        .device-item .device-id { font-family: monospace; font-size: 11px; color: #aaa; }
-        .device-item .device-ip { color: #888; font-size: 11px; }
-        .device-item .device-status { font-size: 11px; }
-        
         .status-active { color: #4CAF50; }
         .status-inactive { color: #FF9800; }
         .status-expired { color: #f44336; }
@@ -128,12 +120,21 @@
         .hwid-limit-full { color: #f44336; font-weight: bold; }
         .hwid-limit-available { color: #4CAF50; }
         
-        /* Loading spinner for remove HWID */
+        /* Loading spinner */
         .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%; border-top-color: transparent; animation: spin 0.6s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
         
-        /* Device count in HWID list */
+        /* Device count badge */
         .device-count-badge { background: rgba(33,150,243,0.15); color: #2196F3; padding: 2px 8px; border-radius: 10px; font-size: 10px; }
+        
+        /* Hardware specs styling */
+        .hw-spec { font-size: 11px; }
+        .hw-spec.cpu { color: #4CAF50; }
+        .hw-spec.gpu { color: #9C27B0; }
+        .hw-spec.ram { color: #FF9800; }
+        .hw-spec.storage { color: #2196F3; }
+        .hw-spec.profile { color: #00BCD4; }
+        .hw-spec.device { color: #FF5722; }
         
         @media (max-width: 768px) { .form-row { flex-direction: column; } .stats-grid { grid-template-columns: repeat(2, 1fr); } }
     </style>
@@ -316,7 +317,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: PROFILES (formerly DEVICES) -->
+        <!-- TAB: PROFILES (with Hardware Specs) -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-devices">
             <div class="card">
@@ -345,24 +346,27 @@
                     </div>
                 </div>
 
-                <!-- Profiles Table -->
+                <!-- Profiles Table with Hardware Specs -->
                 <div class="scroll-table">
                     <table>
                         <thead>
                             <tr>
                                 <th>Profile ID</th>
                                 <th>Code</th>
-                                <th>IP Address</th>
+                                <th>IP</th>
+                                <th>CPU</th>
+                                <th>GPU</th>
+                                <th>RAM</th>
+                                <th>Storage</th>
+                                <th>Profile</th>
+                                <th>Device</th>
                                 <th>Status</th>
-                                <th>Pings</th>
                                 <th>Created</th>
-                                <th>Last Ping</th>
-                                <th>HWID</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
                         <tbody id="devices-body">
-                            <tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">Loading profiles...</td></tr>
+                            <tr><td colspan="12" style="text-align:center;color:#888;padding:30px;">Loading profiles...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -379,7 +383,7 @@
                     <span class="text-muted">Manage which computers can use each code</span>
                 </div>
                 
-                <!-- Select Code to Manage -->
+                <!-- Select Code -->
                 <div class="form-row" style="margin-bottom:15px;">
                     <div class="form-group" style="flex:2;">
                         <label>Select Code</label>
@@ -568,7 +572,7 @@
         }
 
         // ============================================
-        // LOAD PROFILES (DEVICES)
+        // LOAD PROFILES
         // ============================================
         async function loadDevices() {
             try {
@@ -596,36 +600,55 @@
             renderDevices();
         }
 
+        // ============================================
+        // RENDER PROFILES WITH HARDWARE SPECS
+        // ============================================
         function renderDevices() {
             const tbody = document.getElementById('devices-body');
             
             if (!filteredDevices || filteredDevices.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No profiles found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#888;padding:30px;">No profiles found</td></tr>';
                 return;
             }
             
-            tbody.innerHTML = filteredDevices.map(d => `
-                <tr>
-                    <td><small class="code-font">${d.device_id}</small></td>
-                    <td><strong>${d.code || '<span class="text-muted">N/A</span>'}</strong></td>
-                    <td>${d.ip_address || '<span class="text-muted">N/A</span>'}</td>
-                    <td><span class="badge ${d.status === 'approved' ? 'approved' : 'inactive'}">${d.status}</span></td>
-                    <td>${d.ping_count || 0}</td>
-                    <td>${d.created_at ? new Date(d.created_at).toLocaleString() : 'N/A'}</td>
-                    <td>${d.last_ping ? new Date(d.last_ping).toLocaleString() : 'Never'}</td>
-                    <td><small class="code-font" style="font-size:10px;">${d.hwid ? d.hwid.substring(0,12)+'...' : '<span class="text-muted">N/A</span>'}</small></td>
-                    <td>
-                        <button onclick="removeDevice('${d.device_id}')" class="btn-small btn-remove">🗑️ Remove</button>
-                    </td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = filteredDevices.map(d => {
+                // Hardware specs from database
+                const cpu = d.cpu_name || 'N/A';
+                const gpu = d.gpu_name || 'N/A';
+                const ram = d.ram_total_gb || 'N/A';
+                const storage = d.storage_total_gb || 'N/A';
+                const profile = d.profile_name || 'N/A';
+                const device = d.device_name || 'N/A';
+                
+                // Truncate long CPU names
+                const cpuDisplay = cpu.length > 25 ? cpu.substring(0, 22) + '...' : cpu;
+                
+                return `
+                    <tr>
+                        <td><small class="code-font">${d.device_id}</small></td>
+                        <td><strong>${d.code || '<span class="text-muted">N/A</span>'}</strong></td>
+                        <td>${d.ip_address || '<span class="text-muted">N/A</span>'}</td>
+                        <td class="hw-spec cpu" title="${cpu}">${cpuDisplay}</td>
+                        <td class="hw-spec gpu">${gpu}</td>
+                        <td class="hw-spec ram">${ram} GB</td>
+                        <td class="hw-spec storage">${storage} GB</td>
+                        <td class="hw-spec profile">${profile}</td>
+                        <td class="hw-spec device">${device}</td>
+                        <td><span class="badge ${d.status === 'approved' ? 'approved' : 'inactive'}">${d.status}</span></td>
+                        <td>${d.created_at ? new Date(d.created_at).toLocaleString() : 'N/A'}</td>
+                        <td>
+                            <button onclick="removeDevice('${d.device_id}')" class="btn-small btn-remove">🗑️ Remove</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         // ============================================
         // PROFILE ACTIONS
         // ============================================
         async function removeDevice(deviceId) {
-            if (!confirm(`⚠️ Remove profile ${deviceId}?\n\nThis will permanently delete this profile from the database.\nThe user will need to re-register.`)) return;
+            if (!confirm(`⚠️ Remove profile ${deviceId}?\n\nThis will permanently delete this profile from the database.`)) return;
             
             try {
                 const response = await fetch(`/api/device/${deviceId}`, { method: 'DELETE' });
@@ -635,7 +658,6 @@
                     setTimeout(() => hideMessage(), 2000);
                     await loadDevices();
                     await loadAll();
-                    // Also refresh HWID manager if open
                     if (document.getElementById('tab-hwid').classList.contains('active')) {
                         loadHwidDetails();
                     }
@@ -648,7 +670,7 @@
         }
 
         // ============================================
-        // RENDER ALL CODES - WITH SAVE BUTTON
+        // RENDER ALL CODES
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
@@ -836,12 +858,6 @@
         // HWID MANAGEMENT FUNCTIONS
         // ============================================
 
-        // Helper: Get device count for a specific HWID
-        function getDeviceCountForHwid(hwid, devices) {
-            if (!devices || !hwid) return 0;
-            return devices.filter(d => d.hwid === hwid && d.status === 'approved').length;
-        }
-
         function populateHwidCodeDropdown() {
             const select = document.getElementById('hwid-code-select');
             const currentValue = select.value;
@@ -874,7 +890,6 @@
                 const limitResponse = await fetch(`/api/code/${code}/hwid-limit`);
                 const limitData = await limitResponse.json();
                 
-                // Get devices for this code to count profiles per HWID
                 const devicesResponse = await fetch('/api/dashboard-data');
                 const devicesData = await devicesResponse.json();
                 const allDevicesForCode = (devicesData.devices || []).filter(d => d.code === code);
@@ -1053,7 +1068,6 @@
         async function removeHwid(hwid, rowIndex) {
             const code = document.getElementById('hwid-code-select').value;
             
-            // Check if this HWID has active profiles
             try {
                 const devicesResponse = await fetch('/api/dashboard-data');
                 const devicesData = await devicesResponse.json();
@@ -1074,7 +1088,6 @@
                 }
             }
             
-            // Disable the button and show loading
             const btn = document.getElementById('remove-hwid-btn-' + rowIndex);
             if (btn) {
                 btn.disabled = true;
@@ -1092,7 +1105,6 @@
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
                     setTimeout(() => hideMessage(), 2000);
-                    // Force refresh the HWID list and all data
                     await loadHwidDetails();
                     await loadAll();
                     await loadDevices();
