@@ -531,11 +531,11 @@ class DeviceDatabase {
             status: status
         };
     } catch (error) {
-        console.error('Auto-deactivate code error:', error);
-        return {
-            success: false,
-            error: error.message
-        };
+      console.error('Auto-deactivate code error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 
