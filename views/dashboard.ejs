@@ -66,6 +66,7 @@
         .badge.vip { background: rgba(255,152,0,0.2); color: #FF9800; }
         .badge.svip { background: rgba(76,175,80,0.2); color: #4CAF50; }
         .badge.auto-deactivated { background: rgba(244,67,54,0.2); color: #f44336; }
+        .badge.approved { background: rgba(76,175,80,0.2); color: #4CAF50; }
         
         .edit-input { width: 100%; padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; min-width: 60px; }
         .edit-input:focus { outline: none; border-color: #4CAF50; }
@@ -95,8 +96,6 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         
         .device-count-badge { background: rgba(33,150,243,0.15); color: #2196F3; padding: 2px 8px; border-radius: 10px; font-size: 10px; }
-        
-        /* Hardware specs in HWID Manager */
         .hw-spec-item { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin: 2px; }
         .hw-spec-cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
         .hw-spec-gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
@@ -104,9 +103,15 @@
         .hw-spec-storage { background: rgba(33,150,243,0.15); color: #2196F3; }
         .hw-spec-device { background: rgba(255,87,34,0.15); color: #FF5722; }
         .hw-spec-profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
-        
         .hw-spec-label { font-size: 10px; color: #888; }
         .hw-spec-value { font-weight: bold; color: #e0e0e0; }
+        
+        /* Deactivation Reason Colors */
+        .reason-multiple-hwids { color: #f44336; }
+        .reason-limit-exceeded { color: #f44336; }
+        .reason-unauthorized { color: #f44336; }
+        .reason-inactive { color: #FF9800; }
+        .reason-expired { color: #FF9800; }
         
         @media (max-width: 768px) { .form-row { flex-direction: column; } .stats-grid { grid-template-columns: repeat(2, 1fr); } }
     </style>
@@ -155,10 +160,9 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: ALL CODES (REMOVED HARDWARE SPECS) -->
+        <!-- TAB: ALL CODES -->
         <!-- ============================================ -->
         <div class="tab-content active" id="tab-codes">
-            <!-- Generate Code Form -->
             <div class="card">
                 <h3>➕ Generate New Code</h3>
                 <form id="generate-code-form">
@@ -192,7 +196,6 @@
                 <div id="gen-result" class="mt-10"></div>
             </div>
 
-            <!-- Codes Table - WITHOUT Hardware Specs -->
             <div class="card">
                 <div class="card-header">
                     <h3>📋 All Codes</h3>
@@ -225,7 +228,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: SVIP (REMOVED HARDWARE SPECS) -->
+        <!-- TAB: SVIP -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-svip">
             <div class="card">
@@ -257,7 +260,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: VIP (REMOVED HARDWARE SPECS) -->
+        <!-- TAB: VIP -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-vip">
             <div class="card">
@@ -289,7 +292,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: PROFILES -->
+        <!-- TAB: PROFILES (REMOVED IP AND CREATED) -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-profiles">
             <div class="card">
@@ -323,14 +326,12 @@
                             <tr>
                                 <th>Profile Name</th>
                                 <th>Code</th>
-                                <th>IP Address</th>
                                 <th>Status</th>
-                                <th>Created</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
                         <tbody id="devices-body">
-                            <tr><td colspan="6" style="text-align:center;color:#888;padding:30px;">Loading profiles...</td></tr>
+                            <tr><td colspan="4" style="text-align:center;color:#888;padding:30px;">Loading profiles...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -468,7 +469,6 @@
         let allCodes = [];
         let allDevices = [];
         let filteredDevices = [];
-        let allHwidDetails = {};
 
         // ============================================
         // DEACTIVATION REASON MAPPING
@@ -593,24 +593,26 @@
             renderDevices();
         }
 
+        // ============================================
+        // RENDER PROFILES (REMOVED IP AND CREATED)
+        // ============================================
         function renderDevices() {
             const tbody = document.getElementById('devices-body');
             
             if (!filteredDevices || filteredDevices.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:30px;">No profiles found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:30px;">No profiles found</td></tr>';
                 return;
             }
             
             tbody.innerHTML = filteredDevices.map(d => {
                 const profileName = d.browser_profile || 'Default';
+                const statusClass = d.status === 'approved' ? 'approved' : 'inactive';
                 
                 return `
                     <tr>
                         <td><strong style="color:#2196F3;">${profileName}</strong></td>
                         <td><strong>${d.code || '<span class="text-muted">N/A</span>'}</strong></td>
-                        <td>${d.ip_address || '<span class="text-muted">N/A</span>'}</td>
-                        <td><span class="badge ${d.status === 'approved' ? 'approved' : 'inactive'}">${d.status}</span></td>
-                        <td>${d.created_at ? new Date(d.created_at).toLocaleString() : 'N/A'}</td>
+                        <td><span class="badge ${statusClass}">${d.status}</span></td>
                         <td>
                             <button onclick="removeDevice('${d.device_id}')" class="btn-small btn-remove">🗑️ Remove</button>
                         </td>
@@ -642,7 +644,7 @@
         }
 
         // ============================================
-        // RENDER ALL CODES (WITHOUT HARDWARE SPECS)
+        // RENDER ALL CODES
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
@@ -660,6 +662,7 @@
                 const statusText = c.status || 'active';
                 const isAutoDeactivated = !c.is_active && (statusText.includes('auto_deactivated') || statusText === 'inactive');
                 const deactivationReason = !c.is_active ? getDeactivationReason(statusText) : '';
+                const reasonClass = !c.is_active ? getDeactivationClass(statusText) : '';
                 
                 if (isEditing) {
                     return `
@@ -733,7 +736,7 @@
         }
 
         // ============================================
-        // RENDER SVIP (WITHOUT HARDWARE SPECS)
+        // RENDER SVIP
         // ============================================
         function renderSVIP() {
             const svipCodes = allCodes.filter(c => c.access_level === 'SVIP');
@@ -780,7 +783,7 @@
         }
 
         // ============================================
-        // RENDER VIP (WITHOUT HARDWARE SPECS)
+        // RENDER VIP
         // ============================================
         function renderVIP() {
             const vipCodes = allCodes.filter(c => c.access_level === 'VIP');
@@ -827,7 +830,7 @@
         }
 
         // ============================================
-        // HWID MANAGEMENT FUNCTIONS (WITH HARDWARE SPECS)
+        // HWID MANAGEMENT FUNCTIONS
         // ============================================
 
         function populateHwidCodeDropdown() {
@@ -885,7 +888,6 @@
                 const codeInfo = allCodes.find(c => c.code === code);
                 
                 if (codeInfo) {
-                    // Show hardware specs summary
                     document.getElementById('hwid-hardware-summary').style.display = 'block';
                     document.getElementById('hw-spec-cpu').textContent = codeInfo.cpu_name || 'N/A';
                     document.getElementById('hw-spec-gpu').textContent = codeInfo.gpu_name || 'N/A';
@@ -893,6 +895,14 @@
                     document.getElementById('hw-spec-storage').textContent = codeInfo.storage_total_gb ? codeInfo.storage_total_gb + ' GB' : 'N/A';
                     document.getElementById('hw-spec-device').textContent = codeInfo.device_name || 'N/A';
                     document.getElementById('hw-spec-profile').textContent = codeInfo.profile_name || 'N/A';
+                } else {
+                    document.getElementById('hwid-hardware-summary').style.display = 'block';
+                    document.getElementById('hw-spec-cpu').textContent = 'N/A';
+                    document.getElementById('hw-spec-gpu').textContent = 'N/A';
+                    document.getElementById('hw-spec-ram').textContent = 'N/A';
+                    document.getElementById('hw-spec-storage').textContent = 'N/A';
+                    document.getElementById('hw-spec-device').textContent = 'N/A';
+                    document.getElementById('hw-spec-profile').textContent = 'N/A';
                 }
                 
                 const statusEl = document.getElementById('hwid-limit-status');
@@ -935,7 +945,6 @@
                 const btnId = 'remove-hwid-btn-' + index + '-' + Date.now();
                 const hasDevices = deviceCount > 0;
                 
-                // Hardware specs for this HWID (from codeInfo)
                 const cpu = codeInfo?.cpu_name || 'N/A';
                 const gpu = codeInfo?.gpu_name || 'N/A';
                 const ram = codeInfo?.ram_total_gb ? codeInfo.ram_total_gb + ' GB' : 'N/A';
