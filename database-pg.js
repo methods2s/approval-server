@@ -196,6 +196,62 @@ class DeviceDatabase {
   }
 
   // ============================================
+  // AUTO-DEACTIVATE CODE WITH REASON
+  // ============================================
+
+  async autoDeactivateCode(code, reason = 'unauthorized_use') {
+    try {
+        // Deactivate the code
+        await this.run(
+            'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
+            ['auto_deactivated', code]
+        );
+        
+        // Get all devices using this code
+        const devices = await this.all(
+            'SELECT device_id FROM devices WHERE code = $1',
+            [code]
+        );
+        
+        // Revoke all devices
+        for (const dev of devices) {
+            await this.run(
+                'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
+                ['revoked', dev.device_id]
+            );
+            await this.logUsage(
+                dev.device_id, 
+                code, 
+                'auto_revoked', 
+                `🔒 Device auto-revoked due to ${reason}`
+            );
+        }
+        
+        await this.logUsage(
+            'system', 
+            code, 
+            'auto_deactivated', 
+            `🔒 Code ${code} auto-deactivated due to ${reason}`
+        );
+        
+        await this.refreshCache();
+        
+        return {
+            success: true,
+            code: code,
+            devices_revoked: devices.length,
+            reason: reason
+        };
+    } catch (error) {
+        console.error('Auto-deactivate code error:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+  }
+
+  // ============================================
   // AUTO-DETECT UNAUTHORIZED HWID USAGE
   // ============================================
 
@@ -228,37 +284,7 @@ class DeviceDatabase {
         );
         
         // AUTO-DEACTIVATE the code
-        await this.deactivateCode(code);
-        
-        // Log the deactivation
-        await this.logUsage(
-          'system', 
-          code, 
-          'auto_deactivated', 
-          `🔒 AUTO-DEACTIVATED: Code ${code} was deactivated due to unauthorized usage on different computer.`
-        );
-        
-        // Get all devices using this code
-        const devices = await this.all(
-          'SELECT device_id FROM devices WHERE code = $1',
-          [code]
-        );
-        
-        // Revoke all devices
-        for (const dev of devices) {
-          await this.run(
-            'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
-            ['revoked', dev.device_id]
-          );
-          await this.logUsage(
-            dev.device_id, 
-            code, 
-            'auto_revoked', 
-            `🔒 Device auto-revoked due to unauthorized usage of code ${code}`
-          );
-        }
-        
-        await this.refreshCache();
+        const result = await this.autoDeactivateCode(code, 'unauthorized_use');
         
         return {
           detected: true,
@@ -266,8 +292,8 @@ class DeviceDatabase {
           code: code,
           original_hwid: codeInfo.hwid,
           attempted_hwid: newHwid,
-          devices_revoked: devices.length,
-          message: `⚠️ UNAUTHORIZED! Code ${code} has been auto-deactivated. ${devices.length} devices revoked.`
+          devices_revoked: result.devices_revoked || 0,
+          message: `⚠️ UNAUTHORIZED! Code ${code} has been auto-deactivated. ${result.devices_revoked || 0} devices revoked.`
         };
       }
       

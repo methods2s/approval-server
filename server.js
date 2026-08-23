@@ -318,7 +318,7 @@ app.put('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - WITH AUTO-DETECTION
+// REGISTER DEVICE - WITH AUTO-DEACTIVATION
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -341,21 +341,45 @@ app.post('/api/register', async (req, res) => {
   }
 
   // ============================================
-  // AUTO-DETECT UNAUTHORIZED USAGE
+  // CHECK IF CODE EXISTS FIRST
   // ============================================
-  
-  // Check if code exists first
   const codeInfo = await db.get('SELECT * FROM codes WHERE code = $1', [code.toUpperCase()]);
   
-  if (codeInfo && codeInfo.hwid && codeInfo.hwid !== hwid) {
+  if (!codeInfo) {
+    return res.status(400).json({
+      error: '❌ Invalid code. Please check your code and try again.',
+      status: 'invalid_code'
+    });
+  }
+
+  // ============================================
+  // CHECK IF CODE IS ACTIVE
+  // ============================================
+  if (!codeInfo.is_active) {
+    return res.status(400).json({
+      error: '❌ This code has been deactivated. Please contact admin.',
+      status: 'code_inactive'
+    });
+  }
+
+  // ============================================
+  // CHECK IF CODE HAS HWID (REGISTERED TO A COMPUTER)
+  // ============================================
+  if (codeInfo.hwid && codeInfo.hwid !== hwid) {
+    // 🚨 UNAUTHORIZED USAGE DETECTED!
     console.log(`🚨 UNAUTHORIZED USAGE DETECTED!`);
     console.log(`📌 Code: ${code}`);
     console.log(`🖥️ Original HWID: ${codeInfo.hwid.substring(0, 16)}...`);
     console.log(`🖥️ Attempted HWID: ${hwid.substring(0, 16)}...`);
     console.log(`📱 Device: ${deviceId}`);
     
-    // AUTO-DEACTIVATE the code
-    await db.deactivateCode(code.toUpperCase());
+    // ============================================
+    // AUTO-DEACTIVATE THE CODE
+    // ============================================
+    await db.run(
+      'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
+      ['auto_deactivated', code.toUpperCase()]
+    );
     
     // Log the unauthorized attempt
     await db.logUsage(
@@ -367,8 +391,8 @@ app.post('/api/register', async (req, res) => {
     
     // Get all devices using this code
     const devices = await db.all(
-      'SELECT device_id FROM devices WHERE code = $1 AND status != $2',
-      [code.toUpperCase(), 'revoked']
+      'SELECT device_id FROM devices WHERE code = $1',
+      [code.toUpperCase()]
     );
     
     // Revoke all devices
@@ -395,8 +419,10 @@ app.post('/api/register', async (req, res) => {
       devices_revoked: devices.length
     });
   }
-  
-  // Check if HWID is already used by another code
+
+  // ============================================
+  // CHECK IF HWID IS ALREADY USED BY ANOTHER CODE
+  // ============================================
   if (hwid) {
     const existingHwid = await db.get(
       'SELECT * FROM codes WHERE hwid = $1 AND code != $2',
@@ -424,20 +450,19 @@ app.post('/api/register', async (req, res) => {
   }
 
   // ============================================
-  // PROCEED WITH NORMAL REGISTRATION
+  // IF CODE HAS NO HWID YET, ASSIGN IT
   // ============================================
-  
-  // Verify HWID matches the code (if code has HWID)
-  if (codeInfo && codeInfo.hwid) {
-    const hwidCheck = await db.verifyHwidCode(code.toUpperCase(), hwid);
-    if (!hwidCheck.valid) {
-      return res.status(403).json({
-        error: '❌ Invalid code or this computer is not authorized.',
-        status: 'hwid_mismatch'
-      });
-    }
+  if (!codeInfo.hwid) {
+    await db.run(
+      'UPDATE codes SET hwid = $1 WHERE code = $2',
+      [hwid, code.toUpperCase()]
+    );
+    console.log(`✅ HWID assigned to code ${code}`);
   }
 
+  // ============================================
+  // PROCEED WITH NORMAL REGISTRATION
+  // ============================================
   const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
   
   try {
