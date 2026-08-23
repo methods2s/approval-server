@@ -106,24 +106,98 @@
         .hw-spec-label { font-size: 10px; color: #888; }
         .hw-spec-value { font-weight: bold; color: #e0e0e0; }
         
-        @media (max-width: 768px) { .form-row { flex-direction: column; } .stats-grid { grid-template-columns: repeat(2, 1fr); } }
+        .hw-spec-detail {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin: 2px 0;
+        }
+        .hw-spec-detail.full-width {
+            display: block;
+            width: 100%;
+        }
+        .hw-spec-detail.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
+        .hw-spec-detail.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
+        .hw-spec-detail.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
+        .hw-spec-detail.storage { background: rgba(33,150,243,0.15); color: #2196F3; }
+        .hw-spec-detail.device { background: rgba(255,87,34,0.15); color: #FF5722; }
+        .hw-spec-detail.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
         
         .btn-remove-hwid {
             background: #f44336;
             color: #fff;
             border: none;
             border-radius: 4px;
-            padding: 4px 12px;
+            padding: 6px 14px;
             cursor: pointer;
-            font-size: 11px;
+            font-size: 12px;
+            font-weight: bold;
+            transition: all 0.2s;
         }
         .btn-remove-hwid:hover {
             background: #d32f2f;
+            transform: scale(1.05);
         }
         .btn-remove-hwid:disabled {
             background: #555;
             color: #888;
             cursor: not-allowed;
+            transform: none;
+        }
+        
+        .hwid-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        .hwid-stat-card {
+            background: rgba(255,255,255,0.05);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        .hwid-stat-card .number {
+            font-size: 28px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        .hwid-stat-card .label {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
+        .hwid-stat-card .number.warning { color: #FF9800; }
+        .hwid-stat-card .number.danger { color: #f44336; }
+        
+        .hwid-specs-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            background: rgba(255,255,255,0.03);
+            padding: 10px;
+            border-radius: 6px;
+        }
+        .hwid-specs-grid .spec-item {
+            font-size: 11px;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        .hwid-specs-grid .spec-item .label { color: #888; font-size: 9px; display: block; }
+        .hwid-specs-grid .spec-item .value { font-weight: bold; color: #e0e0e0; }
+        .hwid-specs-grid .spec-item.cpu { background: rgba(76,175,80,0.1); }
+        .hwid-specs-grid .spec-item.gpu { background: rgba(156,39,176,0.1); }
+        .hwid-specs-grid .spec-item.ram { background: rgba(255,152,0,0.1); }
+        .hwid-specs-grid .spec-item.storage { background: rgba(33,150,243,0.1); }
+        .hwid-specs-grid .spec-item.device { background: rgba(255,87,34,0.1); }
+        .hwid-specs-grid .spec-item.profile { background: rgba(0,188,212,0.1); }
+        
+        @media (max-width: 768px) { 
+            .form-row { flex-direction: column; } 
+            .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .hwid-specs-grid { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
@@ -376,51 +450,53 @@
                 </div>
 
                 <div id="hwid-info" style="display:none;">
-                    <div class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:15px;">
-                        <div class="stat-card">
+                    <!-- Stats -->
+                    <div class="hwid-stats-grid">
+                        <div class="hwid-stat-card">
                             <div class="number" id="hwid-current-count">0</div>
                             <div class="label">Current HWIDs</div>
                         </div>
-                        <div class="stat-card">
+                        <div class="hwid-stat-card">
                             <div class="number" id="hwid-max-limit">0</div>
                             <div class="label">Max Limit</div>
                         </div>
-                        <div class="stat-card">
+                        <div class="hwid-stat-card">
                             <div class="number" id="hwid-available-slots">0</div>
                             <div class="label">Available Slots</div>
                         </div>
-                        <div class="stat-card">
+                        <div class="hwid-stat-card">
                             <div class="number" id="hwid-total-profiles">0</div>
                             <div class="label">Total Profiles</div>
                         </div>
                     </div>
                     
                     <!-- HARDWARE SPECS SUMMARY -->
-                    <div id="hwid-hardware-summary" style="display:block;background:rgba(255,255,255,0.05);padding:15px;border-radius:8px;margin-bottom:15px;border:1px solid rgba(255,255,255,0.08);">
-                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">
-                            <div>
-                                <div class="hw-spec-label">🔧 CPU</div>
-                                <div class="hw-spec-value" id="hw-spec-cpu" style="color:#4CAF50;">N/A</div>
+                    <div style="background:rgba(255,255,255,0.05);padding:15px;border-radius:8px;margin-bottom:15px;border:1px solid rgba(255,255,255,0.08);">
+                        <div style="font-size:12px;color:#888;margin-bottom:8px;">📊 Hardware Specifications (from Python file)</div>
+                        <div class="hwid-specs-grid">
+                            <div class="spec-item cpu">
+                                <span class="label">🔧 CPU</span>
+                                <span class="value" id="hw-spec-cpu">N/A</span>
                             </div>
-                            <div>
-                                <div class="hw-spec-label">🎮 GPU</div>
-                                <div class="hw-spec-value" id="hw-spec-gpu" style="color:#9C27B0;">N/A</div>
+                            <div class="spec-item gpu">
+                                <span class="label">🎮 GPU</span>
+                                <span class="value" id="hw-spec-gpu">N/A</span>
                             </div>
-                            <div>
-                                <div class="hw-spec-label">💾 RAM</div>
-                                <div class="hw-spec-value" id="hw-spec-ram" style="color:#FF9800;">N/A</div>
+                            <div class="spec-item ram">
+                                <span class="label">💾 RAM</span>
+                                <span class="value" id="hw-spec-ram">N/A</span>
                             </div>
-                            <div>
-                                <div class="hw-spec-label">💿 Storage</div>
-                                <div class="hw-spec-value" id="hw-spec-storage" style="color:#2196F3;">N/A</div>
+                            <div class="spec-item storage">
+                                <span class="label">💿 Storage</span>
+                                <span class="value" id="hw-spec-storage">N/A</span>
                             </div>
-                            <div>
-                                <div class="hw-spec-label">💻 Device</div>
-                                <div class="hw-spec-value" id="hw-spec-device" style="color:#FF5722;">N/A</div>
+                            <div class="spec-item device">
+                                <span class="label">💻 Device</span>
+                                <span class="value" id="hw-spec-device">N/A</span>
                             </div>
-                            <div>
-                                <div class="hw-spec-label">👤 Profile</div>
-                                <div class="hw-spec-value" id="hw-spec-profile" style="color:#00BCD4;">N/A</div>
+                            <div class="spec-item profile">
+                                <span class="label">👤 Profile</span>
+                                <span class="value" id="hw-spec-profile">N/A</span>
                             </div>
                         </div>
                     </div>
@@ -954,7 +1030,9 @@
                 const hwidDevices = devices ? devices.filter(d => d.hwid === h.hwid) : [];
                 const approvedDevices = hwidDevices.filter(d => d.status === 'approved');
                 const deviceCount = approvedDevices.length;
-                const canRemove = hwids.length > 1;
+                
+                // FIX: Always enable remove button (canRemove = true)
+                const canRemove = true;
                 
                 // Get specs from the FIRST device with this HWID
                 const device = approvedDevices[0] || hwidDevices[0] || null;
@@ -981,23 +1059,17 @@
                             </span>
                         </td>
                         <td style="font-size:11px;line-height:1.8;">
-                            <div><span class="hw-spec-item hw-spec-cpu">🔧 CPU: ${cpu}</span></div>
-                            <div><span class="hw-spec-item hw-spec-gpu">🎮 GPU: ${gpu}</span></div>
-                            <div><span class="hw-spec-item hw-spec-ram">💾 RAM: ${ram}</span></div>
-                            <div><span class="hw-spec-item hw-spec-storage">💿 Storage: ${storage}</span></div>
-                            <div><span class="hw-spec-item hw-spec-device">💻 Device: ${deviceName}</span></div>
-                            <div><span class="hw-spec-item hw-spec-profile">👤 Profile: ${profile}</span></div>
+                            <div><span class="hw-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
+                            <div><span class="hw-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
+                            <div><span class="hw-spec-detail ram">💾 RAM: ${ram}</span></div>
+                            <div><span class="hw-spec-detail storage">💿 Storage: ${storage}</span></div>
+                            <div><span class="hw-spec-detail device">💻 Device: ${deviceName}</span></div>
+                            <div><span class="hw-spec-detail profile">👤 Profile: ${profile}</span></div>
                         </td>
                         <td style="text-align:center;">
-                            ${canRemove ? `
-                                <button onclick="removeHwid('${hwidFull}')" class="btn-remove-hwid" id="remove-btn-${index}">
-                                    🗑️ Remove
-                                </button>
-                            ` : `
-                                <button class="btn-remove-hwid" style="background:#555;color:#888;cursor:not-allowed;" disabled>
-                                    🔒 Last HWID
-                                </button>
-                            `}
+                            <button onclick="removeHwid('${hwidFull}')" class="btn-remove-hwid" id="remove-btn-${index}">
+                                🗑️ Remove
+                            </button>
                         </td>
                     </tr>
                 `;
