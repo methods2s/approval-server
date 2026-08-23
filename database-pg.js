@@ -97,9 +97,10 @@ class DeviceDatabase {
           status TEXT DEFAULT 'active',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           notes TEXT,
-          hwid TEXT UNIQUE,
+          hwid TEXT,
           fingerprint TEXT,
-          machine_info JSONB
+          machine_info JSONB,
+          max_hwid_limit INTEGER DEFAULT 1
         )
       `);
 
@@ -111,9 +112,10 @@ class DeviceDatabase {
         { name: 'subscription_started_at', type: 'TIMESTAMP' },
         { name: 'expires_at', type: 'TIMESTAMP' },
         { name: 'status', type: 'TEXT DEFAULT \'active\'' },
-        { name: 'hwid', type: 'TEXT UNIQUE' },
+        { name: 'hwid', type: 'TEXT' },
         { name: 'fingerprint', type: 'TEXT' },
-        { name: 'machine_info', type: 'JSONB' }
+        { name: 'machine_info', type: 'JSONB' },
+        { name: 'max_hwid_limit', type: 'INTEGER DEFAULT 1' }
       ];
 
       for (const col of columnsToAdd) {
@@ -123,6 +125,18 @@ class DeviceDatabase {
           // Column might already exist
         }
       }
+
+      // NEW TABLE: code_hwids - stores multiple HWIDs per code
+      await this.query(`
+        CREATE TABLE IF NOT EXISTS code_hwids (
+          id SERIAL PRIMARY KEY,
+          code TEXT NOT NULL REFERENCES codes(code) ON DELETE CASCADE,
+          hwid TEXT NOT NULL,
+          assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          last_used TIMESTAMP,
+          UNIQUE(code, hwid)
+        )
+      `);
 
       await this.query(`
         CREATE TABLE IF NOT EXISTS devices (
@@ -143,7 +157,6 @@ class DeviceDatabase {
         )
       `);
 
-      // Add hwid to devices if not exists
       try {
         await this.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS hwid TEXT`);
       } catch (e) {}
@@ -185,6 +198,8 @@ class DeviceDatabase {
       await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
 
       console.log('✅ Tables created/verified');
       
@@ -196,24 +211,250 @@ class DeviceDatabase {
   }
 
   // ============================================
+  // MULTI-HWID SUPPORT METHODS
+  // ============================================
+
+  // Get HWID limit for a code
+  async getCodeHwidLimit(code) {
+    try {
+      const result = await this.get(
+        'SELECT max_hwid_limit FROM codes WHERE code = $1',
+        [code]
+      );
+      return result ? result.max_hwid_limit : 1;
+    } catch (error) {
+      console.error('Get HWID limit error:', error);
+      return 1;
+    }
+  }
+
+  // Update HWID limit for a code
+  async updateCodeHwidLimit(code, limit) {
+    try {
+      if (limit < 1) limit = 1;
+      if (limit > 10) limit = 10;
+      
+      const result = await this.run(
+        'UPDATE codes SET max_hwid_limit = $1 WHERE code = $2',
+        [limit, code]
+      );
+      await this.refreshCache();
+      return result.changes > 0;
+    } catch (error) {
+      console.error('Update HWID limit error:', error);
+      return false;
+    }
+  }
+
+  // Get all HWIDs assigned to a code
+  async getCodeHwids(code) {
+    try {
+      return await this.all(
+        'SELECT hwid, assigned_at, last_used FROM code_hwids WHERE code = $1 ORDER BY assigned_at DESC',
+        [code]
+      );
+    } catch (error) {
+      console.error('Get code HWIDs error:', error);
+      return [];
+    }
+  }
+
+  // Get HWID count for a code
+  async getCodeHwidCount(code) {
+    try {
+      const result = await this.get(
+        'SELECT COUNT(*) as count FROM code_hwids WHERE code = $1',
+        [code]
+      );
+      return result ? parseInt(result.count) : 0;
+    } catch (error) {
+      console.error('Get HWID count error:', error);
+      return 0;
+    }
+  }
+
+  // Check if HWID is authorized for a code
+  async isHwidAuthorized(code, hwid) {
+    try {
+      const result = await this.get(
+        'SELECT * FROM code_hwids WHERE code = $1 AND hwid = $2',
+        [code, hwid]
+      );
+      return !!result;
+    } catch (error) {
+      console.error('Check HWID authorized error:', error);
+      return false;
+    }
+  }
+
+  // Assign HWID to a code (with limit check)
+  async assignHwidToCode(code, hwid) {
+    try {
+      if (!hwid || hwid.length !== 64) {
+        return { success: false, error: 'Invalid HWID format' };
+      }
+
+      // Check if HWID is already assigned to this code
+      const existing = await this.get(
+        'SELECT * FROM code_hwids WHERE code = $1 AND hwid = $2',
+        [code, hwid]
+      );
+      if (existing) {
+        await this.run(
+          'UPDATE code_hwids SET last_used = CURRENT_TIMESTAMP WHERE code = $1 AND hwid = $2',
+          [code, hwid]
+        );
+        return { success: true, message: 'HWID already assigned, updated last_used' };
+      }
+
+      // Check if HWID is assigned to another code
+      const otherCode = await this.get(
+        'SELECT code FROM code_hwids WHERE hwid = $1 AND code != $2',
+        [hwid, code]
+      );
+      if (otherCode) {
+        return { 
+          success: false, 
+          error: `HWID is already assigned to code: ${otherCode.code}` 
+        };
+      }
+
+      // Check current HWID count
+      const currentCount = await this.getCodeHwidCount(code);
+      const limit = await this.getCodeHwidLimit(code);
+
+      if (currentCount >= limit) {
+        return { 
+          success: false, 
+          error: `HWID limit reached (${limit}). Remove some HWIDs first.` 
+        };
+      }
+
+      // Assign new HWID
+      await this.run(
+        'INSERT INTO code_hwids (code, hwid, assigned_at) VALUES ($1, $2, CURRENT_TIMESTAMP)',
+        [code, hwid]
+      );
+
+      // Update the legacy hwid field in codes for backward compatibility
+      await this.run(
+        'UPDATE codes SET hwid = $1 WHERE code = $2',
+        [hwid, code]
+      );
+
+      await this.refreshCache();
+      return { success: true, message: 'HWID assigned successfully' };
+    } catch (error) {
+      console.error('Assign HWID error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Remove HWID from a code
+  async removeHwidFromCode(code, hwid) {
+    try {
+      const count = await this.getCodeHwidCount(code);
+      if (count <= 1) {
+        return { 
+          success: false, 
+          error: 'Cannot remove the last HWID. Deactivate the code first.' 
+        };
+      }
+
+      const result = await this.run(
+        'DELETE FROM code_hwids WHERE code = $1 AND hwid = $2',
+        [code, hwid]
+      );
+
+      if (result.changes > 0) {
+        const remaining = await this.getCodeHwids(code);
+        if (remaining && remaining.length > 0) {
+          await this.run(
+            'UPDATE codes SET hwid = $1 WHERE code = $2',
+            [remaining[0].hwid, code]
+          );
+        }
+        await this.refreshCache();
+        return { success: true, message: 'HWID removed successfully' };
+      }
+      return { success: false, error: 'HWID not found' };
+    } catch (error) {
+      console.error('Remove HWID error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Verify if HWID can access a code (checks all assigned HWIDs)
+  async verifyHwidAccess(code, hwid) {
+    try {
+      const authorized = await this.isHwidAuthorized(code, hwid);
+      if (!authorized) {
+        return { 
+          valid: false, 
+          error: 'This computer is not authorized for this code',
+          needsRegistration: true
+        };
+      }
+
+      const codeInfo = await this.get(
+        'SELECT * FROM codes WHERE code = $1 AND is_active = true',
+        [code]
+      );
+
+      if (!codeInfo) {
+        return { valid: false, error: 'Invalid or inactive code' };
+      }
+
+      if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
+        const now = new Date();
+        const expires = new Date(codeInfo.expires_at);
+        if (now > expires) {
+          await this.run(`UPDATE codes SET status = 'expired' WHERE code = $1`, [code]);
+          return { valid: false, error: 'Subscription expired' };
+        }
+      }
+
+      if (codeInfo.status !== 'active') {
+        return { valid: false, error: `Code is ${codeInfo.status}` };
+      }
+
+      await this.run(
+        'UPDATE code_hwids SET last_used = CURRENT_TIMESTAMP WHERE code = $1 AND hwid = $2',
+        [code, hwid]
+      );
+
+      return {
+        valid: true,
+        username: codeInfo.username,
+        access: codeInfo.access_level,
+        subscription: codeInfo.subscription_type,
+        subscription_started_at: codeInfo.subscription_started_at,
+        subscription_expires_at: codeInfo.expires_at,
+        status_code: codeInfo.status,
+        hwid_limit: codeInfo.max_hwid_limit || 1
+      };
+    } catch (error) {
+      console.error('Verify HWID access error:', error);
+      return { valid: false, error: 'Verification failed' };
+    }
+  }
+
+  // ============================================
   // AUTO-DEACTIVATE CODE WITH REASON
   // ============================================
 
   async autoDeactivateCode(code, reason = 'unauthorized_use') {
     try {
-        // Deactivate the code
         await this.run(
             'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
             ['auto_deactivated', code]
         );
         
-        // Get all devices using this code
         const devices = await this.all(
             'SELECT device_id FROM devices WHERE code = $1',
             [code]
         );
         
-        // Revoke all devices
         for (const dev of devices) {
             await this.run(
                 'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
@@ -257,7 +498,6 @@ class DeviceDatabase {
 
   async autoDetectUnauthorizedUsage(code, newHwid, deviceId) {
     try {
-      // Get the code info
       const codeInfo = await this.get('SELECT * FROM codes WHERE code = $1', [code]);
       
       if (!codeInfo) {
@@ -267,7 +507,6 @@ class DeviceDatabase {
         };
       }
       
-      // Check if the code is already assigned to a different HWID
       if (codeInfo.hwid && codeInfo.hwid !== newHwid) {
         console.log(`🚨 UNAUTHORIZED USAGE DETECTED!`);
         console.log(`📌 Code: ${code}`);
@@ -275,7 +514,6 @@ class DeviceDatabase {
         console.log(`🖥️ Attempted HWID: ${newHwid.substring(0, 16)}...`);
         console.log(`📱 Device: ${deviceId}`);
         
-        // Log the unauthorized attempt
         await this.logUsage(
           deviceId, 
           code, 
@@ -283,7 +521,6 @@ class DeviceDatabase {
           `⚠️ UNAUTHORIZED: Code ${code} attempted on different computer. Original HWID: ${codeInfo.hwid.substring(0, 16)}..., Attempted HWID: ${newHwid.substring(0, 16)}...`
         );
         
-        // AUTO-DEACTIVATE the code
         const result = await this.autoDeactivateCode(code, 'unauthorized_use');
         
         return {
@@ -297,7 +534,6 @@ class DeviceDatabase {
         };
       }
       
-      // Check if HWID is already used by another code
       const existingHwid = await this.get(
         'SELECT * FROM codes WHERE hwid = $1 AND code != $2',
         [newHwid, code]
@@ -356,16 +592,20 @@ class DeviceDatabase {
 
   async verifyHwidCode(code, hwid) {
     try {
+      const authorized = await this.isHwidAuthorized(code, hwid);
+      if (!authorized) {
+        return { valid: false, error: 'Invalid HWID/code combination' };
+      }
+
       const result = await this.get(
-        'SELECT * FROM codes WHERE code = $1 AND hwid = $2 AND is_active = true',
-        [code, hwid]
+        'SELECT * FROM codes WHERE code = $1 AND is_active = true',
+        [code]
       );
       
       if (!result) {
-        return { valid: false, error: 'Invalid HWID/code combination' };
+        return { valid: false, error: 'Invalid code' };
       }
       
-      // Check expiration
       if (result.subscription_type !== 'Lifetime' && result.expires_at) {
         const now = new Date();
         const expires = new Date(result.expires_at);
@@ -390,19 +630,20 @@ class DeviceDatabase {
     }
   }
 
-  async addHwidCode(code, hwid, fingerprint, username, accessLevel = 'VIP', subscriptionType = 'Lifetime', createdBy = 'admin') {
+  async addHwidCode(code, hwid, fingerprint, username, accessLevel = 'VIP', subscriptionType = 'Lifetime', createdBy = 'admin', maxHwidLimit = 1) {
     try {
-      // Check if HWID already has a code
-      const existing = await this.getCodeByHwid(hwid);
-      if (existing) {
+      const existingHwid = await this.get(
+        'SELECT code FROM code_hwids WHERE hwid = $1',
+        [hwid]
+      );
+      if (existingHwid) {
         return {
           success: false,
-          error: `This computer is already registered with code: ${existing.code}`,
-          existing_code: existing.code
+          error: `This computer is already registered with code: ${existingHwid.code}`,
+          existing_code: existingHwid.code
         };
       }
-      
-      // Check if code already exists
+
       const existingCode = await this.get('SELECT * FROM codes WHERE code = $1', [code]);
       if (existingCode) {
         return {
@@ -410,21 +651,26 @@ class DeviceDatabase {
           error: `Code ${code} already exists`
         };
       }
-      
+
       const now = new Date().toISOString();
       const expiresAt = subscriptionType === 'Lifetime' ? null : this.calculateExpiration(now, subscriptionType);
-      
+
       await this.run(
-        `INSERT INTO codes (code, hwid, fingerprint, username, max_devices, created_by, notes, access_level, subscription_type, subscription_started_at, expires_at, status, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', true)`,
-        [code, hwid, fingerprint || hwid.substring(0, 16) + '...', username.trim(), 10, createdBy, `HWID: ${fingerprint || hwid.substring(0, 16)}`, accessLevel, subscriptionType, now, expiresAt]
+        `INSERT INTO codes (code, hwid, fingerprint, username, max_devices, created_by, notes, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, max_hwid_limit)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', true, $12)`,
+        [code, hwid, fingerprint || hwid.substring(0, 16) + '...', username.trim(), 10, createdBy, `HWID: ${fingerprint || hwid.substring(0, 16)}`, accessLevel, subscriptionType, now, expiresAt, maxHwidLimit]
       );
-      
+
+      await this.run(
+        'INSERT INTO code_hwids (code, hwid, assigned_at) VALUES ($1, $2, CURRENT_TIMESTAMP)',
+        [code, hwid]
+      );
+
       await this.logUsage('admin', code, 'hwid_code_added', 
-        `HWID code ${code} added for ${username} by ${createdBy}`);
-      
+        `HWID code ${code} added for ${username} by ${createdBy} (limit: ${maxHwidLimit})`);
+
       await this.refreshCache();
-      
+
       return {
         success: true,
         code: code,
@@ -433,9 +679,10 @@ class DeviceDatabase {
         fingerprint: fingerprint,
         access: accessLevel,
         subscription: subscriptionType,
-        expires_at: expiresAt
+        expires_at: expiresAt,
+        max_hwid_limit: maxHwidLimit
       };
-      
+
     } catch (error) {
       console.error('Add HWID code error:', error);
       return { success: false, error: error.message };
@@ -446,7 +693,7 @@ class DeviceDatabase {
     try {
       return await this.all(`
         SELECT code, hwid, fingerprint, username, access_level, subscription_type, 
-               is_active, used_count, created_at, expires_at, status, created_by
+               is_active, used_count, created_at, expires_at, status, created_by, max_hwid_limit
         FROM codes 
         WHERE hwid IS NOT NULL
         ORDER BY created_at DESC
@@ -521,8 +768,8 @@ class DeviceDatabase {
       const expiresAt = subscriptionType === 'Lifetime' ? null : this.calculateExpiration(now, subscriptionType);
       
       await this.run(
-        `INSERT INTO codes (code, max_devices, created_by, username, notes, access_level, subscription_type, subscription_started_at, expires_at, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active')`,
+        `INSERT INTO codes (code, max_devices, created_by, username, notes, access_level, subscription_type, subscription_started_at, expires_at, status, max_hwid_limit)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', 1)`,
         [code, maxDevices, createdBy, username.trim(), notes || '', accessLevel, subscriptionType, now, expiresAt]
       );
       
@@ -604,7 +851,7 @@ class DeviceDatabase {
   async getAllCodes() {
     try {
       const result = await this.all(
-        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint
+        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit
          FROM codes ORDER BY created_at DESC`
       );
       return result || [];
@@ -789,6 +1036,7 @@ class DeviceDatabase {
 
   async deleteCode(code) {
     try {
+      await this.run('DELETE FROM code_hwids WHERE code = $1', [code]);
       await this.run('DELETE FROM devices WHERE code = $1', [code]);
       const result = await this.run('DELETE FROM codes WHERE code = $1', [code]);
       
@@ -820,12 +1068,20 @@ class DeviceDatabase {
         return { success: false, error: 'Code is inactive' };
       }
 
-      // If HWID is provided, verify it matches
       if (hwid) {
-        const hwidCheck = await this.verifyHwidCode(code, hwid);
+        const hwidCheck = await this.verifyHwidAccess(code, hwid);
         if (!hwidCheck.valid) {
-          return { success: false, error: 'This code is not registered to this computer' };
+          return { 
+            success: false, 
+            error: 'This computer is not authorized for this code',
+            needsRegistration: true
+          };
         }
+      } else {
+        return { 
+          success: false, 
+          error: 'HWID is required for registration' 
+        };
       }
 
       if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {

@@ -152,6 +152,7 @@
             <button class="tab-btn" onclick="switchTab('svip')">⭐ SVIP</button>
             <button class="tab-btn" onclick="switchTab('vip')">🔶 VIP</button>
             <button class="tab-btn" onclick="switchTab('devices')">📱 Devices</button>
+            <button class="tab-btn" onclick="switchTab('hwid')">🖥️ HWID Manager</button>
         </div>
 
         <!-- ============================================ -->
@@ -217,7 +218,7 @@
                                 <th>Subscription</th>
                                 <th>Expires</th>
                                 <th>Devices</th>
-                                <th>HWID</th>
+                                <th>HWID Limit</th>
                                 <th>Status</th>
                                 <th style="width:200px;">Actions</th>
                             </tr>
@@ -248,7 +249,7 @@
                                 <th>Subscription</th>
                                 <th>Expires</th>
                                 <th>Devices</th>
-                                <th>HWID</th>
+                                <th>HWID Limit</th>
                                 <th>Status</th>
                                 <th>Actions</th>
                             </tr>
@@ -279,7 +280,7 @@
                                 <th>Subscription</th>
                                 <th>Expires</th>
                                 <th>Devices</th>
-                                <th>HWID</th>
+                                <th>HWID Limit</th>
                                 <th>Status</th>
                                 <th>Actions</th>
                             </tr>
@@ -346,6 +347,89 @@
             </div>
         </div>
 
+        <!-- ============================================ -->
+        <!-- TAB: HWID MANAGER -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-hwid">
+            <div class="card">
+                <div class="card-header">
+                    <h3>🖥️ HWID Management</h3>
+                    <span class="text-muted">Manage which computers can use each code</span>
+                </div>
+                
+                <!-- Select Code to Manage -->
+                <div class="form-row" style="margin-bottom:15px;">
+                    <div class="form-group" style="flex:2;">
+                        <label>Select Code</label>
+                        <select id="hwid-code-select" onchange="loadHwidDetails()">
+                            <option value="">-- Select a code --</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>HWID Limit (1-10)</label>
+                        <div style="display:flex;gap:10px;">
+                            <input type="number" id="hwid-limit-input" min="1" max="10" value="1">
+                            <button onclick="updateHwidLimit()" class="btn-primary" style="padding:8px 15px;">Update Limit</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- HWID Info -->
+                <div id="hwid-info" style="display:none;">
+                    <div class="stats-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:15px;">
+                        <div class="stat-card">
+                            <div class="number" id="hwid-current-count">0</div>
+                            <div class="label">Current HWIDs</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="number" id="hwid-max-limit">0</div>
+                            <div class="label">Max Limit</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="number" id="hwid-available-slots">0</div>
+                            <div class="label">Available Slots</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Add New HWID -->
+                <div id="hwid-add-section" style="display:none;margin-bottom:15px;">
+                    <h4>➕ Add New Computer (HWID)</h4>
+                    <div class="form-row">
+                        <div class="form-group" style="flex:3;">
+                            <label>HWID (64 characters)</label>
+                            <input type="text" id="hwid-add-input" placeholder="Enter 64-character HWID" style="font-family:monospace;font-size:12px;">
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label>&nbsp;</label>
+                            <button onclick="addHwid()" class="btn-success" style="padding:10px 25px;width:100%;">➕ Add HWID</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- HWID List -->
+                <div id="hwid-list-section" style="display:none;">
+                    <h4>📋 Assigned Computers</h4>
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>HWID (masked)</th>
+                                    <th>Assigned At</th>
+                                    <th>Last Used</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hwid-list-body">
+                                <tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">No HWIDs assigned</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <div id="result-message"></div>
@@ -370,6 +454,8 @@
             
             if (tab === 'devices') {
                 loadDevices();
+            } else if (tab === 'hwid') {
+                populateHwidCodeDropdown();
             } else {
                 renderCurrentTab();
             }
@@ -415,12 +501,10 @@
                 const response = await fetch('/api/dashboard-data');
                 const data = await response.json();
                 
-                // Update stats
                 const stats = data.stats || {};
                 document.getElementById('stat-total').textContent = stats.total || 0;
                 document.getElementById('stat-codes').textContent = stats.totalCodes || 0;
                 
-                // Count SVIP and VIP
                 const codes = data.codes || [];
                 const svipCount = codes.filter(c => c.access_level === 'SVIP').length;
                 const vipCount = codes.filter(c => c.access_level === 'VIP').length;
@@ -428,6 +512,7 @@
                 document.getElementById('stat-vip').textContent = vipCount;
                 
                 allCodes = codes;
+                populateHwidCodeDropdown();
                 renderCurrentTab();
                 
             } catch (error) {
@@ -550,7 +635,9 @@
                             </td>
                             <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : 'Never'}</td>
                             <td>${c.used_count || 0}</td>
-                            <td><input class="edit-input" id="edit-hwid-${c.code}" value="${c.hwid || ''}" placeholder="64-char HWID" style="font-family:monospace;font-size:11px;width:120px;"></td>
+                            <td>
+                                <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:60px;">
+                            </td>
                             <td>
                                 <select class="edit-select" id="edit-status-${c.code}">
                                     <option value="true" ${c.is_active ? 'selected' : ''}>✅ Active</option>
@@ -575,7 +662,7 @@
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${c.used_count || 0}</td>
-                        <td><small class="code-font" style="font-size:10px;">${c.hwid ? c.hwid.substring(0,16)+'...' : '<span class="text-muted">N/A</span>'}</small></td>
+                        <td>${c.max_hwid_limit || 1}</td>
                         <td><span class="badge ${statusClass}">${statusLabel}</span></td>
                         <td>
                             <div class="action-buttons">
@@ -611,7 +698,7 @@
                     <td>${c.subscription_type || 'Lifetime'}</td>
                     <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                     <td>${c.used_count || 0}</td>
-                    <td><small class="code-font" style="font-size:10px;">${c.hwid ? c.hwid.substring(0,12)+'...' : '<span class="text-muted">N/A</span>'}</small></td>
+                    <td>${c.max_hwid_limit || 1}</td>
                     <td><span class="badge ${c.is_active ? 'active' : 'inactive'}">${c.is_active ? '✅ Active' : '❌ Inactive'}</span></td>
                     <td>
                         <div class="action-buttons">
@@ -645,7 +732,7 @@
                     <td>${c.subscription_type || 'Lifetime'}</td>
                     <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                     <td>${c.used_count || 0}</td>
-                    <td><small class="code-font" style="font-size:10px;">${c.hwid ? c.hwid.substring(0,12)+'...' : '<span class="text-muted">N/A</span>'}</small></td>
+                    <td>${c.max_hwid_limit || 1}</td>
                     <td><span class="badge ${c.is_active ? 'active' : 'inactive'}">${c.is_active ? '✅ Active' : '❌ Inactive'}</span></td>
                     <td>
                         <div class="action-buttons">
@@ -657,6 +744,190 @@
                     </td>
                 </tr>
             `).join('');
+        }
+
+        // ============================================
+        // HWID MANAGEMENT FUNCTIONS
+        // ============================================
+
+        // Populate code dropdown for HWID management
+        function populateHwidCodeDropdown() {
+            const select = document.getElementById('hwid-code-select');
+            const currentValue = select.value;
+            
+            select.innerHTML = '<option value="">-- Select a code --</option>';
+            allCodes.forEach(c => {
+                const option = document.createElement('option');
+                option.value = c.code;
+                option.textContent = `${c.code} - ${c.username || 'N/A'}`;
+                if (c.code === currentValue) option.selected = true;
+                select.appendChild(option);
+            });
+            
+            if (currentValue) {
+                loadHwidDetails();
+            }
+        }
+
+        // Load HWID details for selected code
+        async function loadHwidDetails() {
+            const code = document.getElementById('hwid-code-select').value;
+            if (!code) {
+                document.getElementById('hwid-info').style.display = 'none';
+                document.getElementById('hwid-add-section').style.display = 'none';
+                document.getElementById('hwid-list-section').style.display = 'none';
+                return;
+            }
+            
+            try {
+                const limitResponse = await fetch(`/api/code/${code}/hwid-limit`);
+                const limitData = await limitResponse.json();
+                
+                document.getElementById('hwid-info').style.display = 'block';
+                document.getElementById('hwid-add-section').style.display = 'block';
+                document.getElementById('hwid-list-section').style.display = 'block';
+                
+                document.getElementById('hwid-current-count').textContent = limitData.current_hwid_count || 0;
+                document.getElementById('hwid-max-limit').textContent = limitData.max_hwid_limit || 1;
+                document.getElementById('hwid-available-slots').textContent = limitData.available_slots || 0;
+                document.getElementById('hwid-limit-input').value = limitData.max_hwid_limit || 1;
+                
+                const hwidResponse = await fetch(`/api/code/${code}/hwids`);
+                const hwidData = await hwidResponse.json();
+                renderHwidList(hwidData);
+                
+            } catch (error) {
+                console.error('Load HWID details error:', error);
+                showMessage('❌ Error loading HWID details: ' + error.message, 'error');
+            }
+        }
+
+        // Render HWID list
+        function renderHwidList(hwids) {
+            const tbody = document.getElementById('hwid-list-body');
+            if (!hwids || hwids.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">No HWIDs assigned to this code</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = hwids.map((h, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td><code style="font-size:11px;">${h.hwid_masked || h.hwid.substring(0,16) + '...'}</code></td>
+                    <td>${h.assigned_at ? new Date(h.assigned_at).toLocaleString() : 'N/A'}</td>
+                    <td>${h.last_used ? new Date(h.last_used).toLocaleString() : 'Never'}</td>
+                    <td>
+                        <button onclick="removeHwid('${h.hwid}')" class="btn-small btn-danger" ${hwids.length <= 1 ? 'disabled' : ''}>
+                            🗑️ Remove
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        // Update HWID limit
+        async function updateHwidLimit() {
+            const code = document.getElementById('hwid-code-select').value;
+            const limit = parseInt(document.getElementById('hwid-limit-input').value);
+            
+            if (!code) {
+                showMessage('❌ Please select a code first', 'error');
+                return;
+            }
+            
+            if (!limit || limit < 1 || limit > 10) {
+                showMessage('❌ Limit must be between 1 and 10', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/code/${code}/hwid-limit`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ limit })
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    setTimeout(() => hideMessage(), 2000);
+                    loadHwidDetails();
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to update limit'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // Add HWID
+        async function addHwid() {
+            const code = document.getElementById('hwid-code-select').value;
+            const hwid = document.getElementById('hwid-add-input').value.trim();
+            
+            if (!code) {
+                showMessage('❌ Please select a code first', 'error');
+                return;
+            }
+            
+            if (!hwid) {
+                showMessage('❌ Please enter an HWID', 'error');
+                return;
+            }
+            
+            if (hwid.length !== 64) {
+                showMessage('❌ HWID must be exactly 64 characters', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/code/${code}/hwid`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hwid })
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    setTimeout(() => hideMessage(), 2000);
+                    document.getElementById('hwid-add-input').value = '';
+                    loadHwidDetails();
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to add HWID'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // Remove HWID
+        async function removeHwid(hwid) {
+            const code = document.getElementById('hwid-code-select').value;
+            
+            if (!confirm(`⚠️ Remove this computer (HWID: ${hwid.substring(0,16)}...)?\n\nThis will revoke access for this computer.`)) return;
+            
+            try {
+                const response = await fetch(`/api/code/${code}/hwid`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hwid })
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    setTimeout(() => hideMessage(), 2000);
+                    loadHwidDetails();
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
         }
 
         // ============================================
@@ -679,18 +950,11 @@
             const accessLevel = document.getElementById(`edit-access-${code}`).value;
             const subscriptionType = document.getElementById(`edit-subscription-${code}`).value;
             const isActive = document.getElementById(`edit-status-${code}`).value === 'true';
-            const hwid = document.getElementById(`edit-hwid-${code}`).value.trim();
-            
-            // Validate HWID if provided
-            if (hwid && hwid.length !== 64) {
-                showMessage('❌ HWID must be exactly 64 characters!', 'error');
-                return;
-            }
+            const hwidLimit = parseInt(document.getElementById(`edit-hwid-limit-${code}`).value) || 1;
             
             try {
                 showMessage('💾 Saving changes...', 'loading');
                 
-                // Update username
                 if (username) {
                     await fetch(`/api/code/${code}/username`, {
                         method: 'PUT',
@@ -699,31 +963,28 @@
                     });
                 }
                 
-                // Update access level
                 await fetch(`/api/code/${code}/access`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ accessLevel })
                 });
                 
-                // Update subscription
                 await fetch(`/api/code/${code}/subscription`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ subscriptionType })
                 });
-                
-                // Update HWID if changed
+
+                // Update HWID limit
                 const currentCode = allCodes.find(c => c.code === code);
-                if (currentCode && currentCode.hwid !== hwid) {
-                    await fetch(`/api/code/${code}/hwid`, {
+                if (currentCode && currentCode.max_hwid_limit !== hwidLimit) {
+                    await fetch(`/api/code/${code}/hwid-limit`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ hwid: hwid || null })
+                        body: JSON.stringify({ limit: hwidLimit })
                     });
                 }
                 
-                // Update status if changed
                 if (currentCode && currentCode.is_active !== isActive) {
                     if (isActive) {
                         await fetch(`/api/code/${code}/reactivate`, {
@@ -849,7 +1110,8 @@
                             fingerprint: fingerprint || hwid.substring(0, 16) + '...',
                             username: username,
                             accessLevel: accessLevel,
-                            subscriptionType: subscriptionType
+                            subscriptionType: subscriptionType,
+                            maxHwidLimit: 1
                         })
                     });
                 } else {

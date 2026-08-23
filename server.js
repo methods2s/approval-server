@@ -202,7 +202,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 // ============================================
 
 app.post('/api/admin/add-hwid-code', isApiAuthenticated, async (req, res) => {
-    const { code, hwid, fingerprint, username, accessLevel, subscriptionType } = req.body;
+    const { code, hwid, fingerprint, username, accessLevel, subscriptionType, maxHwidLimit } = req.body;
     
     if (!code || !hwid || !username) {
         return res.status(400).json({ 
@@ -224,7 +224,8 @@ app.post('/api/admin/add-hwid-code', isApiAuthenticated, async (req, res) => {
             username.trim(),
             accessLevel || 'VIP',
             subscriptionType || 'Lifetime',
-            req.session.username
+            req.session.username,
+            maxHwidLimit || 1
         );
         
         if (result.success) {
@@ -235,7 +236,8 @@ app.post('/api/admin/add-hwid-code', isApiAuthenticated, async (req, res) => {
                 username: result.username,
                 hwid: hwid.substring(0, 16) + '...',
                 access: result.access,
-                subscription: result.subscription
+                subscription: result.subscription,
+                max_hwid_limit: result.max_hwid_limit
             });
         } else {
             res.status(400).json({ error: result.error });
@@ -277,6 +279,136 @@ app.post('/api/verify-hwid', async (req, res) => {
 });
 
 // ============================================
+// GET HWID LIMIT FOR CODE
+// ============================================
+
+app.get('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
+  const { code } = req.params;
+  try {
+    const limit = await db.getCodeHwidLimit(code);
+    const count = await db.getCodeHwidCount(code);
+    res.json({ 
+      code, 
+      max_hwid_limit: limit, 
+      current_hwid_count: count,
+      available_slots: limit - count
+    });
+  } catch (error) {
+    console.error('Get HWID limit error:', error);
+    res.status(500).json({ error: 'Failed to get HWID limit' });
+  }
+});
+
+// ============================================
+// UPDATE HWID LIMIT
+// ============================================
+
+app.put('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
+  const { code } = req.params;
+  const { limit } = req.body;
+  
+  if (!limit || limit < 1 || limit > 10) {
+    return res.status(400).json({ 
+      error: 'Limit must be between 1 and 10' 
+    });
+  }
+
+  try {
+    const success = await db.updateCodeHwidLimit(code, limit);
+    if (success) {
+      await db.logUsage('admin', code, 'hwid_limit_updated', 
+        `HWID limit updated to ${limit} for code ${code} by ${req.session.username}`);
+      await db.refreshCache();
+      res.json({ 
+        success: true, 
+        message: `HWID limit updated to ${limit} for code ${code}`,
+        max_hwid_limit: limit
+      });
+    } else {
+      res.status(404).json({ error: 'Code not found' });
+    }
+  } catch (error) {
+    console.error('Update HWID limit error:', error);
+    res.status(500).json({ error: 'Failed to update HWID limit' });
+  }
+});
+
+// ============================================
+// GET ASSIGNED HWIDS FOR CODE
+// ============================================
+
+app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
+  const { code } = req.params;
+  try {
+    const hwids = await db.getCodeHwids(code);
+    const masked = hwids.map(h => ({
+      ...h,
+      hwid_masked: h.hwid ? h.hwid.substring(0, 16) + '...' : null
+    }));
+    res.json(masked);
+  } catch (error) {
+    console.error('Get HWIDs error:', error);
+    res.status(500).json({ error: 'Failed to get HWIDs' });
+  }
+});
+
+// ============================================
+// ASSIGN HWID TO CODE
+// ============================================
+
+app.post('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
+  const { code } = req.params;
+  const { hwid } = req.body;
+
+  if (!hwid || hwid.length !== 64) {
+    return res.status(400).json({ error: 'HWID must be exactly 64 characters' });
+  }
+
+  try {
+    const result = await db.assignHwidToCode(code.toUpperCase(), hwid);
+    if (result.success) {
+      await db.logUsage('admin', code, 'hwid_assigned', 
+        `HWID assigned to code ${code} by ${req.session.username}`);
+      await db.refreshCache();
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('Assign HWID error:', error);
+    res.status(500).json({ error: 'Failed to assign HWID' });
+  }
+});
+
+// ============================================
+// REMOVE HWID FROM CODE
+// ============================================
+
+app.delete('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
+  const { code } = req.params;
+  const { hwid } = req.body;
+
+  if (!hwid || hwid.length !== 64) {
+    return res.status(400).json({ error: 'HWID must be exactly 64 characters' });
+  }
+
+  try {
+    const result = await db.removeHwidFromCode(code.toUpperCase(), hwid);
+    if (result.success) {
+      await db.logUsage('admin', code, 'hwid_removed', 
+        `HWID removed from code ${code} by ${req.session.username}`);
+      await db.refreshCache();
+      res.json(result);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('Remove HWID error:', error);
+    res.status(500).json({ error: 'Failed to remove HWID' });
+  }
+});
+
+// ============================================
 // UPDATE HWID
 // ============================================
 
@@ -287,7 +419,7 @@ app.put('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
     try {
         if (hwid) {
             const existing = await db.get(
-                'SELECT * FROM codes WHERE hwid = $1 AND code != $2',
+                'SELECT * FROM code_hwids WHERE hwid = $1 AND code != $2',
                 [hwid, code]
             );
             if (existing) {
@@ -318,12 +450,12 @@ app.put('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - WITH AUTO-DEACTIVATION
+// REGISTER DEVICE - WITH MULTI-HWID SUPPORT
 // ============================================
 
 app.post('/api/register', async (req, res) => {
   const { deviceId, userAgent, browserInfo, code, hwid } = req.body;
-  
+
   if (!deviceId) {
     return res.status(400).json({ error: 'Device ID is required' });
   }
@@ -332,7 +464,6 @@ app.post('/api/register', async (req, res) => {
     return res.status(400).json({ error: 'Activation code is required' });
   }
 
-  // Check if HWID is provided
   if (!hwid) {
     return res.status(403).json({
       error: '❌ This computer is not registered. Please run the Python software first.',
@@ -340,11 +471,7 @@ app.post('/api/register', async (req, res) => {
     });
   }
 
-  // ============================================
-  // CHECK IF CODE EXISTS FIRST
-  // ============================================
   const codeInfo = await db.get('SELECT * FROM codes WHERE code = $1', [code.toUpperCase()]);
-  
   if (!codeInfo) {
     return res.status(400).json({
       error: '❌ Invalid code. Please check your code and try again.',
@@ -352,9 +479,6 @@ app.post('/api/register', async (req, res) => {
     });
   }
 
-  // ============================================
-  // CHECK IF CODE IS ACTIVE
-  // ============================================
   if (!codeInfo.is_active) {
     return res.status(400).json({
       error: '❌ This code has been deactivated. Please contact admin.',
@@ -363,111 +487,71 @@ app.post('/api/register', async (req, res) => {
   }
 
   // ============================================
-  // CHECK IF CODE HAS HWID (REGISTERED TO A COMPUTER)
+  // CHECK MULTI-HWID AUTHORIZATION
   // ============================================
-  if (codeInfo.hwid && codeInfo.hwid !== hwid) {
-    // 🚨 UNAUTHORIZED USAGE DETECTED!
-    console.log(`🚨 UNAUTHORIZED USAGE DETECTED!`);
-    console.log(`📌 Code: ${code}`);
-    console.log(`🖥️ Original HWID: ${codeInfo.hwid.substring(0, 16)}...`);
-    console.log(`🖥️ Attempted HWID: ${hwid.substring(0, 16)}...`);
-    console.log(`📱 Device: ${deviceId}`);
-    
-    // ============================================
-    // AUTO-DEACTIVATE THE CODE
-    // ============================================
-    await db.run(
-      'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
-      ['auto_deactivated', code.toUpperCase()]
-    );
-    
-    // Log the unauthorized attempt
-    await db.logUsage(
-      deviceId, 
-      code, 
-      'unauthorized_attempt_auto_deactivated', 
-      `🚨 UNAUTHORIZED: Code ${code} used on different computer. AUTO-DEACTIVATED! Original HWID: ${codeInfo.hwid.substring(0, 16)}..., Attempted HWID: ${hwid.substring(0, 16)}...`
-    );
-    
-    // Get all devices using this code
-    const devices = await db.all(
-      'SELECT device_id FROM devices WHERE code = $1',
-      [code.toUpperCase()]
-    );
-    
-    // Revoke all devices
-    for (const dev of devices) {
-      await db.run(
-        'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
-        ['revoked', dev.device_id]
-      );
-      await db.logUsage(
-        dev.device_id, 
-        code, 
-        'auto_revoked_due_to_unauthorized', 
-        `🔒 Device auto-revoked due to unauthorized usage of code ${code}`
-      );
-    }
-    
-    await db.refreshCache();
-    
-    return res.status(403).json({
-      error: `🚨 UNAUTHORIZED! Code ${code} has been AUTO-DEACTIVATED. This code is registered to a different computer.`,
-      status: 'unauthorized_deactivated',
-      code: code,
-      original_hwid: codeInfo.hwid.substring(0, 16) + '...',
-      devices_revoked: devices.length
-    });
-  }
-
-  // ============================================
-  // CHECK IF HWID IS ALREADY USED BY ANOTHER CODE
-  // ============================================
-  if (hwid) {
-    const existingHwid = await db.get(
-      'SELECT * FROM codes WHERE hwid = $1 AND code != $2',
+  const authorized = await db.isHwidAuthorized(code.toUpperCase(), hwid);
+  
+  if (!authorized) {
+    const otherCode = await db.get(
+      'SELECT code FROM code_hwids WHERE hwid = $1 AND code != $2',
       [hwid, code.toUpperCase()]
     );
     
-    if (existingHwid) {
-      console.log(`🚨 HWID ALREADY REGISTERED TO ANOTHER CODE!`);
-      console.log(`🖥️ HWID: ${hwid.substring(0, 16)}...`);
-      console.log(`📌 Existing Code: ${existingHwid.code}`);
-      
+    if (otherCode) {
       await db.logUsage(
         deviceId, 
         code, 
         'hwid_already_registered_attempt', 
-        `⚠️ HWID ${hwid.substring(0, 16)}... already registered to code ${existingHwid.code}`
+        `⚠️ HWID ${hwid.substring(0, 16)}... already registered to code ${otherCode.code}`
       );
       
       return res.status(403).json({
-        error: `⚠️ This computer is already registered to code: ${existingHwid.code}`,
+        error: `⚠️ This computer is already registered to code: ${otherCode.code}`,
         status: 'hwid_already_registered',
-        existing_code: existingHwid.code
+        existing_code: otherCode.code
       });
     }
-  }
 
-  // ============================================
-  // IF CODE HAS NO HWID YET, ASSIGN IT
-  // ============================================
-  if (!codeInfo.hwid) {
-    await db.run(
-      'UPDATE codes SET hwid = $1 WHERE code = $2',
-      [hwid, code.toUpperCase()]
+    const currentCount = await db.getCodeHwidCount(code.toUpperCase());
+    const limit = await db.getCodeHwidLimit(code.toUpperCase());
+
+    if (currentCount >= limit) {
+      return res.status(403).json({
+        error: `⚠️ This code has reached its HWID limit (${limit}). Contact admin to add more computers.`,
+        status: 'hwid_limit_reached',
+        max_hwid_limit: limit,
+        current_hwid_count: currentCount
+      });
+    }
+
+    const assignResult = await db.assignHwidToCode(code.toUpperCase(), hwid);
+    if (!assignResult.success) {
+      return res.status(403).json({
+        error: `❌ ${assignResult.error}`,
+        status: 'hwid_assignment_failed'
+      });
+    }
+
+    await db.logUsage(
+      deviceId, 
+      code, 
+      'hwid_auto_assigned', 
+      `✅ New HWID auto-assigned to code ${code}`
     );
-    console.log(`✅ HWID assigned to code ${code}`);
   }
 
-  // ============================================
-  // PROCEED WITH NORMAL REGISTRATION
-  // ============================================
   const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
-  
+
   try {
-    const result = await db.registerDeviceWithCode(deviceId, userAgent || '', ip, browserInfo || '', code.toUpperCase(), hwid);
-    
+    const result = await db.registerDeviceWithCode(
+      deviceId, 
+      userAgent || '', 
+      ip, 
+      browserInfo || '', 
+      code.toUpperCase(), 
+      hwid
+    );
+
     if (!result.success) {
       return res.status(400).json({ 
         error: result.error,
@@ -1057,6 +1141,7 @@ app.post('/api/delete-all-requests', isApiAuthenticated, async (req, res) => {
 
 app.post('/api/delete-all-codes', isApiAuthenticated, async (req, res) => {
   try {
+    await db.run('DELETE FROM code_hwids');
     await db.run('DELETE FROM devices');
     const count = await db.get('SELECT COUNT(*) as count FROM codes');
     await db.run('DELETE FROM codes');
