@@ -445,16 +445,19 @@ class DeviceDatabase {
 
   async autoDeactivateCode(code, reason = 'unauthorized_use') {
     try {
+        // Deactivate the code
         await this.run(
             'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
             ['auto_deactivated', code]
         );
         
+        // Get all devices using this code
         const devices = await this.all(
             'SELECT device_id FROM devices WHERE code = $1',
             [code]
         );
         
+        // Revoke all devices
         for (const dev of devices) {
             await this.run(
                 'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
@@ -468,11 +471,17 @@ class DeviceDatabase {
             );
         }
         
+        // Clear all HWIDs for this code
+        await this.run(
+            'DELETE FROM code_hwids WHERE code = $1',
+            [code]
+        );
+        
         await this.logUsage(
             'system', 
             code, 
             'auto_deactivated', 
-            `🔒 Code ${code} auto-deactivated due to ${reason}`
+            `🔒 Code ${code} auto-deactivated due to ${reason}. ${devices.length} devices revoked.`
         );
         
         await this.refreshCache();
@@ -492,6 +501,73 @@ class DeviceDatabase {
     }
   }
 
+  // Check HWID limit and auto-deactivate if exceeded
+  async checkHwidLimitAndDeactivate(code, newHwid, deviceId) {
+    try {
+      const currentCount = await this.getCodeHwidCount(code);
+      const limit = await this.getCodeHwidLimit(code);
+      
+      // Check if HWID is already assigned
+      const isAuthorized = await this.isHwidAuthorized(code, newHwid);
+      
+      if (isAuthorized) {
+        return { 
+          allowed: true, 
+          message: 'HWID is authorized',
+          current_count: currentCount,
+          max_limit: limit
+        };
+      }
+      
+      // Check if limit has been reached
+      if (currentCount >= limit) {
+        console.log(`🚨 HWID LIMIT EXCEEDED! Code: ${code}, Limit: ${limit}, Current: ${currentCount}`);
+        console.log(`🖥️ Attempted HWID: ${newHwid.substring(0, 16)}...`);
+        console.log(`📱 Device: ${deviceId}`);
+        
+        // Log the limit exceeded attempt
+        await this.logUsage(
+          deviceId, 
+          code, 
+          'hwid_limit_exceeded', 
+          `⚠️ HWID limit exceeded for code ${code}. Limit: ${limit}, Current: ${currentCount}, Attempted HWID: ${newHwid.substring(0, 16)}...`
+        );
+        
+        // AUTO-DEACTIVATE the code
+        const result = await this.autoDeactivateCode(code, 'hwid_limit_exceeded');
+        
+        return {
+          allowed: false,
+          action: 'deactivated',
+          code: code,
+          current_count: currentCount,
+          max_limit: limit,
+          attempted_hwid: newHwid,
+          devices_revoked: result.devices_revoked || 0,
+          message: `⚠️ HWID LIMIT EXCEEDED! Code ${code} has been auto-deactivated. Limit: ${limit}, Current: ${currentCount}. ${result.devices_revoked || 0} devices revoked.`
+        };
+      }
+      
+      // Limit not reached, but HWID is not authorized
+      return {
+        allowed: false,
+        action: 'not_authorized',
+        code: code,
+        current_count: currentCount,
+        max_limit: limit,
+        attempted_hwid: newHwid,
+        message: `HWID not authorized. Current: ${currentCount}/${limit} slots used.`
+      };
+      
+    } catch (error) {
+      console.error('Check HWID limit error:', error);
+      return { 
+        allowed: false, 
+        error: error.message 
+      };
+    }
+  }
+
   // ============================================
   // AUTO-DETECT UNAUTHORIZED HWID USAGE
   // ============================================
@@ -507,6 +583,7 @@ class DeviceDatabase {
         };
       }
       
+      // Check if the code is already assigned to a different HWID
       if (codeInfo.hwid && codeInfo.hwid !== newHwid) {
         console.log(`🚨 UNAUTHORIZED USAGE DETECTED!`);
         console.log(`📌 Code: ${code}`);

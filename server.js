@@ -450,7 +450,7 @@ app.put('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - WITH MULTI-HWID SUPPORT
+// REGISTER DEVICE - WITH AUTO-DEACTIVATION AND LIMIT CHECK
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -466,11 +466,12 @@ app.post('/api/register', async (req, res) => {
 
   if (!hwid) {
     return res.status(403).json({
-      error: '❌ This computer is not registered. Please run the Python software first.',
+      error: '❌ HWID is required. Please run the Python software first.',
       status: 'hwid_required'
     });
   }
 
+  // Check if code exists
   const codeInfo = await db.get('SELECT * FROM codes WHERE code = $1', [code.toUpperCase()]);
   if (!codeInfo) {
     return res.status(400).json({
@@ -487,14 +488,22 @@ app.post('/api/register', async (req, res) => {
   }
 
   // ============================================
-  // CHECK MULTI-HWID AUTHORIZATION
+  // 🔥 CHECK HWID AUTHORIZATION WITH LIMIT
   // ============================================
+  
+  // Check if this HWID is authorized for this code
   const authorized = await db.isHwidAuthorized(code.toUpperCase(), hwid);
   
   if (!authorized) {
+    console.log(`🚨 UNAUTHORIZED HWID DETECTED!`);
+    console.log(`📌 Code: ${code}`);
+    console.log(`🖥️ Attempted HWID: ${hwid.substring(0, 16)}...`);
+    console.log(`📱 Device: ${deviceId}`);
+    
+    // Check if HWID is assigned to another code
     const otherCode = await db.get(
-      'SELECT code FROM code_hwids WHERE hwid = $1 AND code != $2',
-      [hwid, code.toUpperCase()]
+      'SELECT code FROM code_hwids WHERE hwid = $1',
+      [hwid]
     );
     
     if (otherCode) {
@@ -512,33 +521,94 @@ app.post('/api/register', async (req, res) => {
       });
     }
 
+    // ============================================
+    // CHECK HWID LIMIT
+    // ============================================
     const currentCount = await db.getCodeHwidCount(code.toUpperCase());
     const limit = await db.getCodeHwidLimit(code.toUpperCase());
 
+    // If limit is reached, auto-deactivate
     if (currentCount >= limit) {
+      console.log(`🔥 HWID LIMIT EXCEEDED! Code: ${code}, Limit: ${limit}, Current: ${currentCount}`);
+      console.log(`🖥️ Attempted HWID: ${hwid.substring(0, 16)}...`);
+      
+      // Log the limit exceeded attempt
+      await db.logUsage(
+        deviceId, 
+        code, 
+        'hwid_limit_exceeded_auto_deactivated', 
+        `🚨 HWID limit exceeded for code ${code}. Limit: ${limit}, Current: ${currentCount}, Attempted HWID: ${hwid.substring(0, 16)}...`
+      );
+      
+      // ============================================
+      // 🚨 AUTO-DEACTIVATE THE CODE
+      // ============================================
+      console.log(`🔥 AUTO-DEACTIVATING CODE ${code} DUE TO HWID LIMIT EXCEEDED!`);
+      
+      await db.run(
+        'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
+        ['auto_deactivated_limit_exceeded', code.toUpperCase()]
+      );
+      
+      // Get all devices using this code
+      const devices = await db.all(
+        'SELECT device_id FROM devices WHERE code = $1',
+        [code.toUpperCase()]
+      );
+      
+      // Revoke all devices
+      let revokedCount = 0;
+      for (const dev of devices) {
+        await db.run(
+          'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
+          ['revoked', dev.device_id]
+        );
+        await db.logUsage(
+          dev.device_id, 
+          code, 
+          'auto_revoked_limit_exceeded', 
+          `🔒 Device auto-revoked due to HWID limit exceeded for code ${code}`
+        );
+        revokedCount++;
+      }
+      
+      // Clear all HWIDs for this code
+      await db.run(
+        'DELETE FROM code_hwids WHERE code = $1',
+        [code.toUpperCase()]
+      );
+      
+      await db.refreshCache();
+      
       return res.status(403).json({
-        error: `⚠️ This code has reached its HWID limit (${limit}). Contact admin to add more computers.`,
-        status: 'hwid_limit_reached',
+        error: `🚨 HWID LIMIT EXCEEDED! Code ${code} has been AUTO-DEACTIVATED. Limit: ${limit}, Current: ${currentCount}.`,
+        status: 'unauthorized_deactivated',
+        code: code,
+        devices_revoked: revokedCount,
         max_hwid_limit: limit,
-        current_hwid_count: currentCount
+        current_hwid_count: currentCount,
+        message: `Code auto-deactivated. ${revokedCount} devices revoked.`
       });
     }
 
-    const assignResult = await db.assignHwidToCode(code.toUpperCase(), hwid);
-    if (!assignResult.success) {
-      return res.status(403).json({
-        error: `❌ ${assignResult.error}`,
-        status: 'hwid_assignment_failed'
-      });
-    }
-
-    await db.logUsage(
-      deviceId, 
-      code, 
-      'hwid_auto_assigned', 
-      `✅ New HWID auto-assigned to code ${code}`
-    );
+    // ============================================
+    // LIMIT NOT REACHED - ALLOW REGISTRATION BUT DON'T AUTO-ASSIGN
+    // ============================================
+    // For security, we don't auto-assign HWIDs even if limit is not reached.
+    // Admin must manually add HWIDs.
+    
+    return res.status(403).json({
+      error: `❌ This computer is not authorized for this code. Current HWIDs: ${currentCount}/${limit}.`,
+      status: 'hwid_not_authorized',
+      current_hwid_count: currentCount,
+      max_hwid_limit: limit,
+      available_slots: limit - currentCount
+    });
   }
+
+  // ============================================
+  // HWID IS AUTHORIZED - PROCEED WITH REGISTRATION
+  // ============================================
 
   const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
 
@@ -558,6 +628,12 @@ app.post('/api/register', async (req, res) => {
         status: 'registration_failed'
       });
     }
+
+    // Update last_used for this HWID
+    await db.run(
+      'UPDATE code_hwids SET last_used = CURRENT_TIMESTAMP WHERE code = $1 AND hwid = $2',
+      [code.toUpperCase(), hwid]
+    );
 
     res.json({
       success: true,
