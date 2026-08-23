@@ -1,4 +1,4 @@
-// server.js - Complete with hardware specs in codes table
+// server.js - Complete with hardware specs support (TEMPORARY: hardware update commented out)
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -395,27 +395,34 @@ app.post('/api/register', async (req, res) => {
 
         // ============================================
         // UPDATE CODES TABLE WITH HARDWARE SPECS
+        // TEMPORARILY COMMENTED OUT - WAITING FOR DB COLUMNS
         // ============================================
+        // await db.run(
+        //     `UPDATE codes SET 
+        //         cpu_name = $1,
+        //         gpu_name = $2,
+        //         ram_total_gb = $3,
+        //         storage_total_gb = $4,
+        //         device_name = $5,
+        //         profile_name = $6,
+        //         hwid = $7
+        //     WHERE code = $8`,
+        //     [
+        //         cpuName,
+        //         gpuName,
+        //         ramTotal,
+        //         storageTotal,
+        //         deviceName,
+        //         profileName,
+        //         hwid,
+        //         code.toUpperCase()
+        //     ]
+        // );
+
+        // TEMPORARY: Just update hwid
         await db.run(
-            `UPDATE codes SET 
-                cpu_name = $1,
-                gpu_name = $2,
-                ram_total_gb = $3,
-                storage_total_gb = $4,
-                device_name = $5,
-                profile_name = $6,
-                hwid = $7
-            WHERE code = $8`,
-            [
-                cpuName,
-                gpuName,
-                ramTotal,
-                storageTotal,
-                deviceName,
-                profileName,
-                hwid,
-                code.toUpperCase()
-            ]
+            'UPDATE codes SET hwid = $1 WHERE code = $2',
+            [hwid, code.toUpperCase()]
         );
 
         // Check if device already exists
