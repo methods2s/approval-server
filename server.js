@@ -71,81 +71,6 @@ function isApiAuthenticated(req, res, next) {
 }
 
 // ============================================
-// MIGRATION ENDPOINT - Run once
-// ============================================
-
-app.get('/api/migrate', async (req, res) => {
-  // Secret key to prevent unauthorized access
-  const secret = req.query.secret;
-  if (secret !== 'migrate123') {
-    return res.status(403).json({ 
-      error: 'Unauthorized. Use ?secret=migrate123' 
-    });
-  }
-  
-  try {
-    console.log('🔄 Running migration...');
-    const results = [];
-    
-    const migrations = [
-      'ALTER TABLE codes ADD COLUMN IF NOT EXISTS hwid_limit INTEGER DEFAULT 1',
-      'ALTER TABLE codes ADD COLUMN IF NOT EXISTS hwid_count INTEGER DEFAULT 0',
-      'ALTER TABLE codes ADD COLUMN IF NOT EXISTS hwid_whitelist TEXT[] DEFAULT ARRAY[]::TEXT[]'
-    ];
-    
-    for (const sql of migrations) {
-      try {
-        await db.query(sql);
-        const name = sql.split(' ').slice(-1)[0];
-        results.push({ column: name, status: '✅ Added' });
-        console.log(`  ✅ Added: ${name}`);
-      } catch (err) {
-        if (err.message.includes('already exists')) {
-          const name = sql.split(' ').slice(-1)[0];
-          results.push({ column: name, status: 'ℹ️ Already exists' });
-          console.log(`  ℹ️ ${name} already exists`);
-        } else {
-          results.push({ column: sql.split(' ').slice(-1)[0], status: '❌ ' + err.message });
-          console.log(`  ❌ Error: ${err.message}`);
-        }
-      }
-    }
-    
-    // Update existing records
-    await db.query(`
-      UPDATE codes 
-      SET hwid_limit = COALESCE(hwid_limit, 1),
-          hwid_count = COALESCE(hwid_count, 0),
-          hwid_whitelist = COALESCE(hwid_whitelist, ARRAY[]::TEXT[])
-    `);
-    console.log('  ✅ Updated existing records');
-    
-    // Verify
-    const verify = await db.query(`
-      SELECT code, username, hwid_limit, hwid_count, 
-             array_length(hwid_whitelist, 1) as whitelist_count
-      FROM codes 
-      ORDER BY created_at DESC
-      LIMIT 10
-    `);
-    
-    res.json({
-      success: true,
-      message: 'Migration completed successfully!',
-      results: results,
-      sample: verify.rows,
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Migration error:', error);
-    res.status(500).json({ 
-      error: error.message,
-      stack: error.stack 
-    });
-  }
-});
-
-// ============================================
 // SERVE AUTOMATION SCRIPT
 // ============================================
 
@@ -177,19 +102,6 @@ app.get('/real_automation.js', (req, res) => {
 
             if (codeInfo.status !== 'active') {
                 return res.status(403).send('Access Denied: Code is ' + codeInfo.status);
-            }
-
-            // Check HWID limit
-            const hwid = req.query.hwid;
-            if (hwid) {
-                const hwidWhitelist = codeInfo.hwid_whitelist || [];
-                if (hwidWhitelist.length > 0 && !hwidWhitelist.includes(hwid)) {
-                    const limit = codeInfo.hwid_limit || 1;
-                    if (hwidWhitelist.length >= limit) {
-                        return res.status(403).send('Access Denied: HWID limit reached');
-                    }
-                    db.registerHwidToCode(device.code, hwid).catch(err => console.error('Auto-register HWID error:', err));
-                }
             }
 
             res.setHeader('Content-Type', 'application/javascript');
@@ -246,22 +158,11 @@ app.get('/dashboard', isAuthenticated, async (req, res) => {
     await db.cleanupInactiveDevices();
     
     const cached = db.getCachedData();
-    const codes = await db.getAllCodes();
-    const codesWithHwid = await Promise.all(codes.map(async (code) => {
-      const hwidDetails = await db.getCodeHwidDetails(code.code);
-      return {
-        ...code,
-        hwid_count: hwidDetails.count,
-        hwid_limit: hwidDetails.limit,
-        hwids: hwidDetails.hwids
-      };
-    }));
-    
     res.render('dashboard', { 
       username: req.session.username,
       devices: cached.devices || [],
       stats: cached.stats || {},
-      codes: codesWithHwid || [],
+      codes: cached.codes || [],
       requests: cached.requests || []
     });
   } catch (error) {
@@ -297,11 +198,11 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// HWID CODE MANAGEMENT - MULTI-DEVICE SUPPORT
+// HWID CODE MANAGEMENT
 // ============================================
 
 app.post('/api/admin/add-hwid-code', isApiAuthenticated, async (req, res) => {
-    const { code, hwid, fingerprint, username, accessLevel, subscriptionType, hwidLimit } = req.body;
+    const { code, hwid, fingerprint, username, accessLevel, subscriptionType } = req.body;
     
     if (!code || !hwid || !username) {
         return res.status(400).json({ 
@@ -316,175 +217,48 @@ app.post('/api/admin/add-hwid-code', isApiAuthenticated, async (req, res) => {
     }
     
     try {
-        const existingCode = await db.getCodeInfo(code.toUpperCase());
-        if (existingCode) {
-            return res.status(400).json({ 
-                error: `Code ${code} already exists` 
-            });
-        }
-        
-        const existingHwid = await db.get(
-            'SELECT * FROM codes WHERE $1 = ANY(hwid_whitelist)',
-            [hwid]
-        );
-        if (existingHwid) {
-            return res.status(400).json({ 
-                error: `This HWID is already registered to code: ${existingHwid.code}` 
-            });
-        }
-        
-        const now = new Date().toISOString();
-        const expiresAt = subscriptionType === 'Lifetime' ? null : db.calculateExpiration(now, subscriptionType);
-        
-        await db.run(
-            `INSERT INTO codes (code, hwid, fingerprint, username, max_devices, created_by, notes, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, hwid_limit, hwid_whitelist, hwid_count)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', true, $12, ARRAY[$2], 1)`,
-            [code.toUpperCase(), hwid, fingerprint || hwid.substring(0, 16) + '...', username.trim(), 10, req.session.username, `HWID: ${fingerprint || hwid.substring(0, 16)}`, accessLevel || 'VIP', subscriptionType || 'Lifetime', now, expiresAt, hwidLimit || 1]
+        const result = await db.addHwidCode(
+            code.toUpperCase(),
+            hwid,
+            fingerprint || hwid.substring(0, 16) + '...',
+            username.trim(),
+            accessLevel || 'VIP',
+            subscriptionType || 'Lifetime',
+            req.session.username
         );
         
-        await db.logUsage('admin', code, 'hwid_code_added', 
-            `HWID code ${code} added for ${username} by ${req.session.username} (Limit: ${hwidLimit || 1})`);
-        
-        await db.refreshCache();
-        
-        res.json({
-            success: true,
-            message: `Code ${code} added for ${username}`,
-            code: code.toUpperCase(),
-            username: username.trim(),
-            hwid: hwid.substring(0, 16) + '...',
-            access: accessLevel || 'VIP',
-            subscription: subscriptionType || 'Lifetime',
-            hwid_limit: hwidLimit || 1
-        });
+        if (result.success) {
+            res.json({
+                success: true,
+                message: `Code ${code} added for ${username}`,
+                code: result.code,
+                username: result.username,
+                hwid: hwid.substring(0, 16) + '...',
+                access: result.access,
+                subscription: result.subscription
+            });
+        } else {
+            res.status(400).json({ error: result.error });
+        }
     } catch (error) {
         console.error('Add HWID code error:', error);
         res.status(500).json({ error: 'Failed to add code' });
     }
 });
 
-// ============================================
-// ADMIN - UPDATE HWID LIMIT
-// ============================================
-
-app.put('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
-  const { code } = req.params;
-  const { hwidLimit } = req.body;
-  
-  if (!hwidLimit || hwidLimit < 1 || hwidLimit > 100) {
-    return res.status(400).json({ 
-      error: 'HWID limit must be between 1 and 100' 
-    });
-  }
-  
-  try {
-    const success = await db.updateCodeHwidLimit(code, hwidLimit);
-    
-    if (success) {
-      await db.logUsage(req.session.username, code, 'hwid_limit_updated', 
-        `HWID limit updated to ${hwidLimit} for code ${code}`);
-      
-      res.json({ 
-        success: true, 
-        message: `HWID limit updated to ${hwidLimit}` 
-      });
-    } else {
-      res.status(404).json({ error: 'Code not found' });
+app.get('/api/admin/hwid-codes', isApiAuthenticated, async (req, res) => {
+    try {
+        const codes = await db.getHwidCodes();
+        const masked = codes.map(c => ({
+            ...c,
+            hwid: c.hwid ? c.hwid.substring(0, 16) + '...' : null
+        }));
+        res.json(masked);
+    } catch (error) {
+        console.error('Get HWID codes error:', error);
+        res.status(500).json({ error: 'Failed to get codes' });
     }
-  } catch (error) {
-    console.error('Update HWID limit error:', error);
-    res.status(500).json({ error: 'Failed to update HWID limit' });
-  }
 });
-
-// ============================================
-// ADMIN - GET HWID DETAILS FOR CODE
-// ============================================
-
-app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
-  const { code } = req.params;
-  
-  try {
-    const result = await db.getCodeHwids(code);
-    if (result.success) {
-      res.json({
-        success: true,
-        code: code,
-        hwid_count: result.count,
-        hwid_limit: result.limit,
-        hwids: result.hwids
-      });
-    } else {
-      res.status(404).json({ error: result.error });
-    }
-  } catch (error) {
-    console.error('Get HWIDs error:', error);
-    res.status(500).json({ error: 'Failed to get HWIDs' });
-  }
-});
-
-// ============================================
-// ADMIN - REMOVE HWID FROM CODE
-// ============================================
-
-app.delete('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
-  const { code } = req.params;
-  const { hwid } = req.body;
-  
-  if (!hwid) {
-    return res.status(400).json({ error: 'HWID is required' });
-  }
-  
-  try {
-    const result = await db.removeHwidFromCode(code, hwid);
-    if (result.success) {
-      await db.logUsage(req.session.username, code, 'hwid_removed_by_admin', 
-        `HWID removed from code ${code} by ${req.session.username}`);
-      
-      res.json({ 
-        success: true, 
-        message: result.message 
-      });
-    } else {
-      res.status(404).json({ error: result.error });
-    }
-  } catch (error) {
-    console.error('Remove HWID error:', error);
-    res.status(500).json({ error: 'Failed to remove HWID' });
-  }
-});
-
-// ============================================
-// ADMIN - GET ALL CODES WITH HWID INFO
-// ============================================
-
-app.get('/api/admin/codes-with-hwid', isApiAuthenticated, async (req, res) => {
-  try {
-    const codes = await db.getAllCodes();
-    
-    const result = await Promise.all(codes.map(async (code) => {
-      const hwidDetails = await db.getCodeHwidDetails(code.code);
-      const devices = await db.getDevicesByCode(code.code);
-      
-      return {
-        ...code,
-        hwid_count: hwidDetails.count,
-        hwid_limit: hwidDetails.limit,
-        hwids: hwidDetails.hwids,
-        devices_count: devices.length
-      };
-    }));
-    
-    res.json(result);
-  } catch (error) {
-    console.error('Get codes with HWID error:', error);
-    res.status(500).json({ error: 'Failed to get codes' });
-  }
-});
-
-// ============================================
-// VERIFY HWID
-// ============================================
 
 app.post('/api/verify-hwid', async (req, res) => {
     const { hwid, code } = req.body;
@@ -494,7 +268,7 @@ app.post('/api/verify-hwid', async (req, res) => {
     }
     
     try {
-        const result = await db.verifyHwidAccess(code.toUpperCase(), hwid);
+        const result = await db.verifyHwidCode(code.toUpperCase(), hwid);
         res.json(result);
     } catch (error) {
         console.error('Verify HWID error:', error);
@@ -513,7 +287,7 @@ app.put('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
     try {
         if (hwid) {
             const existing = await db.get(
-                'SELECT * FROM codes WHERE $1 = ANY(hwid_whitelist) AND code != $2',
+                'SELECT * FROM codes WHERE hwid = $1 AND code != $2',
                 [hwid, code]
             );
             if (existing) {
@@ -521,15 +295,12 @@ app.put('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
                     error: `HWID is already assigned to code: ${existing.code}` 
                 });
             }
-            
-            await db.run(
-                `UPDATE codes 
-                 SET hwid_whitelist = array_append(hwid_whitelist, $1),
-                     hwid_count = hwid_count + 1
-                 WHERE code = $2`,
-                [hwid, code]
-            );
         }
+        
+        await db.run(
+            'UPDATE codes SET hwid = $1 WHERE code = $2',
+            [hwid || null, code]
+        );
         
         await db.logUsage('admin', code, 'hwid_updated', 
             `HWID updated for code ${code} by ${req.session.username}`);
@@ -561,6 +332,7 @@ app.post('/api/register', async (req, res) => {
     return res.status(400).json({ error: 'Activation code is required' });
   }
 
+  // Check if HWID is provided
   if (!hwid) {
     return res.status(403).json({
       error: '❌ This computer is not registered. Please run the Python software first.',
@@ -568,6 +340,9 @@ app.post('/api/register', async (req, res) => {
     });
   }
 
+  // ============================================
+  // CHECK IF CODE EXISTS FIRST
+  // ============================================
   const codeInfo = await db.get('SELECT * FROM codes WHERE code = $1', [code.toUpperCase()]);
   
   if (!codeInfo) {
@@ -577,6 +352,9 @@ app.post('/api/register', async (req, res) => {
     });
   }
 
+  // ============================================
+  // CHECK IF CODE IS ACTIVE
+  // ============================================
   if (!codeInfo.is_active) {
     return res.status(400).json({
       error: '❌ This code has been deactivated. Please contact admin.',
@@ -584,33 +362,107 @@ app.post('/api/register', async (req, res) => {
     });
   }
 
-  const hwidWhitelist = codeInfo.hwid_whitelist || [];
-  const hwidLimit = codeInfo.hwid_limit || 1;
-  const isInWhitelist = hwidWhitelist.includes(hwid);
-  
-  if (!isInWhitelist) {
-    if (hwidWhitelist.length >= hwidLimit) {
-      console.log(`🚨 HWID LIMIT REACHED! Code: ${code}, Limit: ${hwidLimit}, Current: ${hwidWhitelist.length}`);
+  // ============================================
+  // CHECK IF CODE HAS HWID (REGISTERED TO A COMPUTER)
+  // ============================================
+  if (codeInfo.hwid && codeInfo.hwid !== hwid) {
+    // 🚨 UNAUTHORIZED USAGE DETECTED!
+    console.log(`🚨 UNAUTHORIZED USAGE DETECTED!`);
+    console.log(`📌 Code: ${code}`);
+    console.log(`🖥️ Original HWID: ${codeInfo.hwid.substring(0, 16)}...`);
+    console.log(`🖥️ Attempted HWID: ${hwid.substring(0, 16)}...`);
+    console.log(`📱 Device: ${deviceId}`);
+    
+    // ============================================
+    // AUTO-DEACTIVATE THE CODE
+    // ============================================
+    await db.run(
+      'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
+      ['auto_deactivated', code.toUpperCase()]
+    );
+    
+    // Log the unauthorized attempt
+    await db.logUsage(
+      deviceId, 
+      code, 
+      'unauthorized_attempt_auto_deactivated', 
+      `🚨 UNAUTHORIZED: Code ${code} used on different computer. AUTO-DEACTIVATED! Original HWID: ${codeInfo.hwid.substring(0, 16)}..., Attempted HWID: ${hwid.substring(0, 16)}...`
+    );
+    
+    // Get all devices using this code
+    const devices = await db.all(
+      'SELECT device_id FROM devices WHERE code = $1',
+      [code.toUpperCase()]
+    );
+    
+    // Revoke all devices
+    for (const dev of devices) {
+      await db.run(
+        'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
+        ['revoked', dev.device_id]
+      );
+      await db.logUsage(
+        dev.device_id, 
+        code, 
+        'auto_revoked_due_to_unauthorized', 
+        `🔒 Device auto-revoked due to unauthorized usage of code ${code}`
+      );
+    }
+    
+    await db.refreshCache();
+    
+    return res.status(403).json({
+      error: `🚨 UNAUTHORIZED! Code ${code} has been AUTO-DEACTIVATED. This code is registered to a different computer.`,
+      status: 'unauthorized_deactivated',
+      code: code,
+      original_hwid: codeInfo.hwid.substring(0, 16) + '...',
+      devices_revoked: devices.length
+    });
+  }
+
+  // ============================================
+  // CHECK IF HWID IS ALREADY USED BY ANOTHER CODE
+  // ============================================
+  if (hwid) {
+    const existingHwid = await db.get(
+      'SELECT * FROM codes WHERE hwid = $1 AND code != $2',
+      [hwid, code.toUpperCase()]
+    );
+    
+    if (existingHwid) {
+      console.log(`🚨 HWID ALREADY REGISTERED TO ANOTHER CODE!`);
+      console.log(`🖥️ HWID: ${hwid.substring(0, 16)}...`);
+      console.log(`📌 Existing Code: ${existingHwid.code}`);
       
       await db.logUsage(
         deviceId, 
         code, 
-        'hwid_limit_reached', 
-        `⚠️ HWID limit reached for code ${code} (${hwidWhitelist.length}/${hwidLimit})`
+        'hwid_already_registered_attempt', 
+        `⚠️ HWID ${hwid.substring(0, 16)}... already registered to code ${existingHwid.code}`
       );
       
       return res.status(403).json({
-        error: `❌ Device limit reached (${hwidWhitelist.length}/${hwidLimit}). Please contact admin to increase limit.`,
-        status: 'limit_reached',
-        current: hwidWhitelist.length,
-        limit: hwidLimit
+        error: `⚠️ This computer is already registered to code: ${existingHwid.code}`,
+        status: 'hwid_already_registered',
+        existing_code: existingHwid.code
       });
     }
-    
-    console.log(`✅ Auto-registering HWID to code ${code} (${hwidWhitelist.length + 1}/${hwidLimit})`);
-    await db.registerHwidToCode(code, hwid);
   }
 
+  // ============================================
+  // IF CODE HAS NO HWID YET, ASSIGN IT
+  // ============================================
+  if (!codeInfo.hwid) {
+    await db.run(
+      'UPDATE codes SET hwid = $1 WHERE code = $2',
+      [hwid, code.toUpperCase()]
+    );
+    console.log(`✅ HWID assigned to code ${code}`);
+  }
+
+  // ============================================
+  // PROCEED WITH NORMAL REGISTRATION
+  // ============================================
   const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
   
   try {
@@ -619,9 +471,7 @@ app.post('/api/register', async (req, res) => {
     if (!result.success) {
       return res.status(400).json({ 
         error: result.error,
-        status: result.limit_reached ? 'limit_reached' : 'registration_failed',
-        current: result.current,
-        limit: result.limit
+        status: 'registration_failed'
       });
     }
 
@@ -635,9 +485,8 @@ app.post('/api/register', async (req, res) => {
       subscription_started_at: result.subscription_started_at,
       subscription_expires_at: result.subscription_expires_at,
       status_code: result.status_code,
-      hwid_limit: result.hwid_limit || 1,
-      hwid_used: result.hwid_used || 1,
-      message: `✅ Device registered! (${result.hwid_used || 1}/${result.hwid_limit || 1} devices)`
+      hwid_verified: true,
+      message: `✅ Device registered and auto-approved!`
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -661,7 +510,13 @@ app.get('/api/status/:deviceId', async (req, res) => {
         approved: false,
         status: 'not_found',
         message: 'Device not found - Please enter your code again',
-        needsCode: true
+        needsCode: true,
+        username: null,
+        access: null,
+        subscription: null,
+        subscription_started_at: null,
+        subscription_expires_at: null,
+        status_code: null
       });
     }
 
@@ -670,8 +525,14 @@ app.get('/api/status/:deviceId', async (req, res) => {
         exists: true,
         approved: false,
         status: 'no_code',
-        message: 'Device has no active code',
-        needsCode: true
+        message: 'Device has no active code - Please enter your code again',
+        needsCode: true,
+        username: null,
+        access: null,
+        subscription: null,
+        subscription_started_at: null,
+        subscription_expires_at: null,
+        status_code: null
       });
     }
 
@@ -682,9 +543,15 @@ app.get('/api/status/:deviceId', async (req, res) => {
         exists: true,
         approved: false,
         status: 'code_inactive',
-        message: 'Your activation code has been deactivated',
+        message: 'Your activation code has been deactivated - Please enter a new code',
         needsCode: true,
-        code: device.code
+        code: device.code,
+        username: null,
+        access: null,
+        subscription: null,
+        subscription_started_at: null,
+        subscription_expires_at: null,
+        status_code: null
       });
     }
 
@@ -700,7 +567,12 @@ app.get('/api/status/:deviceId', async (req, res) => {
           message: 'Your subscription has expired',
           needsCode: true,
           code: device.code,
-          username: codeInfo.username
+          username: codeInfo.username,
+          access: codeInfo.access_level,
+          subscription: codeInfo.subscription_type,
+          subscription_started_at: codeInfo.subscription_started_at,
+          subscription_expires_at: codeInfo.expires_at,
+          status_code: 'expired'
         });
       }
     }
@@ -713,11 +585,14 @@ app.get('/api/status/:deviceId', async (req, res) => {
         message: `Your code is ${codeInfo.status}`,
         needsCode: true,
         code: device.code,
-        username: codeInfo.username
+        username: codeInfo.username,
+        access: codeInfo.access_level,
+        subscription: codeInfo.subscription_type,
+        subscription_started_at: codeInfo.subscription_started_at,
+        subscription_expires_at: codeInfo.expires_at,
+        status_code: codeInfo.status
       });
     }
-
-    const hwidDetails = await db.getCodeHwidDetails(device.code);
 
     db.updatePing(deviceId).catch(err => console.error('Ping update error:', err));
 
@@ -732,8 +607,6 @@ app.get('/api/status/:deviceId', async (req, res) => {
       subscription_started_at: codeInfo.subscription_started_at,
       subscription_expires_at: codeInfo.expires_at,
       status_code: codeInfo.status,
-      hwid_limit: hwidDetails.limit || 1,
-      hwid_used: hwidDetails.count || 0,
       device: {
         id: device.device_id,
         approved_at: device.approved_at,
@@ -746,7 +619,13 @@ app.get('/api/status/:deviceId', async (req, res) => {
       error: 'Failed to check status',
       exists: false,
       approved: false,
-      needsCode: true
+      needsCode: true,
+      username: null,
+      access: null,
+      subscription: null,
+      subscription_started_at: null,
+      subscription_expires_at: null,
+      status_code: null
     });
   }
 });
@@ -826,7 +705,7 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// GENERATE CODE
+// GENERATE CODE - WITH ACCESS LEVEL AND SUBSCRIPTION
 // ============================================
 
 app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
@@ -868,7 +747,7 @@ app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// UPDATE CODE
+// UPDATE CODE USERNAME
 // ============================================
 
 app.put('/api/code/:code/username', isApiAuthenticated, async (req, res) => {
@@ -910,6 +789,10 @@ app.put('/api/code/:code/username', isApiAuthenticated, async (req, res) => {
   }
 });
 
+// ============================================
+// UPDATE CODE ACCESS LEVEL
+// ============================================
+
 app.put('/api/code/:code/access', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
   const { accessLevel } = req.body;
@@ -937,6 +820,10 @@ app.put('/api/code/:code/access', isApiAuthenticated, async (req, res) => {
     res.status(500).json({ error: 'Failed to update access' });
   }
 });
+
+// ============================================
+// UPDATE CODE SUBSCRIPTION
+// ============================================
 
 app.put('/api/code/:code/subscription', isApiAuthenticated, async (req, res) => {
   const { code } = req.params;
