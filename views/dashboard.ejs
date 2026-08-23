@@ -96,33 +96,24 @@
         @keyframes spin { to { transform: rotate(360deg); } }
         
         .device-count-badge { background: rgba(33,150,243,0.15); color: #2196F3; padding: 2px 8px; border-radius: 10px; font-size: 10px; }
-        .hw-spec-item { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin: 2px; }
-        .hw-spec-cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
-        .hw-spec-gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
-        .hw-spec-ram { background: rgba(255,152,0,0.15); color: #FF9800; }
-        .hw-spec-storage { background: rgba(33,150,243,0.15); color: #2196F3; }
-        .hw-spec-device { background: rgba(255,87,34,0.15); color: #FF5722; }
-        .hw-spec-profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
-        .hw-spec-label { font-size: 10px; color: #888; }
-        .hw-spec-value { font-weight: bold; color: #e0e0e0; }
         
-        .hw-spec-detail {
+        .hwid-spec-detail {
             display: inline-block;
             padding: 2px 10px;
             border-radius: 4px;
             font-size: 11px;
             margin: 2px 0;
         }
-        .hw-spec-detail.full-width {
+        .hwid-spec-detail.full-width {
             display: block;
             width: 100%;
         }
-        .hw-spec-detail.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
-        .hw-spec-detail.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
-        .hw-spec-detail.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
-        .hw-spec-detail.storage { background: rgba(33,150,243,0.15); color: #2196F3; }
-        .hw-spec-detail.device { background: rgba(255,87,34,0.15); color: #FF5722; }
-        .hw-spec-detail.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
+        .hwid-spec-detail.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
+        .hwid-spec-detail.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
+        .hwid-spec-detail.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
+        .hwid-spec-detail.storage { background: rgba(33,150,243,0.15); color: #2196F3; }
+        .hwid-spec-detail.device { background: rgba(255,87,34,0.15); color: #FF5722; }
+        .hwid-spec-detail.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
         
         .btn-remove-hwid {
             background: #f44336;
@@ -172,32 +163,9 @@
         .hwid-stat-card .number.warning { color: #FF9800; }
         .hwid-stat-card .number.danger { color: #f44336; }
         
-        .hwid-specs-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-            background: rgba(255,255,255,0.03);
-            padding: 10px;
-            border-radius: 6px;
-        }
-        .hwid-specs-grid .spec-item {
-            font-size: 11px;
-            padding: 4px 8px;
-            border-radius: 4px;
-        }
-        .hwid-specs-grid .spec-item .label { color: #888; font-size: 9px; display: block; }
-        .hwid-specs-grid .spec-item .value { font-weight: bold; color: #e0e0e0; }
-        .hwid-specs-grid .spec-item.cpu { background: rgba(76,175,80,0.1); }
-        .hwid-specs-grid .spec-item.gpu { background: rgba(156,39,176,0.1); }
-        .hwid-specs-grid .spec-item.ram { background: rgba(255,152,0,0.1); }
-        .hwid-specs-grid .spec-item.storage { background: rgba(33,150,243,0.1); }
-        .hwid-specs-grid .spec-item.device { background: rgba(255,87,34,0.1); }
-        .hwid-specs-grid .spec-item.profile { background: rgba(0,188,212,0.1); }
-        
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
             .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
-            .hwid-specs-grid { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
@@ -424,7 +392,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID MANAGER (COMPLETE FIX) -->
+        <!-- TAB: HWID MANAGER (REMOVED HARDWARE SPECS SECTION) -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwid">
             <div class="card">
@@ -467,37 +435,6 @@
                         <div class="hwid-stat-card">
                             <div class="number" id="hwid-total-profiles">0</div>
                             <div class="label">Total Profiles</div>
-                        </div>
-                    </div>
-                    
-                    <!-- HARDWARE SPECS SUMMARY -->
-                    <div style="background:rgba(255,255,255,0.05);padding:15px;border-radius:8px;margin-bottom:15px;border:1px solid rgba(255,255,255,0.08);">
-                        <div style="font-size:12px;color:#888;margin-bottom:8px;">📊 Hardware Specifications (from Python file)</div>
-                        <div class="hwid-specs-grid">
-                            <div class="spec-item cpu">
-                                <span class="label">🔧 CPU</span>
-                                <span class="value" id="hw-spec-cpu">N/A</span>
-                            </div>
-                            <div class="spec-item gpu">
-                                <span class="label">🎮 GPU</span>
-                                <span class="value" id="hw-spec-gpu">N/A</span>
-                            </div>
-                            <div class="spec-item ram">
-                                <span class="label">💾 RAM</span>
-                                <span class="value" id="hw-spec-ram">N/A</span>
-                            </div>
-                            <div class="spec-item storage">
-                                <span class="label">💿 Storage</span>
-                                <span class="value" id="hw-spec-storage">N/A</span>
-                            </div>
-                            <div class="spec-item device">
-                                <span class="label">💻 Device</span>
-                                <span class="value" id="hw-spec-device">N/A</span>
-                            </div>
-                            <div class="spec-item profile">
-                                <span class="label">👤 Profile</span>
-                                <span class="value" id="hw-spec-profile">N/A</span>
-                            </div>
                         </div>
                     </div>
                     
@@ -898,7 +835,7 @@
         }
 
         // ============================================
-        // HWID MANAGEMENT FUNCTIONS - COMPLETE FIX
+        // HWID MANAGEMENT FUNCTIONS
         // ============================================
 
         function populateHwidCodeDropdown() {
@@ -957,35 +894,6 @@
                 document.getElementById('hwid-total-profiles').textContent = allDevicesForCode.length || 0;
                 document.getElementById('hwid-limit-input').value = maxLimit;
                 
-                // Get hardware specs from DEVICES table
-                const firstDevice = allDevicesForCode.find(d => d.status === 'approved' && d.cpu_name && d.cpu_name !== 'Unknown' && d.cpu_name !== 'N/A');
-                
-                if (firstDevice) {
-                    document.getElementById('hw-spec-cpu').textContent = firstDevice.cpu_name || 'N/A';
-                    document.getElementById('hw-spec-gpu').textContent = firstDevice.gpu_name || 'N/A';
-                    document.getElementById('hw-spec-ram').textContent = firstDevice.ram_total_gb ? firstDevice.ram_total_gb + ' GB' : 'N/A';
-                    document.getElementById('hw-spec-storage').textContent = firstDevice.storage_total_gb ? firstDevice.storage_total_gb + ' GB' : 'N/A';
-                    document.getElementById('hw-spec-device').textContent = firstDevice.device_name || 'N/A';
-                    document.getElementById('hw-spec-profile').textContent = firstDevice.browser_profile || 'N/A';
-                } else {
-                    const anyDevice = allDevicesForCode.find(d => d.cpu_name && d.cpu_name !== 'Unknown' && d.cpu_name !== 'N/A');
-                    if (anyDevice) {
-                        document.getElementById('hw-spec-cpu').textContent = anyDevice.cpu_name || 'N/A';
-                        document.getElementById('hw-spec-gpu').textContent = anyDevice.gpu_name || 'N/A';
-                        document.getElementById('hw-spec-ram').textContent = anyDevice.ram_total_gb ? anyDevice.ram_total_gb + ' GB' : 'N/A';
-                        document.getElementById('hw-spec-storage').textContent = anyDevice.storage_total_gb ? anyDevice.storage_total_gb + ' GB' : 'N/A';
-                        document.getElementById('hw-spec-device').textContent = anyDevice.device_name || 'N/A';
-                        document.getElementById('hw-spec-profile').textContent = anyDevice.browser_profile || 'N/A';
-                    } else {
-                        document.getElementById('hw-spec-cpu').textContent = 'No device registered';
-                        document.getElementById('hw-spec-gpu').textContent = 'No device registered';
-                        document.getElementById('hw-spec-ram').textContent = 'No device registered';
-                        document.getElementById('hw-spec-storage').textContent = 'No device registered';
-                        document.getElementById('hw-spec-device').textContent = 'No device registered';
-                        document.getElementById('hw-spec-profile').textContent = 'No device registered';
-                    }
-                }
-                
                 // Update limit status
                 const statusEl = document.getElementById('hwid-limit-status');
                 if (availableSlots <= 0) {
@@ -1031,12 +939,13 @@
                 const approvedDevices = hwidDevices.filter(d => d.status === 'approved');
                 const deviceCount = approvedDevices.length;
                 
-                // FIX: Always enable remove button (canRemove = true)
+                // Always enable remove button
                 const canRemove = true;
                 
                 // Get specs from the FIRST device with this HWID
                 const device = approvedDevices[0] || hwidDevices[0] || null;
                 
+                // Get accurate hardware specs from the device (galing sa Python file)
                 const cpu = device?.cpu_name || 'N/A';
                 const gpu = device?.gpu_name || 'N/A';
                 const ram = device?.ram_total_gb ? device.ram_total_gb + ' GB' : 'N/A';
@@ -1059,12 +968,12 @@
                             </span>
                         </td>
                         <td style="font-size:11px;line-height:1.8;">
-                            <div><span class="hw-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
-                            <div><span class="hw-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
-                            <div><span class="hw-spec-detail ram">💾 RAM: ${ram}</span></div>
-                            <div><span class="hw-spec-detail storage">💿 Storage: ${storage}</span></div>
-                            <div><span class="hw-spec-detail device">💻 Device: ${deviceName}</span></div>
-                            <div><span class="hw-spec-detail profile">👤 Profile: ${profile}</span></div>
+                            <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
+                            <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
+                            <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
+                            <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
+                            <div><span class="hwid-spec-detail device">💻 Device: ${deviceName}</span></div>
+                            <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
                         </td>
                         <td style="text-align:center;">
                             <button onclick="removeHwid('${hwidFull}')" class="btn-remove-hwid" id="remove-btn-${index}">
