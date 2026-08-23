@@ -76,8 +76,14 @@
         .badge.svip { background: rgba(76,175,80,0.2); color: #4CAF50; }
         .badge.lifetime { background: rgba(255,152,0,0.2); color: #FF9800; }
         .badge.approved { background: rgba(76,175,80,0.2); color: #4CAF50; }
-        .badge.auto-assigned { background: rgba(33,150,243,0.2); color: #2196F3; }
-        .badge.limit-exceeded { background: rgba(244,67,54,0.2); color: #f44336; }
+        .badge.auto-deactivated { background: rgba(244,67,54,0.2); color: #f44336; }
+        
+        /* Deactivation Reason Colors */
+        .reason-multiple-hwids { color: #f44336; }
+        .reason-limit-exceeded { color: #f44336; }
+        .reason-unauthorized { color: #f44336; }
+        .reason-inactive { color: #FF9800; }
+        .reason-expired { color: #FF9800; }
         
         /* Inline editing */
         .edit-input { width: 100%; padding: 4px 6px; border: 1px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; min-width: 60px; }
@@ -113,7 +119,6 @@
         .device-item .device-ip { color: #888; font-size: 11px; }
         .device-item .device-status { font-size: 11px; }
         
-        /* Status colors */
         .status-active { color: #4CAF50; }
         .status-inactive { color: #FF9800; }
         .status-expired { color: #f44336; }
@@ -172,7 +177,7 @@
         <!-- TAB: ALL CODES -->
         <!-- ============================================ -->
         <div class="tab-content active" id="tab-codes">
-            <!-- Generate Code Form - WITHOUT HWID and Fingerprint -->
+            <!-- Generate Code Form -->
             <div class="card">
                 <h3>➕ Generate New Code</h3>
                 <form id="generate-code-form">
@@ -198,7 +203,6 @@
                             </select>
                         </div>
                     </div>
-                    <!-- HWID and Fingerprint fields are REMOVED - auto-assign na lang -->
                     <div style="font-size:12px;color:#888;margin-bottom:10px;">
                         ℹ️ HWID will be <strong style="color:#FF9800;">auto-assigned</strong> when the code is first used
                     </div>
@@ -227,11 +231,12 @@
                                 <th>Devices</th>
                                 <th>HWID Limit</th>
                                 <th>Status</th>
+                                <th style="min-width:180px;">Deactivation Reason</th>
                                 <th style="width:200px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="codes-body">
-                            <tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">Loading codes...</td></tr>
+                            <tr><td colspan="10" style="text-align:center;color:#888;padding:30px;">Loading codes...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -258,11 +263,12 @@
                                 <th>Devices</th>
                                 <th>HWID Limit</th>
                                 <th>Status</th>
+                                <th style="min-width:180px;">Deactivation Reason</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="svip-body">
-                            <tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>
+                            <tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -289,11 +295,12 @@
                                 <th>Devices</th>
                                 <th>HWID Limit</th>
                                 <th>Status</th>
+                                <th style="min-width:180px;">Deactivation Reason</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="vip-body">
-                            <tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>
+                            <tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -301,7 +308,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: DEVICES (Device Manager) -->
+        <!-- TAB: DEVICES -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-devices">
             <div class="card">
@@ -453,6 +460,31 @@
         let filteredDevices = [];
 
         // ============================================
+        // DEACTIVATION REASON MAPPING
+        // ============================================
+        const deactivationReasons = {
+            'auto_deactivated': '⚠️ Auto-deactivated (General)',
+            'auto_deactivated_multiple_hwids': '🚨 Multiple HWIDs detected',
+            'auto_deactivated_limit_exceeded': '🚨 HWID limit exceeded',
+            'auto_deactivated_unauthorized': '🚨 Unauthorized use detected',
+            'inactive': 'Manually deactivated',
+            'expired': '⏰ Subscription expired'
+        };
+
+        function getDeactivationReason(status) {
+            return deactivationReasons[status] || status || 'Unknown reason';
+        }
+
+        function getDeactivationClass(status) {
+            if (status === 'auto_deactivated_multiple_hwids') return 'reason-multiple-hwids';
+            if (status === 'auto_deactivated_limit_exceeded') return 'reason-limit-exceeded';
+            if (status === 'auto_deactivated_unauthorized') return 'reason-unauthorized';
+            if (status === 'inactive') return 'reason-inactive';
+            if (status === 'expired') return 'reason-expired';
+            return '';
+        }
+
+        // ============================================
         // TAB SWITCHING
         // ============================================
         function switchTab(tab) {
@@ -585,7 +617,7 @@
         }
 
         // ============================================
-        // DEVICE ACTIONS - REMOVE ONLY
+        // DEVICE ACTIONS
         // ============================================
         async function removeDevice(deviceId) {
             if (!confirm(`⚠️ Remove device ${deviceId}?\n\nThis will permanently delete this device from the database.\nThe user will need to re-register.`)) return;
@@ -607,12 +639,12 @@
         }
 
         // ============================================
-        // RENDER ALL CODES
+        // RENDER ALL CODES - WITH DEACTIVATION REASON
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
             if (!allCodes || allCodes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No codes found. Generate one above!</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#888;padding:30px;">No codes found. Generate one above!</td></tr>';
                 return;
             }
             
@@ -623,7 +655,9 @@
                 const statusClass = c.is_active ? 'active' : 'inactive';
                 const statusLabel = c.is_active ? '✅ Active' : '❌ Inactive';
                 const statusText = c.status || 'active';
-                const isAutoDeactivated = statusText === 'auto_deactivated' || statusText === 'auto_deactivated_limit_exceeded';
+                const isAutoDeactivated = !c.is_active && (statusText.includes('auto_deactivated') || statusText === 'inactive');
+                const deactivationReason = !c.is_active ? getDeactivationReason(statusText) : '';
+                const reasonClass = !c.is_active ? getDeactivationClass(statusText) : '';
                 
                 if (isEditing) {
                     return `
@@ -656,9 +690,15 @@
                                 </select>
                             </td>
                             <td>
+                                ${!c.is_active ? `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : '<span class="text-muted">—</span>'}
+                            </td>
+                            <td>
                                 <div class="action-buttons">
-                                    <button onclick="saveEdit('${c.code}')" class="btn-small btn-save">💾 Save</button>
-                                    <button onclick="cancelEdit()" class="btn-small btn-cancel">✖ Cancel</button>
+                                    <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️ Edit</button>
+                                    <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
+                                        ${c.is_active ? '🔒' : '🔓'}
+                                    </button>
+                                    <button onclick="deleteCode('${c.code}')" class="btn-small btn-danger">🗑️</button>
                                 </div>
                             </td>
                         </tr>
@@ -666,7 +706,7 @@
                 }
                 
                 const statusBadge = isAutoDeactivated ? 
-                    `<span class="badge" style="background:rgba(244,67,54,0.2);color:#f44336;">🚨 Auto-Deactivated</span>` :
+                    `<span class="badge auto-deactivated">🚨 Auto-Deactivated</span>` :
                     `<span class="badge ${statusClass}">${statusLabel}</span>`;
                 
                 return `
@@ -679,6 +719,9 @@
                         <td>${c.used_count || 0}</td>
                         <td>${c.max_hwid_limit || 1}</td>
                         <td>${statusBadge}</td>
+                        <td>
+                            ${!c.is_active ? `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : '<span class="text-muted">—</span>'}
+                        </td>
                         <td>
                             <div class="action-buttons">
                                 <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️ Edit</button>
@@ -694,7 +737,7 @@
         }
 
         // ============================================
-        // RENDER SVIP
+        // RENDER SVIP - WITH DEACTIVATION REASON
         // ============================================
         function renderSVIP() {
             const svipCodes = allCodes.filter(c => c.access_level === 'SVIP');
@@ -702,33 +745,39 @@
             document.getElementById('svip-count').textContent = svipCodes.length + ' codes';
             
             if (svipCodes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>';
                 return;
             }
             
-            tbody.innerHTML = svipCodes.map(c => `
-                <tr>
-                    <td><strong class="code-font">${c.code}</strong></td>
-                    <td>${c.username || '<span class="text-muted">N/A</span>'}</td>
-                    <td>${c.subscription_type || 'Lifetime'}</td>
-                    <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
-                    <td>${c.used_count || 0}</td>
-                    <td>${c.max_hwid_limit || 1}</td>
-                    <td><span class="badge ${c.is_active ? 'active' : 'inactive'}">${c.is_active ? '✅ Active' : '❌ Inactive'}</span></td>
-                    <td>
-                        <div class="action-buttons">
-                            <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️ Edit</button>
-                            <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
-                                ${c.is_active ? '🔒' : '🔓'}
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = svipCodes.map(c => {
+                const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
+                return `
+                    <tr>
+                        <td><strong class="code-font">${c.code}</strong></td>
+                        <td>${c.username || '<span class="text-muted">N/A</span>'}</td>
+                        <td>${c.subscription_type || 'Lifetime'}</td>
+                        <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
+                        <td>${c.used_count || 0}</td>
+                        <td>${c.max_hwid_limit || 1}</td>
+                        <td><span class="badge ${c.is_active ? 'active' : 'inactive'}">${c.is_active ? '✅ Active' : '❌ Inactive'}</span></td>
+                        <td>
+                            ${!c.is_active ? `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : '<span class="text-muted">—</span>'}
+                        </td>
+                        <td>
+                            <div class="action-buttons">
+                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️ Edit</button>
+                                <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
+                                    ${c.is_active ? '🔒' : '🔓'}
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         // ============================================
-        // RENDER VIP
+        // RENDER VIP - WITH DEACTIVATION REASON
         // ============================================
         function renderVIP() {
             const vipCodes = allCodes.filter(c => c.access_level === 'VIP');
@@ -736,36 +785,41 @@
             document.getElementById('vip-count').textContent = vipCodes.length + ' codes';
             
             if (vipCodes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>';
                 return;
             }
             
-            tbody.innerHTML = vipCodes.map(c => `
-                <tr>
-                    <td><strong class="code-font">${c.code}</strong></td>
-                    <td>${c.username || '<span class="text-muted">N/A</span>'}</td>
-                    <td>${c.subscription_type || 'Lifetime'}</td>
-                    <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
-                    <td>${c.used_count || 0}</td>
-                    <td>${c.max_hwid_limit || 1}</td>
-                    <td><span class="badge ${c.is_active ? 'active' : 'inactive'}">${c.is_active ? '✅ Active' : '❌ Inactive'}</span></td>
-                    <td>
-                        <div class="action-buttons">
-                            <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️ Edit</button>
-                            <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
-                                ${c.is_active ? '🔒' : '🔓'}
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = vipCodes.map(c => {
+                const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
+                return `
+                    <tr>
+                        <td><strong class="code-font">${c.code}</strong></td>
+                        <td>${c.username || '<span class="text-muted">N/A</span>'}</td>
+                        <td>${c.subscription_type || 'Lifetime'}</td>
+                        <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
+                        <td>${c.used_count || 0}</td>
+                        <td>${c.max_hwid_limit || 1}</td>
+                        <td><span class="badge ${c.is_active ? 'active' : 'inactive'}">${c.is_active ? '✅ Active' : '❌ Inactive'}</span></td>
+                        <td>
+                            ${!c.is_active ? `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : '<span class="text-muted">—</span>'}
+                        </td>
+                        <td>
+                            <div class="action-buttons">
+                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️ Edit</button>
+                                <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
+                                    ${c.is_active ? '🔒' : '🔓'}
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         // ============================================
         // HWID MANAGEMENT FUNCTIONS
         // ============================================
 
-        // Populate code dropdown for HWID management
         function populateHwidCodeDropdown() {
             const select = document.getElementById('hwid-code-select');
             const currentValue = select.value;
@@ -785,7 +839,6 @@
             }
         }
 
-        // Load HWID details for selected code
         async function loadHwidDetails() {
             const code = document.getElementById('hwid-code-select').value;
             if (!code) {
@@ -812,7 +865,6 @@
                 document.getElementById('hwid-available-slots').textContent = availableSlots;
                 document.getElementById('hwid-limit-input').value = maxLimit;
                 
-                // Show limit status
                 const statusEl = document.getElementById('hwid-limit-status');
                 if (availableSlots <= 0) {
                     statusEl.style.display = 'block';
@@ -840,7 +892,6 @@
             }
         }
 
-        // Render HWID list
         function renderHwidList(hwids) {
             const tbody = document.getElementById('hwid-list-body');
             if (!hwids || hwids.length === 0) {
@@ -849,7 +900,6 @@
             }
             
             tbody.innerHTML = hwids.map((h, index) => {
-                // Check if this was auto-assigned (we can't track this exactly, but we can show if it's the only one)
                 const isAutoAssigned = index === 0 && hwids.length === 1;
                 return `
                     <tr>
@@ -858,7 +908,7 @@
                         <td>${h.assigned_at ? new Date(h.assigned_at).toLocaleString() : 'N/A'}</td>
                         <td>${h.last_used ? new Date(h.last_used).toLocaleString() : 'Never'}</td>
                         <td>
-                            ${isAutoAssigned ? '<span class="badge auto-assigned">🤖 Auto</span>' : '<span class="text-muted">Manual</span>'}
+                            ${isAutoAssigned ? '<span class="badge" style="background:rgba(33,150,243,0.2);color:#2196F3;">🤖 Auto</span>' : '<span class="text-muted">Manual</span>'}
                         </td>
                         <td>
                             <button onclick="removeHwid('${h.hwid}')" class="btn-small btn-danger" ${hwids.length <= 1 ? 'disabled title="Cannot remove the last HWID"' : ''}>
@@ -870,7 +920,6 @@
             }).join('');
         }
 
-        // Update HWID limit
         async function updateHwidLimit() {
             const code = document.getElementById('hwid-code-select').value;
             const limit = parseInt(document.getElementById('hwid-limit-input').value);
@@ -906,7 +955,6 @@
             }
         }
 
-        // Add HWID
         async function addHwid() {
             const code = document.getElementById('hwid-code-select').value;
             const hwid = document.getElementById('hwid-add-input').value.trim();
@@ -948,7 +996,6 @@
             }
         }
 
-        // Remove HWID
         async function removeHwid(hwid) {
             const code = document.getElementById('hwid-code-select').value;
             
@@ -1107,7 +1154,7 @@
         }
 
         // ============================================
-        // GENERATE CODE - WITHOUT HWID
+        // GENERATE CODE
         // ============================================
         document.getElementById('generate-code-form').addEventListener('submit', async function(e) {
             e.preventDefault();

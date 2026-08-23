@@ -1,4 +1,4 @@
-// server.js - Complete with auto-assign HWID and auto-deactivation
+// server.js - Complete with all updates
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -608,6 +608,342 @@ app.post('/api/register', async (req, res) => {
 });
 
 // ============================================
+// AUTO-DEACTIVATE LOGS - For multiple HWID detection
+// ============================================
+
+app.post('/api/auto-deactivate', async (req, res) => {
+    const { code, reason, hwids, deviceId, details } = req.body;
+    
+    console.log('🚨 AUTO-DEACTIVATE REQUEST RECEIVED!');
+    console.log(`📌 Code: ${code}`);
+    console.log(`📋 Reason: ${reason}`);
+    console.log(`🖥️ HWIDs: ${hwids ? hwids.length : 0} detected`);
+    console.log(`📱 Device: ${deviceId}`);
+    console.log(`📝 Details: ${details}`);
+    
+    try {
+        // Check if code exists
+        const codeInfo = await db.get('SELECT * FROM codes WHERE code = $1', [code]);
+        if (!codeInfo) {
+            console.log('❌ Code not found:', code);
+            return res.status(404).json({ error: 'Code not found' });
+        }
+        
+        // Check if code is already deactivated
+        if (!codeInfo.is_active) {
+            console.log('⚠️ Code already deactivated:', code);
+            return res.json({ 
+                success: true, 
+                message: 'Code already deactivated',
+                already_deactivated: true,
+                status: codeInfo.status
+            });
+        }
+        
+        // Auto-deactivate the code
+        console.log(`🔥 Auto-deactivating code ${code} due to: ${reason}`);
+        
+        // Determine the status based on reason
+        let status = 'auto_deactivated';
+        if (reason === 'multiple_hwids_detected') {
+            status = 'auto_deactivated_multiple_hwids';
+        } else if (reason === 'hwid_limit_exceeded') {
+            status = 'auto_deactivated_limit_exceeded';
+        } else if (reason === 'unauthorized_use') {
+            status = 'auto_deactivated_unauthorized';
+        }
+        
+        // Deactivate the code
+        await db.run(
+            'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
+            [status, code]
+        );
+        
+        // Get all devices using this code
+        const devices = await db.all(
+            'SELECT device_id FROM devices WHERE code = $1',
+            [code]
+        );
+        
+        // Revoke all devices
+        let revokedCount = 0;
+        for (const dev of devices) {
+            await db.run(
+                'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
+                ['revoked', dev.device_id]
+            );
+            await db.logUsage(
+                dev.device_id, 
+                code, 
+                'auto_revoked_' + reason, 
+                `🔒 Device auto-revoked due to: ${reason}. ${details || 'No additional details'}`
+            );
+            revokedCount++;
+        }
+        
+        // Clear all HWIDs for this code
+        await db.run(
+            'DELETE FROM code_hwids WHERE code = $1',
+            [code]
+        );
+        
+        // Clear hwid field in codes table
+        await db.run(
+            'UPDATE codes SET hwid = NULL WHERE code = $1',
+            [code]
+        );
+        
+        // Log the auto-deactivation with full details
+        const logDetails = `🚨 Code ${code} auto-deactivated. Reason: ${reason}. ${revokedCount} devices revoked. HWIDs: ${hwids ? hwids.length : 0} detected. ${details || 'N/A'}`;
+        await db.logUsage(
+            deviceId || 'system', 
+            code, 
+            'auto_deactivated_' + reason, 
+            logDetails
+        );
+        
+        await db.refreshCache();
+        
+        console.log(`✅ Code ${code} auto-deactivated. ${revokedCount} devices revoked.`);
+        
+        res.json({
+            success: true,
+            code: code,
+            devices_revoked: revokedCount,
+            reason: reason,
+            status: status,
+            hwids_count: hwids ? hwids.length : 0,
+            message: `Code ${code} auto-deactivated due to: ${reason}. ${revokedCount} devices revoked.`
+        });
+        
+    } catch (error) {
+        console.error('❌ Auto-deactivate error:', error);
+        res.status(500).json({ 
+            error: 'Failed to auto-deactivate code',
+            details: error.message 
+        });
+    }
+});
+
+// ============================================
+// USAGE LOGS - For multiple HWID detection
+// ============================================
+
+app.post('/api/log-usage', async (req, res) => {
+    const { deviceId, code, action, details } = req.body;
+    
+    console.log('📝 USAGE LOG REQUEST RECEIVED!');
+    console.log(`📱 Device: ${deviceId}`);
+    console.log(`📌 Code: ${code}`);
+    console.log(`📋 Action: ${action}`);
+    console.log(`📝 Details: ${details}`);
+    
+    try {
+        await db.logUsage(
+            deviceId || 'system', 
+            code || null, 
+            action || 'unknown', 
+            details || 'No details provided'
+        );
+        
+        console.log('✅ Usage log saved');
+        res.json({ success: true });
+        
+    } catch (error) {
+        console.error('❌ Log usage error:', error);
+        res.status(500).json({ 
+            error: 'Failed to save usage log',
+            details: error.message 
+        });
+    }
+});
+
+// ============================================
+// DETECT MULTIPLE HWIDS - Check endpoint
+// ============================================
+
+app.post('/api/detect-multiple-hwids', async (req, res) => {
+    const { code, hwids, deviceId } = req.body;
+    
+    console.log('🔍 MULTIPLE HWID DETECTION REQUEST!');
+    console.log(`📌 Code: ${code}`);
+    console.log(`🖥️ HWIDs: ${hwids ? hwids.length : 0} detected`);
+    console.log(`📱 Device: ${deviceId}`);
+    
+    try {
+        // Check if code exists
+        const codeInfo = await db.get('SELECT * FROM codes WHERE code = $1', [code]);
+        if (!codeInfo) {
+            return res.status(404).json({ error: 'Code not found' });
+        }
+        
+        // Log the detection
+        await db.logUsage(
+            deviceId || 'system', 
+            code, 
+            'multiple_hwids_detected', 
+            `⚠️ Multiple HWIDs detected for code ${code}. ${hwids ? hwids.length : 0} HWIDs found: ${hwids ? hwids.join(', ') : 'N/A'}`
+        );
+        
+        // Check if we should auto-deactivate
+        const shouldAutoDeactivate = hwids && hwids.length > 1 && codeInfo.is_active;
+        
+        let deactivationResult = null;
+        if (shouldAutoDeactivate) {
+            console.log('🔥 Auto-deactivating due to multiple HWIDs...');
+            
+            // Deactivate the code
+            await db.run(
+                'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
+                ['auto_deactivated_multiple_hwids', code]
+            );
+            
+            // Get all devices
+            const devices = await db.all(
+                'SELECT device_id FROM devices WHERE code = $1',
+                [code]
+            );
+            
+            // Revoke all devices
+            let revokedCount = 0;
+            for (const dev of devices) {
+                await db.run(
+                    'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
+                    ['revoked', dev.device_id]
+                );
+                await db.logUsage(
+                    dev.device_id, 
+                    code, 
+                    'auto_revoked_multiple_hwids', 
+                    `🔒 Device auto-revoked due to multiple HWIDs detected`
+                );
+                revokedCount++;
+            }
+            
+            // Clear all HWIDs
+            await db.run('DELETE FROM code_hwids WHERE code = $1', [code]);
+            await db.run('UPDATE codes SET hwid = NULL WHERE code = $1', [code]);
+            
+            await db.refreshCache();
+            
+            deactivationResult = {
+                deactivated: true,
+                devices_revoked: revokedCount
+            };
+        }
+        
+        res.json({
+            success: true,
+            code: code,
+            hwids_count: hwids ? hwids.length : 0,
+            hwids: hwids || [],
+            is_active: codeInfo.is_active,
+            auto_deactivated: shouldAutoDeactivate,
+            deactivation: deactivationResult,
+            message: shouldAutoDeactivate ? 
+                `Code ${code} auto-deactivated due to multiple HWIDs. ${deactivationResult.devices_revoked} devices revoked.` :
+                `No action taken. Code is ${codeInfo.is_active ? 'active' : 'inactive'}.`
+        });
+        
+    } catch (error) {
+        console.error('❌ Detect multiple HWIDs error:', error);
+        res.status(500).json({ 
+            error: 'Failed to process multiple HWID detection',
+            details: error.message 
+        });
+    }
+});
+
+// ============================================
+// GET AUTO-DEACTIVATION LOGS
+// ============================================
+
+app.get('/api/auto-deactivation-logs', isApiAuthenticated, async (req, res) => {
+    try {
+        const logs = await db.all(`
+            SELECT * FROM usage_logs 
+            WHERE action LIKE '%auto_deactivated%' OR action LIKE '%auto_revoked%'
+            ORDER BY created_at DESC
+            LIMIT 100
+        `);
+        res.json(logs);
+    } catch (error) {
+        console.error('Get auto-deactivation logs error:', error);
+        res.status(500).json({ error: 'Failed to get logs' });
+    }
+});
+
+// ============================================
+// GET CODES WITH MULTIPLE HWIDS
+// ============================================
+
+app.get('/api/codes-with-multiple-hwids', isApiAuthenticated, async (req, res) => {
+    try {
+        const results = await db.all(`
+            SELECT 
+                c.code,
+                c.username,
+                c.is_active,
+                c.status,
+                COUNT(ch.id) as hwid_count,
+                STRING_AGG(SUBSTRING(ch.hwid, 1, 16) || '...', ', ') as hwids_masked
+            FROM codes c
+            LEFT JOIN code_hwids ch ON c.code = ch.code
+            GROUP BY c.code, c.username, c.is_active, c.status
+            HAVING COUNT(ch.id) > 1
+            ORDER BY hwid_count DESC
+        `);
+        res.json(results);
+    } catch (error) {
+        console.error('Get codes with multiple HWIDs error:', error);
+        res.status(500).json({ error: 'Failed to get data' });
+    }
+});
+
+// ============================================
+// GET CODE DEACTIVATION DETAILS
+// ============================================
+
+app.get('/api/code/:code/deactivation-details', isApiAuthenticated, async (req, res) => {
+    const { code } = req.params;
+    try {
+        // Get code info
+        const codeInfo = await db.get('SELECT * FROM codes WHERE code = $1', [code]);
+        if (!codeInfo) {
+            return res.status(404).json({ error: 'Code not found' });
+        }
+        
+        // Get deactivation logs
+        const logs = await db.all(`
+            SELECT * FROM usage_logs 
+            WHERE code = $1 AND (action LIKE '%auto_deactivated%' OR action LIKE '%auto_revoked%')
+            ORDER BY created_at DESC
+            LIMIT 20
+        `, [code]);
+        
+        // Get devices that were revoked
+        const devices = await db.all(`
+            SELECT device_id, status, revoked_at, created_at 
+            FROM devices 
+            WHERE code = $1 AND status = 'revoked'
+            ORDER BY revoked_at DESC
+            LIMIT 20
+        `, [code]);
+        
+        res.json({
+            code: codeInfo,
+            deactivation_logs: logs,
+            revoked_devices: devices,
+            reason: codeInfo.status || 'Unknown',
+            is_active: codeInfo.is_active
+        });
+    } catch (error) {
+        console.error('Get deactivation details error:', error);
+        res.status(500).json({ error: 'Failed to get deactivation details' });
+    }
+});
+
+// ============================================
 // STATUS CHECK - WITH FULL ACCOUNT INFO
 // ============================================
 
@@ -652,11 +988,25 @@ app.get('/api/status/:deviceId', async (req, res) => {
     const codeInfo = await db.getCodeInfo(device.code);
     
     if (!codeInfo || !codeInfo.is_active) {
+      // Check if there's a deactivation reason
+      let deactivationReason = 'Code deactivated';
+      if (codeInfo && codeInfo.status) {
+        const statusMap = {
+          'auto_deactivated': 'Auto-deactivated (General)',
+          'auto_deactivated_multiple_hwids': '🚨 Auto-deactivated - Multiple HWIDs detected',
+          'auto_deactivated_limit_exceeded': '🚨 Auto-deactivated - HWID limit exceeded',
+          'auto_deactivated_unauthorized': '🚨 Auto-deactivated - Unauthorized use',
+          'inactive': 'Manually deactivated by admin',
+          'expired': 'Subscription expired'
+        };
+        deactivationReason = statusMap[codeInfo.status] || codeInfo.status;
+      }
+      
       return res.json({
         exists: true,
         approved: false,
         status: 'code_inactive',
-        message: 'Your activation code has been deactivated - Please enter a new code',
+        message: deactivationReason,
         needsCode: true,
         code: device.code,
         username: null,
@@ -664,7 +1014,7 @@ app.get('/api/status/:deviceId', async (req, res) => {
         subscription: null,
         subscription_started_at: null,
         subscription_expires_at: null,
-        status_code: null
+        status_code: codeInfo ? codeInfo.status : 'inactive'
       });
     }
 
@@ -818,7 +1168,7 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// GENERATE CODE - WITHOUT HWID AND FINGERPRINT
+// GENERATE CODE - WITHOUT HWID
 // ============================================
 
 app.post('/api/generate-code', isApiAuthenticated, async (req, res) => {

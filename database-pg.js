@@ -324,7 +324,6 @@ class DeviceDatabase {
       const limit = await this.getCodeHwidLimit(code);
 
       if (currentCount >= limit) {
-        // If autoAssign is false or limit reached, return error
         if (!autoAssign) {
           return { 
             success: false, 
@@ -334,7 +333,6 @@ class DeviceDatabase {
             max_limit: limit
           };
         }
-        // If autoAssign is true and limit reached, auto-deactivate
         return {
           success: false,
           error: `HWID limit reached (${limit}). Auto-deactivating code.`,
@@ -460,10 +458,20 @@ class DeviceDatabase {
 
   async autoDeactivateCode(code, reason = 'unauthorized_use') {
     try {
+        // Determine status based on reason
+        let status = 'auto_deactivated';
+        if (reason === 'multiple_hwids_detected') {
+            status = 'auto_deactivated_multiple_hwids';
+        } else if (reason === 'hwid_limit_exceeded' || reason === 'hwid_limit_exceeded_auto_assign') {
+            status = 'auto_deactivated_limit_exceeded';
+        } else if (reason === 'unauthorized_use') {
+            status = 'auto_deactivated_unauthorized';
+        }
+        
         // Deactivate the code
         await this.run(
             'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
-            ['auto_deactivated', code]
+            [status, code]
         );
         
         // Get all devices using this code
@@ -481,7 +489,7 @@ class DeviceDatabase {
             await this.logUsage(
                 dev.device_id, 
                 code, 
-                'auto_revoked', 
+                'auto_revoked_' + reason, 
                 `🔒 Device auto-revoked due to ${reason}`
             );
         }
@@ -501,8 +509,8 @@ class DeviceDatabase {
         await this.logUsage(
             'system', 
             code, 
-            'auto_deactivated', 
-            `🔒 Code ${code} auto-deactivated due to ${reason}. ${devices.length} devices revoked. All HWIDs cleared.`
+            'auto_deactivated_' + reason, 
+            `🔒 Code ${code} auto-deactivated due to ${reason}. ${devices.length} devices revoked.`
         );
         
         await this.refreshCache();
@@ -511,7 +519,8 @@ class DeviceDatabase {
             success: true,
             code: code,
             devices_revoked: devices.length,
-            reason: reason
+            reason: reason,
+            status: status
         };
     } catch (error) {
         console.error('Auto-deactivate code error:', error);
