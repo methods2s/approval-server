@@ -1478,13 +1478,20 @@ app.get('/api/hwid-logs/new-count', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// HWID LOG - Receive from extension
+// HWID LOG - Receive from extension (FIXED)
 // ============================================
 
 app.post('/api/hwid-log', async (req, res) => {
     const { hwid, code, device_id, action, status, details, browser_profile, user_agent, detected_hwids } = req.body;
     
+    console.log('📥 HWID LOG RECEIVED:');
+    console.log(`   HWID: ${hwid ? hwid.substring(0, 16) + '...' : 'null'}`);
+    console.log(`   Action: ${action}`);
+    console.log(`   Status: ${status}`);
+    console.log(`   Code: ${code || 'null'}`);
+    
     if (!hwid) {
+        console.log('❌ HWID log failed: No HWID provided');
         return res.status(400).json({ error: 'HWID is required' });
     }
     
@@ -1503,8 +1510,10 @@ app.post('/api/hwid-log', async (req, res) => {
             logStatus = 'existing';
         }
         
+        console.log(`📝 Logging HWID: ${hwid.substring(0, 16)}... (${logStatus}) - ${action}`);
+        
         // Log to database
-        await db.logHwidActivity(
+        const result = await db.logHwidActivity(
             hwid,
             code || null,
             device_id || 'unknown',
@@ -1516,9 +1525,13 @@ app.post('/api/hwid-log', async (req, res) => {
             browser_profile || 'Default'
         );
         
+        if (!result) {
+            console.log('❌ HWID log failed: Database insert returned false');
+            return res.status(500).json({ error: 'Failed to save to database' });
+        }
+        
         // If this is a new HWID and there are multiple detected
         if (detected_hwids && detected_hwids.length > 1) {
-            // Log each additional HWID
             for (const extraHwid of detected_hwids) {
                 if (extraHwid !== hwid) {
                     await db.logHwidActivity(
@@ -1536,7 +1549,7 @@ app.post('/api/hwid-log', async (req, res) => {
             }
         }
         
-        console.log(`✅ HWID logged: ${hwid.substring(0, 16)}... (${logStatus}) - ${action}`);
+        console.log(`✅ HWID logged successfully: ${hwid.substring(0, 16)}... (${logStatus})`);
         
         res.json({
             success: true,
@@ -1547,7 +1560,11 @@ app.post('/api/hwid-log', async (req, res) => {
         
     } catch (error) {
         console.error('❌ HWID log error:', error);
-        res.status(500).json({ error: 'Failed to log HWID' });
+        console.error('❌ Error details:', error.stack);
+        res.status(500).json({ 
+            success: false,
+            error: 'Failed to log HWID: ' + error.message 
+        });
     }
 });
 
