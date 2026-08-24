@@ -385,7 +385,7 @@ app.post('/api/register', async (req, res) => {
         const ramTotal = parsedHardware.ram_gb || 0;
         const storageTotal = parsedHardware.storage_gb || 0;
         const deviceName = parsedHardware.device_name || 'Unknown';
-        const profileName = browser_profile || 'Default';
+        const profileName = browser_profile || parsedHardware.profile_name || 'Default';
 
         console.log('🖥️ Hardware Specs Received:');
         console.log(`   CPU: ${cpuName}`);
