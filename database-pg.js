@@ -1,4 +1,4 @@
-// database-pg.js - Complete with Wallpaper Support
+// database-pg.js - Complete with All Functions including HWID Reset on Reactivation
 
 const { Pool } = require('pg');
 
@@ -80,6 +80,10 @@ class DeviceDatabase {
     return result.rows;
   }
 
+  // ============================================
+  // INIT TABLES
+  // ============================================
+
   async initTables() {
     try {
       // Codes table
@@ -139,9 +143,7 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
-      // DEVICES TABLE WITH WALLPAPER COLUMNS
-      // ============================================
+      // Devices table with wallpaper columns
       await this.query(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -165,7 +167,6 @@ class DeviceDatabase {
           storage_total_gb DECIMAL,
           profile_name TEXT,
           device_name TEXT,
-          -- WALLPAPER COLUMNS
           wallpaper_name TEXT,
           wallpaper_size_kb DECIMAL,
           wallpaper_width INTEGER,
@@ -184,7 +185,6 @@ class DeviceDatabase {
         { name: 'storage_total_gb', type: 'DECIMAL' },
         { name: 'profile_name', type: 'TEXT' },
         { name: 'device_name', type: 'TEXT' },
-        // WALLPAPER COLUMNS
         { name: 'wallpaper_name', type: 'TEXT' },
         { name: 'wallpaper_size_kb', type: 'DECIMAL' },
         { name: 'wallpaper_width', type: 'INTEGER' },
@@ -348,10 +348,7 @@ class DeviceDatabase {
         };
       }
 
-      // ============================================
-      // PARSE HARDWARE AND WALLPAPER
-      // ============================================
-      
+      // Parse hardware and wallpaper
       let cpuName = 'Unknown', gpuName = 'Unknown', ramTotal = 0, storageTotal = 0, deviceName = 'Unknown', profileName = 'Default';
       let wallpaperName = null, wallpaperSizeKb = 0, wallpaperWidth = 0, wallpaperHeight = 0, wallpaperBase64 = null;
 
@@ -365,27 +362,17 @@ class DeviceDatabase {
         profileName = hw.profile_name || 'Default';
       }
 
-      // 👇 IMPORTANTE: KUKUHA NG WALLPAPER BASE64
       if (wallpaper) {
         const wp = typeof wallpaper === 'string' ? JSON.parse(wallpaper) : wallpaper;
         wallpaperName = wp.file_name || null;
         wallpaperSizeKb = wp.size_kb || 0;
         wallpaperWidth = wp.width || 0;
         wallpaperHeight = wp.height || 0;
-        wallpaperBase64 = wp.image_base64 || null;  // 👈 DAPAT MAY BASE64!
+        wallpaperBase64 = wp.image_base64 || null;
         
         console.log(`🖼️ Wallpaper: ${wallpaperName} (${wallpaperSizeKb} KB) ${wallpaperWidth}x${wallpaperHeight}`);
-        if (wallpaperBase64) {
-          console.log(`   📸 Base64 length: ${wallpaperBase64.length} chars`);
-        } else {
-          console.log(`   ⚠️ WARNING: No image_base64 in wallpaper data!`);
-        }
       }
 
-      // ============================================
-      // CHECK IF DEVICE EXISTS
-      // ============================================
-      
       const existingDevice = await this.getDevice(deviceId);
       
       if (existingDevice) {
@@ -430,7 +417,7 @@ class DeviceDatabase {
             wallpaperSizeKb,
             wallpaperWidth,
             wallpaperHeight,
-            wallpaperBase64,  // 👈 SAVE BASE64 SA DATABASE
+            wallpaperBase64,
             deviceId
           ]
         );
@@ -466,14 +453,13 @@ class DeviceDatabase {
             wallpaperSizeKb,
             wallpaperWidth,
             wallpaperHeight,
-            wallpaperBase64  // 👈 SAVE BASE64 SA DATABASE
+            wallpaperBase64
           ]
         );
         
         console.log(`✅ New device ${deviceId} registered with wallpaper: ${wallpaperName}`);
       }
 
-      // Update code usage count
       await this.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code]);
       
       await this.logUsage(deviceId, code, 'register', 
@@ -482,7 +468,6 @@ class DeviceDatabase {
       
       await this.refreshCache();
 
-      // Get updated code info
       const updatedCodeInfo = await this.getCodeInfo(code);
 
       return { 
@@ -512,7 +497,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET DEVICE WITH WALLPAPER
+  // GET DEVICE
   // ============================================
 
   async getDevice(deviceId) {
@@ -828,6 +813,7 @@ class DeviceDatabase {
             );
         }
         
+        // Remove all HWIDs
         await this.run(
             'DELETE FROM code_hwids WHERE code = $1',
             [code]
@@ -1025,11 +1011,19 @@ class DeviceDatabase {
 
   async deactivateCode(code) {
     try {
+      // Get devices first
       const devices = await this.all(
         'SELECT device_id FROM devices WHERE code = $1 AND status != $2',
         [code, 'revoked']
       );
       
+      // Remove all HWIDs for this code
+      await this.run(
+        'DELETE FROM code_hwids WHERE code = $1',
+        [code]
+      );
+      
+      // Remove devices
       for (const device of devices) {
         await this.run(
           'DELETE FROM devices WHERE device_id = $1',
@@ -1038,8 +1032,9 @@ class DeviceDatabase {
         console.log(`🗑️ Removed device: ${device.device_id}`);
       }
       
+      // Update code status
       const result = await this.run(
-        'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
+        'UPDATE codes SET is_active = false, status = $1, hwid = NULL WHERE code = $2',
         ['inactive', code]
       );
       
@@ -1061,6 +1056,19 @@ class DeviceDatabase {
       const codeInfo = await this.getCodeInfo(code);
       if (!codeInfo) {
         return { success: false, error: 'Code not found' };
+      }
+
+      // Remove all HWIDs if code was inactive
+      if (!codeInfo.is_active || codeInfo.status === 'inactive' || codeInfo.status.includes('auto_deactivated')) {
+        await this.run(
+          'DELETE FROM code_hwids WHERE code = $1',
+          [code]
+        );
+        await this.run(
+          'UPDATE codes SET hwid = NULL WHERE code = $1',
+          [code]
+        );
+        console.log(`🔄 HWIDs removed during reactivation of code ${code}`);
       }
 
       const now = new Date().toISOString();

