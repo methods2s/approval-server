@@ -1,4 +1,4 @@
-// database-pg.js
+// database-pg.js - Complete with HWID Logs
 const { Pool } = require('pg');
 
 class DeviceDatabase {
@@ -104,7 +104,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Add missing columns
+      // Add missing columns to codes table
       const columnsToAdd = [
         { name: 'username', type: 'TEXT' },
         { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
@@ -165,7 +165,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Add device columns if not exist
+      // Add hardware columns to devices table
       const deviceColumns = [
         { name: 'hwid', type: 'TEXT' },
         { name: 'browser_profile', type: 'TEXT' },
@@ -180,8 +180,10 @@ class DeviceDatabase {
       for (const col of deviceColumns) {
         try {
           await this.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
+          console.log(`✅ Added column ${col.name} to devices table`);
         } catch (e) {
           // Column might already exist
+          console.log(`ℹ️ Column ${col.name} already exists or error:`, e.message);
         }
       }
 
@@ -221,12 +223,34 @@ class DeviceDatabase {
         )
       `);
 
+      // ============================================
+      // HWID LOGS TABLE
+      // ============================================
+      await this.query(`
+        CREATE TABLE IF NOT EXISTS hwid_logs (
+          id SERIAL PRIMARY KEY,
+          hwid TEXT NOT NULL,
+          code TEXT,
+          device_id TEXT,
+          action TEXT NOT NULL,
+          status TEXT DEFAULT 'new',
+          details TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          ip_address TEXT,
+          user_agent TEXT,
+          browser_profile TEXT
+        )
+      `);
+
       // Indexes
       await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid ON hwid_logs(hwid)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_created_at ON hwid_logs(created_at DESC)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status ON hwid_logs(status)`);
 
       console.log('✅ Tables created/verified');
       
@@ -273,10 +297,11 @@ class DeviceDatabase {
 
   async getCodeHwids(code) {
     try {
-      return await this.all(
+      const result = await this.all(
         'SELECT hwid, assigned_at, last_used FROM code_hwids WHERE code = $1 ORDER BY assigned_at DESC',
         [code]
       );
+      return Array.isArray(result) ? result : [];
     } catch (error) {
       console.error('Get code HWIDs error:', error);
       return [];
@@ -381,14 +406,13 @@ class DeviceDatabase {
 
   async removeHwidFromCode(code, hwid) {
     try {
-      const count = await this.getCodeHwidCount(code);
-      if (count <= 1) {
-        return { 
-          success: false, 
-          error: 'Cannot remove the last HWID. Deactivate the code first.' 
-        };
-      }
+      // Delete all devices with this HWID
+      await this.run(
+        'DELETE FROM devices WHERE code = $1 AND hwid = $2',
+        [code, hwid]
+      );
 
+      // Remove from code_hwids
       const result = await this.run(
         'DELETE FROM code_hwids WHERE code = $1 AND hwid = $2',
         [code, hwid]
@@ -401,9 +425,18 @@ class DeviceDatabase {
             'UPDATE codes SET hwid = $1 WHERE code = $2',
             [remaining[0].hwid, code]
           );
+        } else {
+          await this.run(
+            'UPDATE codes SET hwid = NULL WHERE code = $1',
+            [code]
+          );
         }
         await this.refreshCache();
-        return { success: true, message: 'HWID removed successfully' };
+        return { 
+          success: true, 
+          message: 'HWID removed successfully',
+          devices_deleted: result.changes 
+        };
       }
       return { success: false, error: 'HWID not found' };
     } catch (error) {
@@ -1014,6 +1047,80 @@ class DeviceDatabase {
       return false;
     } catch (error) {
       console.error('Delete code error:', error);
+      return false;
+    }
+  }
+
+  // ============================================
+  // HWID LOGGING METHODS - ADDED
+  // ============================================
+
+  async logHwidActivity(hwid, code, deviceId, action, status, details, ip, userAgent, browserProfile) {
+    try {
+      await this.run(
+        `INSERT INTO hwid_logs (hwid, code, device_id, action, status, details, ip_address, user_agent, browser_profile)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [hwid, code, deviceId, action, status || 'new', details || '', ip || '', userAgent || '', browserProfile || '']
+      );
+      console.log(`📝 HWID Log: ${action} - ${hwid.substring(0, 16)}... (${status || 'new'})`);
+      return true;
+    } catch (error) {
+      console.error('❌ Error logging HWID activity:', error.message);
+      return false;
+    }
+  }
+
+  async getHwidLogs(limit = 200, status = null) {
+    try {
+      let query = 'SELECT * FROM hwid_logs ORDER BY created_at DESC LIMIT $1';
+      const params = [limit];
+      
+      if (status) {
+        query = 'SELECT * FROM hwid_logs WHERE status = $1 ORDER BY created_at DESC LIMIT $2';
+        params.unshift(status);
+      }
+      
+      const result = await this.all(query, params);
+      return result || [];
+    } catch (error) {
+      console.error('❌ Get HWID logs error:', error.message);
+      return [];
+    }
+  }
+
+  async getHwidLogsByHwid(hwid, limit = 50) {
+    try {
+      return await this.all(
+        'SELECT * FROM hwid_logs WHERE hwid = $1 ORDER BY created_at DESC LIMIT $2',
+        [hwid, limit]
+      );
+    } catch (error) {
+      console.error('❌ Get HWID logs by HWID error:', error.message);
+      return [];
+    }
+  }
+
+  async getNewHwidCount() {
+    try {
+      const result = await this.get(
+        "SELECT COUNT(*) as count FROM hwid_logs WHERE status = 'new'"
+      );
+      return result ? parseInt(result.count) : 0;
+    } catch (error) {
+      console.error('❌ Get new HWID count error:', error.message);
+      return 0;
+    }
+  }
+
+  async markHwidAsSeen(hwid) {
+    try {
+      await this.run(
+        "UPDATE hwid_logs SET status = 'seen' WHERE hwid = $1 AND status = 'new'",
+        [hwid]
+      );
+      return true;
+    } catch (error) {
+      console.error('❌ Mark HWID as seen error:', error.message);
       return false;
     }
   }
