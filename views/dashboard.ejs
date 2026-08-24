@@ -54,12 +54,16 @@
         .btn-remove:hover { background: #d32f2f; }
         .btn-refresh { background: #2196F3; color: #fff; padding: 6px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
         .btn-refresh:hover { background: #1976D2; }
-        .btn-copy { background: #9C27B0; color: #fff; }
+        .btn-copy { background: #9C27B0; color: #fff; padding: 4px 8px; font-size: 11px; }
         .btn-copy:hover { background: #7B1FA2; }
-        .btn-copy-code { background: #00BCD4; color: #fff; }
+        .btn-copy-code { background: #00BCD4; color: #fff; padding: 4px 8px; font-size: 11px; }
         .btn-copy-code:hover { background: #0097A7; }
-        .btn-copy-username { background: #FF9800; color: #fff; }
+        .btn-copy-username { background: #FF9800; color: #fff; padding: 4px 8px; font-size: 11px; }
         .btn-copy-username:hover { background: #F57C00; }
+        
+        .btn-copy-group { display: inline-flex; gap: 2px; }
+        .btn-copy-group .btn-copy-code { border-radius: 4px 0 0 4px; }
+        .btn-copy-group .btn-copy-username { border-radius: 0 4px 4px 0; }
         
         .scroll-table { overflow-x: auto; max-height: 500px; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -93,12 +97,36 @@
         .code-font { font-family: monospace; font-size: 13px; }
         .text-muted { color: #888; }
         .mt-10 { margin-top: 10px; }
-        .action-buttons { display: flex; gap: 4px; flex-wrap: wrap; }
+        .action-buttons { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
         
-        #result-message { margin-top: 10px; padding: 10px; border-radius: 6px; display: none; }
-        #result-message.success { display: block; color: #4CAF50; border: 1px solid #4CAF50; background: rgba(76,175,80,0.1); }
-        #result-message.error { display: block; color: #f44336; border: 1px solid #f44336; background: rgba(244,67,54,0.1); }
-        #result-message.loading { display: block; color: #FF9800; border: 1px solid #FF9800; background: rgba(255,152,0,0.1); }
+        #result-message { 
+            position: fixed; 
+            bottom: 20px; 
+            right: 20px; 
+            padding: 12px 24px; 
+            border-radius: 8px; 
+            display: none; 
+            z-index: 9999;
+            font-size: 14px;
+            max-width: 400px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        #result-message.success { display: block; color: #4CAF50; background: rgba(76,175,80,0.15); border: 1px solid #4CAF50; }
+        #result-message.error { display: block; color: #f44336; background: rgba(244,67,54,0.15); border: 1px solid #f44336; }
+        #result-message.loading { display: block; color: #FF9800; background: rgba(255,152,0,0.15); border: 1px solid #FF9800; }
+        #result-message.info { display: block; color: #2196F3; background: rgba(33,150,243,0.15); border: 1px solid #2196F3; }
+        
+        #result-message .close-msg { 
+            float: right; 
+            cursor: pointer; 
+            margin-left: 15px; 
+            opacity: 0.7;
+            background: none;
+            border: none;
+            color: inherit;
+            font-size: 16px;
+        }
+        #result-message .close-msg:hover { opacity: 1; }
         
         .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%; border-top-color: transparent; animation: spin 0.6s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -192,30 +220,6 @@
             background: #4CAF50;
         }
         
-        .toast-container {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 9999;
-        }
-        .toast {
-            min-width: 300px;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        }
-        .toast-success {
-            border-left: 4px solid #28a745;
-        }
-        .toast-error {
-            border-left: 4px solid #dc3545;
-        }
-        .toast-warning {
-            border-left: 4px solid #ffc107;
-        }
-        .toast-info {
-            border-left: 4px solid #17a2b8;
-        }
-        
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
             .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -267,7 +271,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: ALL CODES (WITH COPY BUTTONS) -->
+        <!-- TAB: ALL CODES (WITH COMBINED COPY BUTTONS) -->
         <!-- ============================================ -->
         <div class="tab-content active" id="tab-codes">
             <div class="card">
@@ -322,7 +326,7 @@
                                 <th>Profiles</th>
                                 <th>HWID Limit</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
-                                <th style="width:280px;">Actions</th>
+                                <th style="width:220px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="codes-body">
@@ -544,59 +548,62 @@
 
     </div>
 
-    <!-- Toast Container -->
-    <div class="toast-container"></div>
-    
-    <div id="result-message"></div>
+    <!-- Result Message -->
+    <div id="result-message">
+        <button class="close-msg" onclick="hideMessage()">✕</button>
+        <span id="result-text"></span>
+    </div>
 
     <script>
         // ============================================
-        // TOAST NOTIFICATIONS
+        // MESSAGE HELPERS (Simple & Minimal)
         // ============================================
-        function showToast(message, type = 'success') {
-            const container = document.querySelector('.toast-container');
-            const toast = document.createElement('div');
-            toast.className = `toast toast-${type} show`;
-            toast.role = 'alert';
-            toast.innerHTML = `
-                <div class="toast-header">
-                    <i class="bi bi-${type === 'success' ? 'check-circle' : type === 'error' ? 'x-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'}"></i>
-                    <strong class="me-auto">${type.charAt(0).toUpperCase() + type.slice(1)}</strong>
-                    <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
-                </div>
-                <div class="toast-body">${message}</div>
-            `;
-            container.appendChild(toast);
-            setTimeout(() => {
-                toast.remove();
-            }, 3000);
+        function showMessage(msg, type = 'success') {
+            const el = document.getElementById('result-message');
+            const text = document.getElementById('result-text');
+            if (!el || !text) return;
+            text.innerHTML = msg;
+            el.className = type;
+            el.style.display = 'block';
+            // Auto hide after 4 seconds
+            clearTimeout(window.msgTimeout);
+            window.msgTimeout = setTimeout(() => {
+                hideMessage();
+            }, 4000);
+        }
+        
+        function hideMessage() {
+            const el = document.getElementById('result-message');
+            if (el) {
+                el.style.display = 'none';
+                el.className = '';
+            }
         }
 
         // ============================================
-        // COPY FUNCTIONS
+        // COPY FUNCTIONS (Combined - isang group)
         // ============================================
         function copyCode(code) {
             navigator.clipboard.writeText(code).then(() => {
-                showToast(`✅ Code ${code} copied to clipboard!`, 'success');
+                showMessage(`✅ Code ${code} copied!`, 'success');
             }).catch(() => {
-                // Fallback
                 const textArea = document.createElement('textarea');
                 textArea.value = code;
                 document.body.appendChild(textArea);
                 textArea.select();
                 document.execCommand('copy');
                 document.body.removeChild(textArea);
-                showToast(`✅ Code ${code} copied to clipboard!`, 'success');
+                showMessage(`✅ Code ${code} copied!`, 'success');
             });
         }
 
         function copyUsername(username) {
-            if (!username || username === 'N/A') {
-                showToast('⚠️ No username to copy', 'warning');
+            if (!username || username === 'N/A' || username === '') {
+                showMessage('⚠️ No username to copy', 'error');
                 return;
             }
             navigator.clipboard.writeText(username).then(() => {
-                showToast(`✅ Username ${username} copied to clipboard!`, 'success');
+                showMessage(`✅ Username ${username} copied!`, 'success');
             }).catch(() => {
                 const textArea = document.createElement('textarea');
                 textArea.value = username;
@@ -604,7 +611,7 @@
                 textArea.select();
                 document.execCommand('copy');
                 document.body.removeChild(textArea);
-                showToast(`✅ Username ${username} copied to clipboard!`, 'success');
+                showMessage(`✅ Username ${username} copied!`, 'success');
             });
         }
 
@@ -666,16 +673,16 @@
         // REFRESH
         // ============================================
         async function refreshData() {
-            showMessage('🔄 Refreshing data...', 'loading');
+            showMessage('🔄 Refreshing...', 'loading');
             try {
                 const response = await fetch('/api/force-refresh', { method: 'POST' });
                 const result = await response.json();
                 if (result.success) {
                     await loadAll();
-                    showToast('✅ Data refreshed successfully!', 'success');
+                    showMessage('✅ Data refreshed!', 'success');
                 }
             } catch (error) {
-                showToast('❌ Error refreshing: ' + error.message, 'error');
+                showMessage('❌ Error refreshing', 'error');
             }
         }
 
@@ -707,7 +714,7 @@
                 
             } catch (error) {
                 console.error('Load data error:', error);
-                showToast('❌ Error loading data: ' + error.message, 'error');
+                showMessage('❌ Error loading data', 'error');
             }
         }
 
@@ -723,7 +730,7 @@
                 filterDevices();
             } catch (error) {
                 console.error('Load profiles error:', error);
-                showToast('❌ Error loading profiles: ' + error.message, 'error');
+                showMessage('❌ Error loading profiles', 'error');
             }
         }
 
@@ -766,28 +773,28 @@
         }
 
         async function removeDevice(deviceId) {
-            if (!confirm(`⚠️ Remove profile ${deviceId}?\n\nThis will permanently delete this profile from the database.`)) return;
+            if (!confirm(`⚠️ Remove profile ${deviceId}?`)) return;
             
             try {
                 const response = await fetch(`/api/device/${deviceId}`, { method: 'DELETE' });
                 const result = await response.json();
                 if (result.success) {
-                    showToast('✅ Profile removed successfully!', 'success');
+                    showMessage('✅ Profile removed!', 'success');
                     await loadDevices();
                     await loadAll();
                     if (document.getElementById('tab-hwid').classList.contains('active')) {
                         loadHwidDetails();
                     }
                 } else {
-                    showToast('❌ ' + (result.error || 'Failed to remove profile'), 'error');
+                    showMessage('❌ ' + (result.error || 'Failed to remove'), 'error');
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                showMessage('❌ Error: ' + error.message, 'error');
             }
         }
 
         // ============================================
-        // RENDER ALL CODES - WITH COPY BUTTONS
+        // RENDER ALL CODES - WITH COMBINED COPY BUTTONS
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
@@ -802,6 +809,7 @@
                 const accessLabel = c.access_level === 'SVIP' ? '⭐ SVIP' : '🔶 VIP';
                 const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
                 const isAutoDeactivated = !c.is_active && (c.status || '').includes('auto_deactivated');
+                const username = c.username || '';
                 
                 if (isEditing) {
                     return `
@@ -847,7 +855,7 @@
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
-                        <td>${c.username || '<span class="text-muted">N/A</span>'}</td>
+                        <td>${username || '<span class="text-muted">N/A</span>'}</td>
                         <td><span class="badge ${accessClass}">${accessLabel}</span></td>
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
@@ -856,12 +864,10 @@
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
-                                <button onclick="copyCode('${c.code}')" class="btn-small btn-copy-code" title="Copy Code">
-                                    📋 Code
-                                </button>
-                                <button onclick="copyUsername('${c.username || ''}')" class="btn-small btn-copy-username" title="Copy Username">
-                                    📋 User
-                                </button>
+                                <span class="btn-copy-group">
+                                    <button onclick="copyCode('${c.code}')" class="btn-small btn-copy-code" title="Copy Code">📋 Code</button>
+                                    <button onclick="copyUsername('${username}')" class="btn-small btn-copy-username" title="Copy Username">📋 User</button>
+                                </span>
                                 <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
@@ -892,11 +898,12 @@
                 const deactivationDisplay = !c.is_active ? 
                     `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
                     '<span class="text-muted">—</span>';
+                const username = c.username || '';
                 
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
-                        <td>${c.username || '<span class="text-muted">N/A</span>'}</td>
+                        <td>${username || '<span class="text-muted">N/A</span>'}</td>
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${c.used_count || 0}</td>
@@ -904,8 +911,10 @@
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
-                                <button onclick="copyCode('${c.code}')" class="btn-small btn-copy-code" title="Copy Code">📋</button>
-                                <button onclick="copyUsername('${c.username || ''}')" class="btn-small btn-copy-username" title="Copy Username">📋</button>
+                                <span class="btn-copy-group">
+                                    <button onclick="copyCode('${c.code}')" class="btn-small btn-copy-code" title="Copy Code">📋</button>
+                                    <button onclick="copyUsername('${username}')" class="btn-small btn-copy-username" title="Copy Username">📋</button>
+                                </span>
                                 <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
@@ -935,11 +944,12 @@
                 const deactivationDisplay = !c.is_active ? 
                     `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
                     '<span class="text-muted">—</span>';
+                const username = c.username || '';
                 
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
-                        <td>${c.username || '<span class="text-muted">N/A</span>'}</td>
+                        <td>${username || '<span class="text-muted">N/A</span>'}</td>
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${c.used_count || 0}</td>
@@ -947,8 +957,10 @@
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
-                                <button onclick="copyCode('${c.code}')" class="btn-small btn-copy-code" title="Copy Code">📋</button>
-                                <button onclick="copyUsername('${c.username || ''}')" class="btn-small btn-copy-username" title="Copy Username">📋</button>
+                                <span class="btn-copy-group">
+                                    <button onclick="copyCode('${c.code}')" class="btn-small btn-copy-code" title="Copy Code">📋</button>
+                                    <button onclick="copyUsername('${username}')" class="btn-small btn-copy-username" title="Copy Username">📋</button>
+                                </span>
                                 <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
@@ -1038,7 +1050,7 @@
             } catch (error) {
                 console.error('Load HWID details error:', error);
                 document.getElementById('hwid-list-body').innerHTML = `<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">❌ Error loading HWIDs: ${error.message}</td></tr>`;
-                showToast('❌ Error loading HWID details: ' + error.message, 'error');
+                showMessage('❌ Error loading HWID details', 'error');
             }
         }
 
@@ -1110,7 +1122,7 @@
             const code = document.getElementById('hwid-code-select').value;
             
             if (!code || !hwid) {
-                showToast('❌ Invalid code or HWID', 'error');
+                showMessage('❌ Invalid code or HWID', 'error');
                 return;
             }
             
@@ -1123,7 +1135,7 @@
             
             let confirmMessage = `⚠️ Remove this computer (HWID: ${hwid.substring(0,16)}...)?`;
             if (profilesToDelete > 0) {
-                confirmMessage += `\n\nThis will also delete ${profilesToDelete} profile(s) using this computer.`;
+                confirmMessage += `\n\nThis will also delete ${profilesToDelete} profile(s).`;
             }
             confirmMessage += `\n\nContinue?`;
             
@@ -1143,20 +1155,19 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showToast(`✅ ${result.message}`, 'success');
-                    setTimeout(() => hideMessage(), 2000);
+                    showMessage(`✅ ${result.message}`, 'success');
                     await loadHwidDetails();
                     await loadAll();
                     await loadDevices();
                 } else {
-                    showToast('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
+                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
                     document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
                         btn.disabled = false;
                         btn.textContent = '🗑️ Remove';
                     });
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                showMessage('❌ Error: ' + error.message, 'error');
                 document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
                     btn.disabled = false;
                     btn.textContent = '🗑️ Remove';
@@ -1169,12 +1180,12 @@
             const limit = parseInt(document.getElementById('hwid-limit-input').value);
             
             if (!code) {
-                showToast('❌ Please select a code first', 'error');
+                showMessage('❌ Please select a code first', 'error');
                 return;
             }
             
             if (!limit || limit < 1 || limit > 10) {
-                showToast('❌ Limit must be between 1 and 10', 'error');
+                showMessage('❌ Limit must be between 1 and 10', 'error');
                 return;
             }
             
@@ -1187,15 +1198,14 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showToast(`✅ ${result.message}`, 'success');
-                    setTimeout(() => hideMessage(), 2000);
+                    showMessage(`✅ ${result.message}`, 'success');
                     loadHwidDetails();
                     await loadAll();
                 } else {
-                    showToast('❌ ' + (result.error || 'Failed to update limit'), 'error');
+                    showMessage('❌ ' + (result.error || 'Failed to update limit'), 'error');
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                showMessage('❌ Error: ' + error.message, 'error');
             }
         }
 
@@ -1258,9 +1268,6 @@
                 const hwidShort = log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A';
                 const isNew = log.status === 'new';
                 
-                // ============================================
-                // EXTRACT HARDWARE SPECS FROM DETAILS
-                // ============================================
                 let cpu = 'N/A';
                 let gpu = 'N/A';
                 let ram = 'N/A';
@@ -1288,7 +1295,6 @@
                     profile = log.browser_profile;
                 }
                 
-                // Hardware specs HTML
                 const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A' || device !== 'N/A';
                 const hardwareHtml = hasSpecs ? `
                     <div style="font-size:10px;line-height:1.6;">
@@ -1335,7 +1341,6 @@
             });
         }
 
-        // Auto-refresh HWID logs every 30 seconds
         setInterval(() => {
             const tab = document.getElementById('tab-hwidlogs');
             if (tab && tab.classList.contains('active')) {
@@ -1366,7 +1371,7 @@
             const hwidLimit = parseInt(document.getElementById(`edit-hwid-limit-${code}`).value) || 1;
             
             try {
-                showToast('💾 Saving changes...', 'info');
+                showMessage('💾 Saving...', 'loading');
                 
                 const currentCode = allCodes.find(c => c.code === code);
                 
@@ -1378,7 +1383,7 @@
                     });
                     const result = await response.json();
                     if (!result.success) {
-                        showToast('❌ ' + (result.error || 'Failed to update username'), 'error');
+                        showMessage('❌ ' + (result.error || 'Failed to update username'), 'error');
                         return;
                     }
                 }
@@ -1391,7 +1396,7 @@
                     });
                     const result = await response.json();
                     if (!result.success) {
-                        showToast('❌ ' + (result.error || 'Failed to update access'), 'error');
+                        showMessage('❌ ' + (result.error || 'Failed to update access'), 'error');
                         return;
                     }
                 }
@@ -1404,7 +1409,7 @@
                     });
                     const result = await response.json();
                     if (!result.success) {
-                        showToast('❌ ' + (result.error || 'Failed to update subscription'), 'error');
+                        showMessage('❌ ' + (result.error || 'Failed to update subscription'), 'error');
                         return;
                     }
                 }
@@ -1417,17 +1422,17 @@
                     });
                     const result = await response.json();
                     if (!result.success) {
-                        showToast('❌ ' + (result.error || 'Failed to update HWID limit'), 'error');
+                        showMessage('❌ ' + (result.error || 'Failed to update HWID limit'), 'error');
                         return;
                     }
                 }
                 
                 editingCode = null;
-                showToast('✅ Changes saved successfully!', 'success');
+                showMessage('✅ Changes saved!', 'success');
                 await loadAll();
                 
             } catch (error) {
-                showToast('❌ Error saving: ' + error.message, 'error');
+                showMessage('❌ Error saving: ' + error.message, 'error');
             }
         }
 
@@ -1439,8 +1444,8 @@
             if (!codeInfo) return;
             
             const confirmMsg = codeInfo.is_active ? 
-                `⚠️ Deactivate code ${code}? This will revoke all profiles.` :
-                `🔓 Reactivate code ${code}? This will restore access.`;
+                `⚠️ Deactivate code ${code}?` :
+                `🔓 Reactivate code ${code}?`;
             
             if (!confirm(confirmMsg)) return;
             
@@ -1457,13 +1462,13 @@
                 }
                 const result = await response.json();
                 if (result.success) {
-                    showToast(`✅ Code ${code} ${codeInfo.is_active ? 'deactivated' : 'reactivated'}!`, 'success');
+                    showMessage(`✅ Code ${code} ${codeInfo.is_active ? 'deactivated' : 'reactivated'}!`, 'success');
                     await loadAll();
                 } else {
-                    showToast('❌ ' + (result.error || 'Failed to toggle status'), 'error');
+                    showMessage('❌ ' + (result.error || 'Failed to toggle status'), 'error');
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                showMessage('❌ Error: ' + error.message, 'error');
             }
         }
 
@@ -1471,19 +1476,19 @@
         // DELETE CODE
         // ============================================
         async function deleteCode(code) {
-            if (!confirm(`⚠️ Permanently delete code ${code}? This cannot be undone! All profiles and HWIDs will be removed.`)) return;
+            if (!confirm(`⚠️ Permanently delete code ${code}?`)) return;
             
             try {
                 const response = await fetch(`/api/code/${code}`, { method: 'DELETE' });
                 const result = await response.json();
                 if (result.success) {
-                    showToast(`✅ ${result.message}`, 'success');
+                    showMessage(`✅ ${result.message}`, 'success');
                     await loadAll();
                 } else {
-                    showToast('❌ ' + (result.error || 'Failed to delete code'), 'error');
+                    showMessage('❌ ' + (result.error || 'Failed to delete code'), 'error');
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                showMessage('❌ Error: ' + error.message, 'error');
             }
         }
 
@@ -1498,11 +1503,11 @@
             const subscriptionType = document.getElementById('gen-subscription').value;
             
             if (!username) {
-                showToast('❌ Username is required!', 'error');
+                showMessage('❌ Username is required!', 'error');
                 return;
             }
             
-            showToast('⏳ Generating code...', 'info');
+            showMessage('⏳ Generating...', 'loading');
             
             try {
                 const response = await fetch('/api/generate-code', {
@@ -1514,21 +1519,14 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showToast(`
-                        ✅ Code generated successfully!<br>
-                        <strong>Code:</strong> ${result.code}<br>
-                        <strong>Username:</strong> ${result.username}<br>
-                        <strong>Access:</strong> ${result.access}<br>
-                        <strong>Subscription:</strong> ${result.subscription}
-                    `, 'success');
-                    
+                    showMessage(`✅ Code ${result.code} generated for ${result.username}`, 'success');
                     document.getElementById('gen-username').value = '';
                     await loadAll();
                 } else {
-                    showToast('❌ ' + (result.error || 'Unknown error'), 'error');
+                    showMessage('❌ ' + (result.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
-                showToast('❌ Error: ' + error.message, 'error');
+                showMessage('❌ Error: ' + error.message, 'error');
             }
         });
 
