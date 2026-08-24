@@ -290,7 +290,6 @@
         .wallpaper-cell .wallpaper-info-text .size { color: #666; }
         .wallpaper-cell .wallpaper-info-text .res { color: #555; }
         
-        /* Search box */
         .search-box {
             display: flex;
             gap: 10px;
@@ -640,7 +639,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID LOGS - WITH WALLPAPER IMAGE -->
+        <!-- TAB: HWID LOGS - NO SEARCH, WITH CLICKABLE WALLPAPER -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwidlogs">
             <div class="card">
@@ -652,12 +651,6 @@
                     </div>
                 </div>
                 <div class="card-body">
-                    <div class="form-row" style="margin-bottom:10px;">
-                        <div class="form-group" style="flex:1;">
-                            <label>Search</label>
-                            <input type="text" id="hwid-log-search" placeholder="Search Username or Code..." onkeyup="searchHwidLogs()">
-                        </div>
-                    </div>
                     <div class="scroll-table">
                         <table>
                             <thead>
@@ -769,7 +762,7 @@
         });
 
         // ============================================
-        // WALLPAPER HTML HELPERS
+        // WALLPAPER HTML HELPERS - WITH CLICKABLE IMAGE
         // ============================================
         function getWallpaperHtml(wallpaper, showPreview = true, small = false) {
             if (!wallpaper) {
@@ -1781,7 +1774,7 @@
         }
 
         // ============================================
-        // HWID LOGS - WITH WALLPAPER IMAGE FOR UNREGISTERED
+        // HWID LOGS - NO SEARCH, WITH CLICKABLE WALLPAPER
         // ============================================
         async function loadHwidLogs() {
             const tbody = document.getElementById('hwid-logs-body');
@@ -1822,7 +1815,7 @@
         }
 
         // ============================================
-        // RENDER HWID LOGS - WITH WALLPAPER IMAGE
+        // RENDER HWID LOGS - WITH CLICKABLE WALLPAPER IMAGE
         // ============================================
         function renderHwidLogs(logs) {
             const tbody = document.getElementById('hwid-logs-body');
@@ -1895,7 +1888,7 @@
                 }
                 
                 // ============================================
-                // WALLPAPER DISPLAY - SHOW IMAGE FOR UNREGISTERED
+                // WALLPAPER DISPLAY - WITH CLICKABLE IMAGE
                 // ============================================
                 let wallpaperHtml = '';
                 const shouldShowWallpaper = !hasCode || log.code === null || log.code === 'null' || log.code === '';
@@ -1908,15 +1901,13 @@
                         height: wallpaperHeight,
                         base64: wallpaperBase64
                     };
-                    wallpaperHtml = getWallpaperHtml(wallpaper, true, true); // small preview with image
+                    wallpaperHtml = getWallpaperHtml(wallpaper, true, true); // WITH IMAGE PREVIEW
                 } else if (shouldShowWallpaper && wallpaperName !== 'N/A') {
-                    // No base64 but has name - show text
                     wallpaperHtml = `<span style="color:#FF9800;">🖼️ ${wallpaperName}</span>`;
                     if (wallpaperSize > 0) {
                         wallpaperHtml += ` <span style="color:#888;font-size:9px;">(${wallpaperSize.toFixed(1)} KB)</span>`;
                     }
                 } else if (!shouldShowWallpaper) {
-                    // Registered - show simple text
                     wallpaperHtml = `<span style="color:#666;font-size:10px;">✅ Registered</span>`;
                 } else {
                     wallpaperHtml = '<span style="color:#666;font-size:10px;">No wallpaper</span>';
@@ -1965,23 +1956,6 @@
                     </tr>
                 `;
             }).join('');
-        }
-
-        function searchHwidLogs() {
-            const search = document.getElementById('hwid-log-search').value.toLowerCase().trim();
-            const rows = document.querySelectorAll('#hwid-logs-body tr');
-            
-            rows.forEach(row => {
-                if (row.cells && row.cells.length > 0) {
-                    const nameCell = row.cells[1];
-                    const codeCell = row.cells[2];
-                    if (nameCell) {
-                        const text = nameCell.textContent.toLowerCase() || '';
-                        const codeText = codeCell ? codeCell.textContent.toLowerCase() || '' : '';
-                        row.style.display = (text.includes(search) || codeText.includes(search)) ? '' : 'none';
-                    }
-                }
-            });
         }
 
         // ============================================
