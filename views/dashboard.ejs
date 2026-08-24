@@ -56,6 +56,9 @@
         .btn-refresh:hover { background: #1976D2; }
         .btn-copy-one { background: linear-gradient(135deg, #00BCD4, #FF9800); color: #fff; border: none; border-radius: 4px; padding: 4px 12px; font-size: 11px; cursor: pointer; transition: all 0.2s; }
         .btn-copy-one:hover { transform: scale(1.05); opacity: 0.9; }
+        .btn-remove-hwid-code { background: #f44336; color: #fff; border: none; border-radius: 4px; padding: 4px 10px; font-size: 10px; cursor: pointer; transition: all 0.2s; }
+        .btn-remove-hwid-code:hover { background: #d32f2f; transform: scale(1.05); }
+        .btn-remove-hwid-code:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
         
         .scroll-table { overflow-x: auto; max-height: 500px; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -324,6 +327,15 @@
         }
         .search-box .clear-search:hover { color: #f44336; }
         
+        .hwid-status-badge {
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            display: inline-block;
+        }
+        .hwid-status-badge.has-hwid { background: rgba(76,175,80,0.2); color: #4CAF50; }
+        .hwid-status-badge.no-hwid { background: rgba(244,67,54,0.2); color: #f44336; }
+        
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
             .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -380,7 +392,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: ALL CODES - WITH USERNAME SEARCH -->
+        <!-- TAB: ALL CODES - WITH REMOVE HWID BUTTON -->
         <!-- ============================================ -->
         <div class="tab-content active" id="tab-codes">
             <div class="card">
@@ -440,7 +452,7 @@
                                 <th style="width:80px;">Profiles</th>
                                 <th style="width:100px;">HWID</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
-                                <th style="width:180px;">Actions</th>
+                                <th style="width:220px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="codes-body">
@@ -639,7 +651,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID LOGS - NO SEARCH, WITH CLICKABLE WALLPAPER -->
+        <!-- TAB: HWID LOGS - WITH WALLPAPER IMAGE -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwidlogs">
             <div class="card">
@@ -762,7 +774,7 @@
         });
 
         // ============================================
-        // WALLPAPER HTML HELPERS - WITH CLICKABLE IMAGE
+        // WALLPAPER HTML HELPERS
         // ============================================
         function getWallpaperHtml(wallpaper, showPreview = true, small = false) {
             if (!wallpaper) {
@@ -835,6 +847,39 @@
                 document.body.removeChild(textArea);
                 showMessage(`✅ Copied!\nCode: ${code}\nUsername: ${username || 'N/A'}`, 'success');
             });
+        }
+
+        // ============================================
+        // REMOVE HWID FROM CODE (All Codes Tab)
+        // ============================================
+        async function removeHwidFromCode(code, hwid) {
+            if (!hwid) {
+                showMessage('❌ No HWID assigned to this code', 'error');
+                return;
+            }
+            
+            if (!confirm(`⚠️ Remove HWID ${hwid.substring(0, 16)}... from code ${code}?\n\nThis will also delete all associated profiles.`)) {
+                return;
+            }
+            
+            try {
+                showMessage('⏳ Removing HWID...', 'loading');
+                
+                const response = await fetch(`/api/code/${code}/hwid/${hwid}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
         }
 
         // ============================================
@@ -1125,7 +1170,7 @@
         }
 
         // ============================================
-        // RENDER ALL CODES - WITH FILTER
+        // RENDER ALL CODES - WITH REMOVE HWID BUTTON
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
@@ -1165,6 +1210,10 @@
                 
                 const profileCount = allDevices.filter(d => d.code === c.code).length;
                 
+                // Get the actual HWID for this code
+                const codeHwid = c.hwid || null;
+                const hasHwidAssigned = codeHwid && codeHwid.length === 64;
+                
                 if (isEditing) {
                     return `
                         <tr class="editing">
@@ -1200,6 +1249,12 @@
                     `;
                 }
                 
+                // HWID Status Badge
+                let hwidStatusHtml = `<span class="hwid-status-badge no-hwid">❌ No HWID</span>`;
+                if (hasHwidAssigned) {
+                    hwidStatusHtml = `<span class="hwid-status-badge has-hwid">✅ ${codeHwid.substring(0, 12)}...</span>`;
+                }
+                
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
@@ -1208,7 +1263,7 @@
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td><strong style="color:#4CAF50;">${profileCount}</strong></td>
-                        <td><span class="badge-hwid-status ${hwidClass}">${hwidDisplay}</span></td>
+                        <td>${hwidStatusHtml}</td>
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
@@ -1217,6 +1272,7 @@
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
                                 </button>
+                                ${hasHwidAssigned ? `<button onclick="removeHwidFromCode('${c.code}', '${codeHwid}')" class="btn-remove-hwid-code" title="Remove HWID from this code">🗑️ HWID</button>` : ''}
                                 <button onclick="deleteCode('${c.code}')" class="btn-small btn-danger">🗑️</button>
                             </div>
                         </td>
@@ -1256,6 +1312,8 @@
                     '<span class="text-muted">—</span>';
                 
                 const profileCount = allDevices.filter(d => d.code === c.code).length;
+                const codeHwid = c.hwid || null;
+                const hasHwidAssigned = codeHwid && codeHwid.length === 64;
                 
                 return `
                     <tr>
@@ -1273,6 +1331,7 @@
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
                                 </button>
+                                ${hasHwidAssigned ? `<button onclick="removeHwidFromCode('${c.code}', '${codeHwid}')" class="btn-remove-hwid-code" title="Remove HWID">🗑️ HWID</button>` : ''}
                             </div>
                         </td>
                     </tr>
@@ -1311,6 +1370,8 @@
                     '<span class="text-muted">—</span>';
                 
                 const profileCount = allDevices.filter(d => d.code === c.code).length;
+                const codeHwid = c.hwid || null;
+                const hasHwidAssigned = codeHwid && codeHwid.length === 64;
                 
                 return `
                     <tr>
@@ -1328,6 +1389,7 @@
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
                                 </button>
+                                ${hasHwidAssigned ? `<button onclick="removeHwidFromCode('${c.code}', '${codeHwid}')" class="btn-remove-hwid-code" title="Remove HWID">🗑️ HWID</button>` : ''}
                             </div>
                         </td>
                     </tr>
@@ -1774,7 +1836,7 @@
         }
 
         // ============================================
-        // HWID LOGS - NO SEARCH, WITH CLICKABLE WALLPAPER
+        // HWID LOGS - WITH WALLPAPER IMAGE
         // ============================================
         async function loadHwidLogs() {
             const tbody = document.getElementById('hwid-logs-body');
