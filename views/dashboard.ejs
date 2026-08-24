@@ -141,7 +141,6 @@
         .badge-new-count { background: #f44336; color: #fff; padding: 4px 12px; border-radius: 12px; font-size: 12px; }
         .badge-new-count.zero { background: #4CAF50; }
         
-        /* WALLPAPER STYLES */
         .wallpaper-preview { 
             width: 120px; 
             height: 80px; 
@@ -350,7 +349,7 @@
                 <div class="card-header">
                     <h3>📋 All Codes</h3>
                     <div>
-                        <span class="text-muted">Click <span style="color:#FF9800;">✏️ Edit</span> to modify any field</span>
+                        <span class="text-muted" id="codes-count">0 profiles total</span>
                     </div>
                 </div>
                 <div class="scroll-table">
@@ -362,8 +361,8 @@
                                 <th>Access</th>
                                 <th>Subscription</th>
                                 <th>Expires</th>
-                                <th>Profiles</th>
-                                <th>HWID</th>
+                                <th style="width:80px;">Profiles</th>
+                                <th style="width:100px;">HWID</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
                                 <th style="width:180px;">Actions</th>
                             </tr>
@@ -493,7 +492,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID MANAGER - WITH WALLPAPER IMAGE -->
+        <!-- TAB: HWID MANAGER -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwid">
             <div class="card">
@@ -564,7 +563,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID LOGS - SIMPLIFIED (No Wallpaper) -->
+        <!-- TAB: HWID LOGS -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwidlogs">
             <div class="card">
@@ -662,15 +661,18 @@
             const imageSrc = base64Image.startsWith('data:image') ? base64Image : 'data:image/jpeg;base64,' + base64Image;
             img.src = imageSrc;
             
+            // FIX: Handle size properly - convert to number first
+            const sizeNum = parseFloat(size) || 0;
+            const resolutionText = (resolution && resolution !== '0x0') ? resolution : '';
+            
             info.innerHTML = `
                 <strong>${fileName}</strong> 
-                ${size > 0 ? `📦 ${size.toFixed(1)} KB` : ''} 
-                ${resolution && resolution !== '0x0' ? `📐 ${resolution}` : ''}
+                ${sizeNum > 0 ? `📦 ${sizeNum.toFixed(1)} KB` : ''} 
+                ${resolutionText ? `📐 ${resolutionText}` : ''}
             `;
             
             modal.classList.add('active');
             
-            // Close modal on background click
             modal.onclick = function(e) {
                 if (e.target === modal) {
                     closeWallpaperModal();
@@ -690,7 +692,7 @@
         });
 
         // ============================================
-        // WALLPAPER HTML HELPERS
+        // WALLPAPER HTML HELPERS - FIXED
         // ============================================
         function getWallpaperHtml(wallpaper, showPreview = true) {
             if (!wallpaper) {
@@ -699,9 +701,10 @@
             
             let html = '';
             const name = wallpaper.name || wallpaper.file_name || 'Unknown';
-            const size = wallpaper.size_kb || 0;
-            const width = wallpaper.width || 0;
-            const height = wallpaper.height || 0;
+            // FIX: Convert size to number
+            const size = parseFloat(wallpaper.size_kb) || 0;
+            const width = parseInt(wallpaper.width) || 0;
+            const height = parseInt(wallpaper.height) || 0;
             const base64 = wallpaper.base64 || null;
             const resolution = (width > 0 && height > 0) ? `${width}x${height}` : '';
             
@@ -736,6 +739,8 @@
                 }
                 html += `</div>`;
                 html += `</div>`;
+            } else {
+                html = `<span style="color:#666;font-size:11px;">${name}</span>`;
             }
             
             return html;
@@ -871,7 +876,9 @@
                 populateHwidCodeDropdown();
                 renderCurrentTab();
                 
+                // Update device count
                 document.getElementById('device-total-count').textContent = allDevices.length;
+                updateTotalProfileCount();
                 
                 isLoading = false;
                 
@@ -892,6 +899,17 @@
                 `;
                 
                 showMessage('❌ Error loading data: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // UPDATE TOTAL PROFILE COUNT
+        // ============================================
+        function updateTotalProfileCount() {
+            const totalProfiles = allDevices.length;
+            const countEl = document.getElementById('codes-count');
+            if (countEl) {
+                countEl.textContent = `${totalProfiles} profiles total`;
             }
         }
 
@@ -934,6 +952,7 @@
                 const data = await response.json();
                 allDevices = data.devices || [];
                 document.getElementById('device-total-count').textContent = allDevices.length;
+                updateTotalProfileCount();
                 filterDevices();
             } catch (error) {
                 console.error('Load profiles error:', error);
@@ -1004,8 +1023,10 @@
                 const result = await response.json();
                 if (result.success) {
                     showMessage('✅ Profile removed!', 'success');
-                    await loadDevices();
+                    // Reload all data to update counts
                     await loadAll();
+                    // Also reload devices for the profiles tab
+                    await loadDevices();
                 } else {
                     showMessage('❌ ' + (result.error || 'Failed to remove'), 'error');
                 }
@@ -1015,7 +1036,7 @@
         }
 
         // ============================================
-        // RENDER ALL CODES
+        // RENDER ALL CODES - WITH UPDATED PROFILES COUNT
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
@@ -1028,6 +1049,9 @@
                 tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No codes found. Generate one above!</td></tr>';
                 return;
             }
+            
+            // Update total profile count
+            updateTotalProfileCount();
             
             tbody.innerHTML = allCodes.map(c => {
                 const isEditing = editingCode === c.code;
@@ -1049,6 +1073,9 @@
                     `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
                     '<span class="text-muted">—</span>';
                 
+                // Get actual profile count for this code
+                const profileCount = allDevices.filter(d => d.code === c.code).length;
+                
                 if (isEditing) {
                     return `
                         <tr class="editing">
@@ -1069,7 +1096,7 @@
                                 </select>
                             </td>
                             <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : 'Never'}</td>
-                            <td>${c.used_count || 0}</td>
+                            <td><strong>${profileCount}</strong></td>
                             <td>
                                 <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;">
                             </td>
@@ -1091,7 +1118,7 @@
                         <td><span class="badge ${accessClass}">${accessLabel}</span></td>
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
-                        <td>${c.used_count || 0}</td>
+                        <td><strong style="color:#4CAF50;">${profileCount}</strong></td>
                         <td><span class="badge-hwid-status ${hwidClass}">${hwidDisplay}</span></td>
                         <td>${deactivationDisplay}</td>
                         <td>
@@ -1139,13 +1166,15 @@
                     `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
                     '<span class="text-muted">—</span>';
                 
+                const profileCount = allDevices.filter(d => d.code === c.code).length;
+                
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
                         <td>${username || '<span class="text-muted">N/A</span>'}</td>
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
-                        <td>${c.used_count || 0}</td>
+                        <td><strong style="color:#4CAF50;">${profileCount}</strong></td>
                         <td><span class="badge-hwid-status ${hwidClass}">${hwidDisplay}</span></td>
                         <td>${deactivationDisplay}</td>
                         <td>
@@ -1192,13 +1221,15 @@
                     `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
                     '<span class="text-muted">—</span>';
                 
+                const profileCount = allDevices.filter(d => d.code === c.code).length;
+                
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
                         <td>${username || '<span class="text-muted">N/A</span>'}</td>
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
-                        <td>${c.used_count || 0}</td>
+                        <td><strong style="color:#4CAF50;">${profileCount}</strong></td>
                         <td><span class="badge-hwid-status ${hwidClass}">${hwidDisplay}</span></td>
                         <td>${deactivationDisplay}</td>
                         <td>
@@ -1481,7 +1512,7 @@
         }
 
         // ============================================
-        // RENDER HWID LIST - WITH WALLPAPER IMAGE
+        // RENDER HWID LIST - WITH WALLPAPER IMAGE (FIXED)
         // ============================================
         function renderHwidList(hwidData, devices) {
             const tbody = document.getElementById('hwid-list-body');
@@ -1509,17 +1540,17 @@
                 const hwidFull = h.hwid || '';
                 const hwidMasked = h.hwid_masked || (hwidFull ? hwidFull.substring(0, 16) + '...' : 'N/A');
                 
-                // 👇 WALLPAPER WITH ACTUAL IMAGE
+                // FIX: Wallpaper with proper number handling
                 let wallpaperHtml = '';
                 if (device?.wallpaper_name || device?.wallpaper_base64) {
                     const wallpaper = {
                         name: device.wallpaper_name || 'Unknown',
-                        size_kb: device.wallpaper_size_kb || 0,
+                        size_kb: device.wallpaper_size_kb || 0,  // Will be parsed in getWallpaperHtml
                         width: device.wallpaper_width || 0,
                         height: device.wallpaper_height || 0,
-                        base64: device.wallpaper_base64 || null  // 👈 ACTUAL IMAGE
+                        base64: device.wallpaper_base64 || null
                     };
-                    wallpaperHtml = getWallpaperHtml(wallpaper, true);  // 👈 showPreview = true
+                    wallpaperHtml = getWallpaperHtml(wallpaper, true);
                 } else {
                     wallpaperHtml = '<span style="color:#666;font-size:10px;">No wallpaper</span>';
                 }
@@ -1655,7 +1686,7 @@
         }
 
         // ============================================
-        // HWID LOGS - SIMPLIFIED (No Wallpaper)
+        // HWID LOGS
         // ============================================
         async function loadHwidLogs() {
             const tbody = document.getElementById('hwid-logs-body');
@@ -1696,7 +1727,7 @@
         }
 
         // ============================================
-        // RENDER HWID LOGS - SIMPLIFIED
+        // RENDER HWID LOGS
         // ============================================
         function renderHwidLogs(logs) {
             const tbody = document.getElementById('hwid-logs-body');
@@ -1722,7 +1753,6 @@
                 const displayName = (log.code && username !== 'N/A') ? username : (log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A');
                 const isUsername = log.code && username !== 'N/A';
                 
-                // Extract hardware specs
                 let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A';
                 
                 if (log.details) {
@@ -1802,11 +1832,12 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadAll();
             
+            // Auto-refresh every 30 seconds
             setInterval(function() {
                 if (!isLoading) {
                     loadAll();
                 }
-            }, 60000);
+            }, 30000);
         });
     </script>
 </body>
