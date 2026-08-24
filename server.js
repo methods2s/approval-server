@@ -1,4 +1,4 @@
-// server.js - Complete with all fixes
+// server.js - Complete with all fixes including HWID Logs
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -239,7 +239,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - WITH HARDWARE SPECS SAVE
+// REGISTER DEVICE - WITH HWID LOGGING
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -289,6 +289,42 @@ app.post('/api/register', async (req, res) => {
             });
         }
 
+        // ============================================
+        // LOG HWID ACTIVITY - Check if HWID is new
+        // ============================================
+        const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
+        const existingHwid = await db.get(
+            'SELECT code FROM code_hwids WHERE hwid = $1',
+            [hwid]
+        );
+
+        if (!existingHwid) {
+            console.log(`🆕 NEW HWID DETECTED: ${hwid.substring(0, 16)}...`);
+            await db.logHwidActivity(
+                hwid,
+                code,
+                deviceId,
+                'register_attempt',
+                'new',
+                `New HWID attempting to register with code: ${code}`,
+                ip,
+                userAgent || 'unknown',
+                browser_profile || 'Default'
+            );
+        } else {
+            await db.logHwidActivity(
+                hwid,
+                code,
+                deviceId,
+                'register_attempt',
+                'existing',
+                `Existing HWID attempting to register with code: ${code}`,
+                ip,
+                userAgent || 'unknown',
+                browser_profile || 'Default'
+            );
+        }
+
         // Check if HWID is authorized
         const isAuthorized = await db.isHwidAuthorized(code.toUpperCase(), hwid);
 
@@ -301,6 +337,18 @@ app.post('/api/register', async (req, res) => {
                 if (assignResult.auto_deactivate) {
                     console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
                     const deactivateResult = await db.autoDeactivateCode(code.toUpperCase(), 'hwid_limit_exceeded_auto_assign');
+                    
+                    await db.logHwidActivity(
+                        hwid,
+                        code,
+                        deviceId,
+                        'auto_deactivated',
+                        'new',
+                        `HWID limit exceeded - Code auto-deactivated. Limit: ${assignResult.max_limit}, Current: ${assignResult.current_count}`,
+                        ip,
+                        userAgent || 'unknown',
+                        browser_profile || 'Default'
+                    );
                     
                     await db.logUsage(
                         deviceId, 
@@ -326,6 +374,18 @@ app.post('/api/register', async (req, res) => {
                 );
                 
                 if (otherCode) {
+                    await db.logHwidActivity(
+                        hwid,
+                        code,
+                        deviceId,
+                        'register_blocked',
+                        'existing',
+                        `HWID already registered to code: ${otherCode.code}`,
+                        ip,
+                        userAgent || 'unknown',
+                        browser_profile || 'Default'
+                    );
+                    
                     await db.logUsage(
                         deviceId, 
                         code, 
@@ -350,6 +410,18 @@ app.post('/api/register', async (req, res) => {
             
             console.log(`✅ HWID auto-assigned to code ${code}`);
             
+            await db.logHwidActivity(
+                hwid,
+                code,
+                deviceId,
+                'auto_assigned',
+                'registered',
+                `HWID auto-assigned to code: ${code}`,
+                ip,
+                userAgent || 'unknown',
+                browser_profile || 'Default'
+            );
+            
             await db.logUsage(
                 deviceId, 
                 code, 
@@ -359,8 +431,6 @@ app.post('/api/register', async (req, res) => {
         }
 
         // Proceed with registration
-        const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
-
         // Parse browser info
         let parsedBrowserInfo = {};
         try {
@@ -479,6 +549,19 @@ app.post('/api/register', async (req, res) => {
         await db.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code.toUpperCase()]);
         await db.logUsage(deviceId, code, 'register', 
             `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName} | RAM: ${ramTotal}GB | Storage: ${storageTotal}GB`
+        );
+        
+        // Log successful registration
+        await db.logHwidActivity(
+            hwid,
+            code,
+            deviceId,
+            'register_success',
+            'registered',
+            `Successfully registered with code: ${code} | Profile: ${profileName} | CPU: ${cpuName}`,
+            ip,
+            userAgent || 'unknown',
+            profileName
         );
         
         await db.refreshCache();
@@ -1274,6 +1357,156 @@ app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) =>
     } catch (error) {
         console.error('Remove HWID error:', error);
         res.status(500).json({ error: 'Failed to remove HWID' });
+    }
+});
+
+// ============================================
+// HWID LOGS ENDPOINTS
+// ============================================
+
+// Get all HWID logs
+app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 200;
+        const status = req.query.status || null;
+        const logs = await db.getHwidLogs(limit, status);
+        const newCount = await db.getNewHwidCount();
+        
+        res.json({
+            success: true,
+            logs: logs,
+            new_count: newCount,
+            total: logs.length
+        });
+    } catch (error) {
+        console.error('Get HWID logs error:', error);
+        res.status(500).json({ error: 'Failed to get HWID logs' });
+    }
+});
+
+// Get HWID logs by HWID
+app.get('/api/hwid-logs/:hwid', isApiAuthenticated, async (req, res) => {
+    try {
+        const { hwid } = req.params;
+        const limit = parseInt(req.query.limit) || 50;
+        const logs = await db.getHwidLogsByHwid(hwid, limit);
+        
+        res.json({
+            success: true,
+            hwid: hwid,
+            logs: logs,
+            total: logs.length
+        });
+    } catch (error) {
+        console.error('Get HWID logs by HWID error:', error);
+        res.status(500).json({ error: 'Failed to get HWID logs' });
+    }
+});
+
+// Mark HWID as seen
+app.post('/api/hwid-logs/mark-seen', isApiAuthenticated, async (req, res) => {
+    try {
+        const { hwid } = req.body;
+        if (!hwid) {
+            return res.status(400).json({ error: 'HWID is required' });
+        }
+        
+        const success = await db.markHwidAsSeen(hwid);
+        res.json({
+            success: success,
+            message: success ? 'HWID marked as seen' : 'Failed to mark HWID as seen'
+        });
+    } catch (error) {
+        console.error('Mark HWID as seen error:', error);
+        res.status(500).json({ error: 'Failed to mark HWID as seen' });
+    }
+});
+
+// Get new HWID count
+app.get('/api/hwid-logs/new-count', isApiAuthenticated, async (req, res) => {
+    try {
+        const count = await db.getNewHwidCount();
+        res.json({
+            success: true,
+            new_count: count
+        });
+    } catch (error) {
+        console.error('Get new HWID count error:', error);
+        res.status(500).json({ error: 'Failed to get new HWID count' });
+    }
+});
+
+// ============================================
+// HWID LOG - Receive from extension
+// ============================================
+
+app.post('/api/hwid-log', async (req, res) => {
+    const { hwid, code, device_id, action, status, details, browser_profile, user_agent, detected_hwids } = req.body;
+    
+    if (!hwid) {
+        return res.status(400).json({ error: 'HWID is required' });
+    }
+    
+    try {
+        const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
+        
+        // Check if this HWID already exists in code_hwids
+        const existing = await db.get(
+            'SELECT code FROM code_hwids WHERE hwid = $1',
+            [hwid]
+        );
+        
+        // Determine status
+        let logStatus = status || 'new';
+        if (existing && logStatus === 'new') {
+            logStatus = 'existing';
+        }
+        
+        // Log to database
+        await db.logHwidActivity(
+            hwid,
+            code || null,
+            device_id || 'unknown',
+            action || 'hwid_activity',
+            logStatus,
+            details || 'HWID activity logged',
+            ip,
+            user_agent || 'unknown',
+            browser_profile || 'Default'
+        );
+        
+        // If this is a new HWID and there are multiple detected
+        if (detected_hwids && detected_hwids.length > 1) {
+            // Log each additional HWID
+            for (const extraHwid of detected_hwids) {
+                if (extraHwid !== hwid) {
+                    await db.logHwidActivity(
+                        extraHwid,
+                        code || null,
+                        device_id || 'unknown',
+                        'detected_with_other',
+                        'new',
+                        `Detected alongside HWID: ${hwid.substring(0, 16)}...`,
+                        ip,
+                        user_agent || 'unknown',
+                        browser_profile || 'Default'
+                    );
+                }
+            }
+        }
+        
+        console.log(`✅ HWID logged: ${hwid.substring(0, 16)}... (${logStatus}) - ${action}`);
+        
+        res.json({
+            success: true,
+            message: 'HWID logged successfully',
+            status: logStatus,
+            is_new: logStatus === 'new'
+        });
+        
+    } catch (error) {
+        console.error('❌ HWID log error:', error);
+        res.status(500).json({ error: 'Failed to log HWID' });
     }
 });
 
