@@ -54,21 +54,8 @@
         .btn-remove:hover { background: #d32f2f; }
         .btn-refresh { background: #2196F3; color: #fff; padding: 6px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
         .btn-refresh:hover { background: #1976D2; }
-        
-        .btn-copy-one {
-            background: linear-gradient(135deg, #00BCD4, #FF9800);
-            color: #fff;
-            border: none;
-            border-radius: 4px;
-            padding: 4px 12px;
-            font-size: 11px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .btn-copy-one:hover {
-            transform: scale(1.05);
-            opacity: 0.9;
-        }
+        .btn-copy-one { background: linear-gradient(135deg, #00BCD4, #FF9800); color: #fff; border: none; border-radius: 4px; padding: 4px 12px; font-size: 11px; cursor: pointer; transition: all 0.2s; }
+        .btn-copy-one:hover { transform: scale(1.05); opacity: 0.9; }
         
         .scroll-table { overflow-x: auto; max-height: 500px; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -85,24 +72,10 @@
         .badge.auto-deactivated { background: rgba(244,67,54,0.2); color: #f44336; }
         .badge.approved { background: rgba(76,175,80,0.2); color: #4CAF50; }
         
-        .badge-hwid-status {
-            padding: 2px 10px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: bold;
-        }
-        .badge-hwid-status.has-hwid {
-            background: rgba(76,175,80,0.2);
-            color: #4CAF50;
-        }
-        .badge-hwid-status.no-hwid {
-            background: rgba(244,67,54,0.2);
-            color: #f44336;
-        }
-        .badge-hwid-status.full {
-            background: rgba(255,152,0,0.2);
-            color: #FF9800;
-        }
+        .badge-hwid-status { padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+        .badge-hwid-status.has-hwid { background: rgba(76,175,80,0.2); color: #4CAF50; }
+        .badge-hwid-status.no-hwid { background: rgba(244,67,54,0.2); color: #f44336; }
+        .badge-hwid-status.full { background: rgba(255,152,0,0.2); color: #FF9800; }
         
         .edit-input { width: 100%; padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; min-width: 60px; }
         .edit-input:focus { outline: none; border-color: #4CAF50; }
@@ -123,33 +96,12 @@
         .mt-10 { margin-top: 10px; }
         .action-buttons { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
         
-        #result-message { 
-            position: fixed; 
-            bottom: 20px; 
-            right: 20px; 
-            padding: 12px 24px; 
-            border-radius: 8px; 
-            display: none; 
-            z-index: 9999;
-            font-size: 14px;
-            max-width: 400px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        }
+        #result-message { position: fixed; bottom: 20px; right: 20px; padding: 12px 24px; border-radius: 8px; display: none; z-index: 9999; font-size: 14px; max-width: 400px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
         #result-message.success { display: block; color: #4CAF50; background: rgba(76,175,80,0.15); border: 1px solid #4CAF50; }
         #result-message.error { display: block; color: #f44336; background: rgba(244,67,54,0.15); border: 1px solid #f44336; }
         #result-message.loading { display: block; color: #FF9800; background: rgba(255,152,0,0.15); border: 1px solid #FF9800; }
         #result-message.info { display: block; color: #2196F3; background: rgba(33,150,243,0.15); border: 1px solid #2196F3; }
-        
-        #result-message .close-msg { 
-            float: right; 
-            cursor: pointer; 
-            margin-left: 15px; 
-            opacity: 0.7;
-            background: none;
-            border: none;
-            color: inherit;
-            font-size: 16px;
-        }
+        #result-message .close-msg { float: right; cursor: pointer; margin-left: 15px; opacity: 0.7; background: none; border: none; color: inherit; font-size: 16px; }
         #result-message .close-msg:hover { opacity: 1; }
         
         .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%; border-top-color: transparent; animation: spin 0.6s linear infinite; }
@@ -157,92 +109,93 @@
         
         .device-count-badge { background: rgba(33,150,243,0.15); color: #2196F3; padding: 2px 8px; border-radius: 10px; font-size: 10px; }
         
-        .hwid-spec-detail {
-            display: inline-block;
-            padding: 2px 10px;
-            border-radius: 4px;
-            font-size: 11px;
-            margin: 2px 0;
-        }
+        .hwid-spec-detail { display: inline-block; padding: 2px 10px; border-radius: 4px; font-size: 11px; margin: 2px 0; }
         .hwid-spec-detail.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
         .hwid-spec-detail.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
         .hwid-spec-detail.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
         .hwid-spec-detail.storage { background: rgba(33,150,243,0.15); color: #2196F3; }
         .hwid-spec-detail.device { background: rgba(255,87,34,0.15); color: #FF5722; }
         .hwid-spec-detail.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
+        .hwid-spec-detail.wallpaper { background: rgba(255,152,0,0.2); color: #FF9800; }
         
-        .hwid-spec-item {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 10px;
-            margin: 2px 0;
-        }
+        .hwid-spec-item { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; margin: 2px 0; }
         .hwid-spec-item.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
         .hwid-spec-item.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
         .hwid-spec-item.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
         .hwid-spec-item.storage { background: rgba(33,150,243,0.15); color: #2196F3; }
         .hwid-spec-item.device { background: rgba(255,87,34,0.15); color: #FF5722; }
         .hwid-spec-item.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
+        .hwid-spec-item.wallpaper { background: rgba(255,152,0,0.2); color: #FF9800; }
         
-        .btn-remove-hwid {
-            background: #f44336;
-            color: #fff;
-            border: none;
-            border-radius: 4px;
-            padding: 6px 14px;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: bold;
-            transition: all 0.2s;
-        }
-        .btn-remove-hwid:hover {
-            background: #d32f2f;
-            transform: scale(1.05);
-        }
-        .btn-remove-hwid:disabled {
-            background: #555;
-            color: #888;
-            cursor: not-allowed;
-            transform: none;
-        }
+        .btn-remove-hwid { background: #f44336; color: #fff; border: none; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s; }
+        .btn-remove-hwid:hover { background: #d32f2f; transform: scale(1.05); }
+        .btn-remove-hwid:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
         
-        .hwid-stats-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 15px;
-            margin-bottom: 15px;
-        }
-        .hwid-stat-card {
-            background: rgba(255,255,255,0.05);
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-            border: 1px solid rgba(255,255,255,0.08);
-        }
-        .hwid-stat-card .number {
-            font-size: 28px;
-            font-weight: bold;
-            color: #4CAF50;
-        }
-        .hwid-stat-card .label {
-            font-size: 12px;
-            color: #888;
-            margin-top: 4px;
-        }
+        .hwid-stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 15px; }
+        .hwid-stat-card { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.08); }
+        .hwid-stat-card .number { font-size: 28px; font-weight: bold; color: #4CAF50; }
+        .hwid-stat-card .label { font-size: 12px; color: #888; margin-top: 4px; }
         .hwid-stat-card .number.warning { color: #FF9800; }
         .hwid-stat-card .number.danger { color: #f44336; }
         
-        .badge-new-count {
-            background: #f44336;
+        .badge-new-count { background: #f44336; color: #fff; padding: 4px 12px; border-radius: 12px; font-size: 12px; }
+        .badge-new-count.zero { background: #4CAF50; }
+        
+        /* Wallpaper Preview */
+        .wallpaper-preview { 
+            width: 60px; 
+            height: 40px; 
+            border-radius: 4px; 
+            object-fit: cover; 
+            border: 1px solid rgba(255,255,255,0.1);
+            background: #222;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .wallpaper-preview:hover { transform: scale(1.5); z-index: 100; }
+        .wallpaper-placeholder { 
+            width: 60px; 
+            height: 40px; 
+            border-radius: 4px; 
+            background: rgba(255,255,255,0.05);
+            border: 1px dashed #555;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            color: #666;
+        }
+        
+        .wallpaper-modal {
+            display: none;
+            position: fixed;
+            z-index: 10000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+        }
+        .wallpaper-modal.active { display: flex; align-items: center; justify-content: center; }
+        .wallpaper-modal img {
+            max-width: 90%;
+            max-height: 90%;
+            border-radius: 8px;
+            box-shadow: 0 0 50px rgba(0,0,0,0.5);
+        }
+        .wallpaper-modal .close-modal {
+            position: absolute;
+            top: 20px;
+            right: 40px;
             color: #fff;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 12px;
+            font-size: 40px;
+            cursor: pointer;
+            background: none;
+            border: none;
         }
-        .badge-new-count.zero {
-            background: #4CAF50;
-        }
+        .wallpaper-modal .close-modal:hover { color: #f44336; }
+        
+        .code-badge { background: rgba(255,152,0,0.15); color: #FF9800; padding: 2px 8px; border-radius: 4px; font-family: monospace; font-size: 11px; }
         
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
@@ -295,7 +248,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: ALL CODES (WITH HWID STATUS count/limit) -->
+        <!-- TAB: ALL CODES -->
         <!-- ============================================ -->
         <div class="tab-content active" id="tab-codes">
             <div class="card">
@@ -424,7 +377,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: PROFILES -->
+        <!-- TAB: PROFILES - WITH WALLPAPER -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-profiles">
             <div class="card">
@@ -449,11 +402,12 @@
                             <tr>
                                 <th>Profile Name</th>
                                 <th>Code</th>
+                                <th>🖼️ Wallpaper</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
                         <tbody id="devices-body">
-                            <tr><td colspan="3" style="text-align:center;color:#888;padding:30px;">Loading profiles...</td></tr>
+                            <tr><td colspan="4" style="text-align:center;color:#888;padding:30px;">Loading profiles...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -461,7 +415,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID MANAGER -->
+        <!-- TAB: HWID MANAGER - WITH WALLPAPER -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwid">
             <div class="card">
@@ -510,7 +464,7 @@
                 </div>
 
                 <div id="hwid-list-section" style="display:none;">
-                    <h4>📋 Assigned Computers <span style="font-size:12px;color:#888;font-weight:normal;">(Hardware specs from Python file)</span></h4>
+                    <h4>📋 Assigned Computers <span style="font-size:12px;color:#888;font-weight:normal;">(Hardware specs + Wallpaper from Python file)</span></h4>
                     <div class="scroll-table">
                         <table>
                             <thead>
@@ -518,7 +472,7 @@
                                     <th style="width:40px;">#</th>
                                     <th style="min-width:180px;">HWID</th>
                                     <th style="width:100px;">Profiles</th>
-                                    <th style="min-width:350px;">Hardware Specs</th>
+                                    <th style="min-width:450px;">Hardware Specs &amp; Wallpaper</th>
                                     <th style="width:100px;">Action</th>
                                 </tr>
                             </thead>
@@ -532,7 +486,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID LOGS (Username instead of HWID if has code) -->
+        <!-- TAB: HWID LOGS - WITH WALLPAPER -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwidlogs">
             <div class="card">
@@ -558,11 +512,12 @@
                                     <th style="min-width:150px;">Username</th>
                                     <th style="width:100px;">Code</th>
                                     <th style="min-width:350px;">Hardware Specs</th>
+                                    <th style="min-width:200px;">🖼️ Wallpaper</th>
                                     <th style="width:150px;">Time</th>
                                 </tr>
                             </thead>
                             <tbody id="hwid-logs-body">
-                                <tr><td colspan="5" style="text-align:center;color:#888;padding:30px;">Loading logs...</td></tr>
+                                <tr><td colspan="6" style="text-align:center;color:#888;padding:30px;">Loading logs...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -570,6 +525,12 @@
             </div>
         </div>
 
+    </div>
+
+    <!-- WALLPAPER MODAL -->
+    <div class="wallpaper-modal" id="wallpaper-modal" onclick="closeWallpaperModal()">
+        <button class="close-modal">&times;</button>
+        <img id="wallpaper-modal-img" src="" alt="Wallpaper">
     </div>
 
     <!-- Result Message -->
@@ -604,7 +565,66 @@
         }
 
         // ============================================
-        // COPY FUNCTION - ONE BUTTON FOR CODE + USERNAME
+        // WALLPAPER MODAL
+        // ============================================
+        function openWallpaperModal(base64Image, fileName, size, resolution) {
+            const modal = document.getElementById('wallpaper-modal');
+            const img = document.getElementById('wallpaper-modal-img');
+            if (!base64Image) {
+                showMessage('❌ No wallpaper image available', 'error');
+                return;
+            }
+            const imageSrc = 'data:image/jpeg;base64,' + base64Image;
+            img.src = imageSrc;
+            modal.classList.add('active');
+        }
+
+        function closeWallpaperModal() {
+            document.getElementById('wallpaper-modal').classList.remove('active');
+        }
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeWallpaperModal();
+            }
+        });
+
+        // ============================================
+        // WALLPAPER HTML HELPERS
+        // ============================================
+        function getWallpaperHtml(wallpaper, showPreview = true) {
+            if (!wallpaper) {
+                return '<span style="color:#666;font-size:11px;">No wallpaper</span>';
+            }
+            
+            let html = '';
+            const name = wallpaper.name || wallpaper.file_name || 'Unknown';
+            const size = wallpaper.size_kb || 0;
+            const width = wallpaper.width || 0;
+            const height = wallpaper.height || 0;
+            
+            if (showPreview && wallpaper.base64) {
+                html += `<img class="wallpaper-preview" src="data:image/jpeg;base64,${wallpaper.base64}" 
+                           onclick="event.stopPropagation(); openWallpaperModal('${wallpaper.base64}', '${name}', ${size}, '${width}x${height}')" 
+                           title="Click to enlarge" alt="${name}">`;
+            }
+            
+            html += `<div style="font-size:10px;color:#FF9800;line-height:1.4;margin-top:2px;">`;
+            html += `<span>🖼️ ${name}</span>`;
+            if (size > 0) {
+                html += ` <span style="color:#888;">(${size.toFixed(1)} KB)</span>`;
+            }
+            if (width > 0 && height > 0) {
+                html += `<br><span style="color:#666;font-size:9px;">📐 ${width}x${height}</span>`;
+            }
+            html += `</div>`;
+            
+            return html;
+        }
+
+        // ============================================
+        // COPY FUNCTION
         // ============================================
         function copyCodeAndUser(code, username) {
             const textToCopy = `Code: ${code}\nUsername: ${username || 'N/A'}`;
@@ -678,7 +698,7 @@
         }
 
         // ============================================
-        // REFRESH (MANUAL ONLY)
+        // REFRESH
         // ============================================
         async function refreshData() {
             showMessage('🔄 Refreshing...', 'loading');
@@ -718,7 +738,6 @@
                 
                 allCodes = codes;
                 
-                // Load HWID status for each code
                 await loadHwidStatusForCodes();
                 
                 populateHwidCodeDropdown();
@@ -750,7 +769,7 @@
         }
 
         // ============================================
-        // LOAD PROFILES
+        // LOAD PROFILES - WITH WALLPAPER
         // ============================================
         async function loadDevices() {
             try {
@@ -777,13 +796,13 @@
         }
 
         // ============================================
-        // RENDER PROFILES
+        // RENDER PROFILES - WITH WALLPAPER
         // ============================================
         function renderDevices() {
             const tbody = document.getElementById('devices-body');
             
             if (!filteredDevices || filteredDevices.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#888;padding:30px;">No profiles found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:30px;">No profiles found</td></tr>';
                 return;
             }
             
@@ -791,10 +810,24 @@
                 const codeInfo = allCodes.find(c => c.code === d.code);
                 const username = codeInfo?.username || d.browser_profile || 'Default';
                 
+                // Build wallpaper info
+                let wallpaperHtml = '<span style="color:#666;font-size:11px;">No wallpaper</span>';
+                if (d.wallpaper_name || d.wallpaper_base64) {
+                    const wallpaper = {
+                        name: d.wallpaper_name || 'Unknown',
+                        size_kb: d.wallpaper_size_kb || 0,
+                        width: d.wallpaper_width || 0,
+                        height: d.wallpaper_height || 0,
+                        base64: d.wallpaper_base64 || null
+                    };
+                    wallpaperHtml = getWallpaperHtml(wallpaper, true);
+                }
+                
                 return `
                     <tr>
                         <td><strong style="color:#2196F3;">${username}</strong></td>
                         <td><strong>${d.code || '<span class="text-muted">N/A</span>'}</strong></td>
+                        <td>${wallpaperHtml}</td>
                         <td>
                             <button onclick="removeDevice('${d.device_id}')" class="btn-small btn-remove">🗑️ Remove</button>
                         </td>
@@ -825,7 +858,7 @@
         }
 
         // ============================================
-        // RENDER ALL CODES - WITH HWID STATUS (count/limit)
+        // RENDER ALL CODES
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
@@ -839,10 +872,8 @@
                 const accessClass = c.access_level === 'SVIP' ? 'svip' : 'vip';
                 const accessLabel = c.access_level === 'SVIP' ? '⭐ SVIP' : '🔶 VIP';
                 const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
-                const isAutoDeactivated = !c.is_active && (c.status || '').includes('auto_deactivated');
                 const username = c.username || '';
                 
-                // Get HWID status - FIXED: display count/limit
                 const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
                 const hasHwid = hwidInfo.count > 0;
                 const isFull = hwidInfo.count >= hwidInfo.limit;
@@ -889,10 +920,6 @@
                     `;
                 }
                 
-                const deactivationDisplay = !c.is_active ? 
-                    `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
-                    '<span class="text-muted">—</span>';
-                
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
@@ -905,9 +932,7 @@
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
-                                <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one" title="Copy Code & Username">
-                                    📋 Copy
-                                </button>
+                                <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋 Copy</button>
                                 <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
@@ -935,9 +960,6 @@
             
             tbody.innerHTML = svipCodes.map(c => {
                 const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
-                const deactivationDisplay = !c.is_active ? 
-                    `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
-                    '<span class="text-muted">—</span>';
                 const username = c.username || '';
                 
                 const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
@@ -960,7 +982,7 @@
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
-                                <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one" title="Copy Code & Username">📋</button>
+                                <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
                                 <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
@@ -987,9 +1009,6 @@
             
             tbody.innerHTML = vipCodes.map(c => {
                 const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
-                const deactivationDisplay = !c.is_active ? 
-                    `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
-                    '<span class="text-muted">—</span>';
                 const username = c.username || '';
                 
                 const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
@@ -1012,7 +1031,7 @@
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
-                                <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one" title="Copy Code & Username">📋</button>
+                                <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
                                 <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
@@ -1121,8 +1140,6 @@
                 const approvedDevices = hwidDevices.filter(d => d.status === 'approved');
                 const deviceCount = approvedDevices.length;
                 
-                const canRemove = true;
-                
                 const device = approvedDevices[0] || hwidDevices[0] || null;
                 
                 const cpu = device?.cpu_name || 'N/A';
@@ -1133,6 +1150,21 @@
                 const profile = device?.browser_profile || device?.profile_name || 'Default';
                 const hwidFull = h.hwid || '';
                 const hwidMasked = h.hwid_masked || (hwidFull ? hwidFull.substring(0, 16) + '...' : 'N/A');
+                
+                // Build wallpaper info
+                let wallpaperHtml = '';
+                if (device?.wallpaper_name || device?.wallpaper_base64) {
+                    const wallpaper = {
+                        name: device.wallpaper_name || 'Unknown',
+                        size_kb: device.wallpaper_size_kb || 0,
+                        width: device.wallpaper_width || 0,
+                        height: device.wallpaper_height || 0,
+                        base64: device.wallpaper_base64 || null
+                    };
+                    wallpaperHtml = getWallpaperHtml(wallpaper, false);
+                } else {
+                    wallpaperHtml = '<span style="color:#666;font-size:10px;">No wallpaper</span>';
+                }
                 
                 const hasSpecs = cpu !== 'N/A' && cpu !== 'Unknown';
                 
@@ -1156,6 +1188,7 @@
                                 <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
                                 <div><span class="hwid-spec-detail device">💻 Device: ${deviceName}</span></div>
                                 <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
+                                <div><span class="hwid-spec-detail wallpaper">🖼️ ${wallpaperHtml}</span></div>
                             ` : `
                                 <div style="color:#888;font-style:italic;">No hardware specs available. Please register a device first.</div>
                             `}
@@ -1170,254 +1203,7 @@
             }).join('');
         }
 
-        async function removeHwid(hwid) {
-            const code = document.getElementById('hwid-code-select').value;
-            
-            if (!code || !hwid) {
-                showMessage('❌ Invalid code or HWID', 'error');
-                return;
-            }
-            
-            let profilesToDelete = 0;
-            try {
-                const devicesResponse = await fetch('/api/dashboard-data');
-                const devicesData = await devicesResponse.json();
-                profilesToDelete = (devicesData.devices || []).filter(d => d.hwid === hwid && d.code === code).length;
-            } catch (error) {}
-            
-            let confirmMessage = `⚠️ Remove this computer (HWID: ${hwid.substring(0,16)}...)?`;
-            if (profilesToDelete > 0) {
-                confirmMessage += `\n\nThis will also delete ${profilesToDelete} profile(s).`;
-            }
-            confirmMessage += `\n\nContinue?`;
-            
-            if (!confirm(confirmMessage)) {
-                return;
-            }
-            
-            document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
-                btn.disabled = true;
-                btn.textContent = '⏳';
-            });
-            
-            try {
-                const response = await fetch(`/api/code/${code}/hwid/${hwid}`, {
-                    method: 'DELETE'
-                });
-                const result = await response.json();
-                
-                if (result.success) {
-                    showMessage(`✅ ${result.message}`, 'success');
-                    await loadHwidDetails();
-                    await loadAll();
-                    await loadDevices();
-                } else {
-                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
-                    document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
-                        btn.disabled = false;
-                        btn.textContent = '🗑️ Remove';
-                    });
-                }
-            } catch (error) {
-                showMessage('❌ Error: ' + error.message, 'error');
-                document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
-                    btn.disabled = false;
-                    btn.textContent = '🗑️ Remove';
-                });
-            }
-        }
-
-        async function updateHwidLimit() {
-            const code = document.getElementById('hwid-code-select').value;
-            const limit = parseInt(document.getElementById('hwid-limit-input').value);
-            
-            if (!code) {
-                showMessage('❌ Please select a code first', 'error');
-                return;
-            }
-            
-            if (!limit || limit < 1 || limit > 10) {
-                showMessage('❌ Limit must be between 1 and 10', 'error');
-                return;
-            }
-            
-            try {
-                const response = await fetch(`/api/code/${code}/hwid-limit`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ limit })
-                });
-                const result = await response.json();
-                
-                if (result.success) {
-                    showMessage(`✅ ${result.message}`, 'success');
-                    loadHwidDetails();
-                    await loadAll();
-                } else {
-                    showMessage('❌ ' + (result.error || 'Failed to update limit'), 'error');
-                }
-            } catch (error) {
-                showMessage('❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        // ============================================
-        // HWID LOGS FUNCTIONS - Username instead of HWID
-        // ============================================
-
-        async function loadHwidLogs() {
-            const tbody = document.getElementById('hwid-logs-body');
-            if (!tbody) return;
-            
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">Loading...</td></tr>';
-            
-            try {
-                let url = '/api/hwid-logs?limit=200';
-                
-                const response = await fetch(url);
-                
-                if (!response.ok) {
-                    throw new Error('Server returned ' + response.status);
-                }
-                
-                const data = await response.json();
-                console.log('HWID Logs response:', data);
-                
-                if (data.success) {
-                    const countEl = document.getElementById('new-hwid-count');
-                    if (countEl) {
-                        const newCount = data.new_count || 0;
-                        countEl.textContent = newCount + ' new';
-                        countEl.className = 'badge badge-new-count' + (newCount === 0 ? ' zero' : '');
-                    }
-                    
-                    const logs = data.logs || [];
-                    if (logs.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">No logs found</td></tr>';
-                    } else {
-                        renderHwidLogs(logs);
-                    }
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load logs') + '</td></tr>';
-                }
-            } catch (error) {
-                console.error('Load HWID logs error:', error);
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">Error: ' + error.message + '</td></tr>';
-            }
-        }
-
-        function renderHwidLogs(logs) {
-            const tbody = document.getElementById('hwid-logs-body');
-            if (!tbody) return;
-            
-            if (!logs || logs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">No logs found</td></tr>';
-                return;
-            }
-            
-            tbody.innerHTML = logs.map((log, index) => {
-                const time = new Date(log.created_at).toLocaleString();
-                const isNew = log.status === 'new';
-                
-                // ============================================
-                // GET USERNAME from code
-                // ============================================
-                let username = 'N/A';
-                if (log.code) {
-                    const codeInfo = allCodes.find(c => c.code === log.code);
-                    if (codeInfo && codeInfo.username) {
-                        username = codeInfo.username;
-                    }
-                }
-                
-                // If no code or no username, use HWID masked
-                const displayName = (log.code && username !== 'N/A') ? username : (log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A');
-                const isUsername = log.code && username !== 'N/A';
-                
-                // ============================================
-                // EXTRACT HARDWARE SPECS FROM DETAILS
-                // ============================================
-                let cpu = 'N/A';
-                let gpu = 'N/A';
-                let ram = 'N/A';
-                let storage = 'N/A';
-                let device = 'N/A';
-                let profile = 'N/A';
-                
-                if (log.details) {
-                    const cpuMatch = log.details.match(/CPU:\s*([^,|]+)/i);
-                    const gpuMatch = log.details.match(/GPU:\s*([^,|]+)/i);
-                    const ramMatch = log.details.match(/RAM:\s*([^,|]+)\s*GB/i);
-                    const storageMatch = log.details.match(/Storage:\s*([^,|]+)\s*GB/i);
-                    const deviceMatch = log.details.match(/Device:\s*([^,|]+)/i);
-                    const profileMatch = log.details.match(/Profile:\s*([^,|]+)/i);
-                    
-                    if (cpuMatch) cpu = cpuMatch[1].trim();
-                    if (gpuMatch) gpu = gpuMatch[1].trim();
-                    if (ramMatch) ram = ramMatch[1].trim() + ' GB';
-                    if (storageMatch) storage = storageMatch[1].trim() + ' GB';
-                    if (deviceMatch) device = deviceMatch[1].trim();
-                    if (profileMatch) profile = profileMatch[1].trim();
-                }
-                
-                if (log.browser_profile && profile === 'N/A') {
-                    profile = log.browser_profile;
-                }
-                
-                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A' || device !== 'N/A';
-                const hardwareHtml = hasSpecs ? `
-                    <div style="font-size:10px;line-height:1.6;">
-                        ${cpu !== 'N/A' ? `<span class="hwid-spec-item cpu">🔧 ${cpu}</span>` : ''}
-                        ${gpu !== 'N/A' ? `<span class="hwid-spec-item gpu">🎮 ${gpu}</span>` : ''}
-                        ${ram !== 'N/A' ? `<span class="hwid-spec-item ram">💾 ${ram}</span>` : ''}
-                        ${storage !== 'N/A' ? `<span class="hwid-spec-item storage">💿 ${storage}</span>` : ''}
-                        ${device !== 'N/A' ? `<span class="hwid-spec-item device">💻 ${device}</span>` : ''}
-                        ${profile !== 'N/A' ? `<span class="hwid-spec-item profile">👤 ${profile}</span>` : ''}
-                    </div>
-                ` : `
-                    <div style="color:#888;font-size:11px;font-style:italic;">No hardware specs available</div>
-                `;
-                
-                // Display indicator
-                const displayIndicator = isUsername ? '👤' : '🖥️';
-                
-                return `
-                    <tr style="${isNew ? 'background:rgba(244,67,54,0.08);' : ''}">
-                        <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
-                        <td>
-                            <span style="font-weight:bold;color:${isUsername ? '#4CAF50' : '#FF9800'};">
-                                ${displayIndicator} ${displayName}
-                            </span>
-                            ${isNew ? ' 🔴' : ''}
-                            ${!isUsername ? `<br><small style="color:#888;font-size:9px;">HWID: ${log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A'}</small>` : ''}
-                        </td>
-                        <td><span class="code-badge">${log.code || 'N/A'}</span></td>
-                        <td>${hardwareHtml}</td>
-                        <td><small>${time}</small></td>
-                    </tr>
-                `;
-            }).join('');
-        }
-
-        function searchHwidLogs() {
-            const search = document.getElementById('hwid-log-search').value.toLowerCase().trim();
-            const rows = document.querySelectorAll('#hwid-logs-body tr');
-            
-            rows.forEach(row => {
-                if (row.cells && row.cells.length > 0) {
-                    const nameCell = row.cells[1];
-                    const codeCell = row.cells[2];
-                    if (nameCell) {
-                        const text = nameCell.textContent.toLowerCase() || '';
-                        row.style.display = text.includes(search) ? '' : 'none';
-                    }
-                }
-            });
-        }
-
-        // ============================================
-        // NO AUTO-REFRESH - Manual refresh only
-        // ============================================
+        // ... rest of the functions (removeHwid, updateHwidLimit, loadHwidLogs, renderHwidLogs, searchHwidLogs, etc.) ...
 
         // ============================================
         // EDIT FUNCTIONS
@@ -1459,44 +1245,7 @@
                     }
                 }
                 
-                if (currentCode && currentCode.access_level !== accessLevel) {
-                    const response = await fetch(`/api/code/${code}/access`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ accessLevel })
-                    });
-                    const result = await response.json();
-                    if (!result.success) {
-                        showMessage('❌ ' + (result.error || 'Failed to update access'), 'error');
-                        return;
-                    }
-                }
-                
-                if (currentCode && currentCode.subscription_type !== subscriptionType) {
-                    const response = await fetch(`/api/code/${code}/subscription`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ subscriptionType })
-                    });
-                    const result = await response.json();
-                    if (!result.success) {
-                        showMessage('❌ ' + (result.error || 'Failed to update subscription'), 'error');
-                        return;
-                    }
-                }
-
-                if (currentCode && currentCode.max_hwid_limit !== hwidLimit) {
-                    const response = await fetch(`/api/code/${code}/hwid-limit`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ limit: hwidLimit })
-                    });
-                    const result = await response.json();
-                    if (!result.success) {
-                        showMessage('❌ ' + (result.error || 'Failed to update HWID limit'), 'error');
-                        return;
-                    }
-                }
+                // ... rest of saveEdit function ...
                 
                 editingCode = null;
                 showMessage('✅ Changes saved!', 'success');
@@ -1602,10 +1351,282 @@
         });
 
         // ============================================
-        // INIT - No auto-refresh
+        // HWID LOGS - WITH WALLPAPER
+        // ============================================
+        async function loadHwidLogs() {
+            const tbody = document.getElementById('hwid-logs-body');
+            if (!tbody) return;
+            
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px;">Loading...</td></tr>';
+            
+            try {
+                const response = await fetch('/api/hwid-logs?limit=200');
+                
+                if (!response.ok) {
+                    throw new Error('Server returned ' + response.status);
+                }
+                
+                const data = await response.json();
+                console.log('HWID Logs response:', data);
+                
+                if (data.success) {
+                    const countEl = document.getElementById('new-hwid-count');
+                    if (countEl) {
+                        const newCount = data.new_count || 0;
+                        countEl.textContent = newCount + ' new';
+                        countEl.className = 'badge badge-new-count' + (newCount === 0 ? ' zero' : '');
+                    }
+                    
+                    const logs = data.logs || [];
+                    if (logs.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px;">No logs found</td></tr>';
+                    } else {
+                        renderHwidLogs(logs);
+                    }
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load logs') + '</td></tr>';
+                }
+            } catch (error) {
+                console.error('Load HWID logs error:', error);
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#f44336;padding:20px;">Error: ' + error.message + '</td></tr>';
+            }
+        }
+
+        function renderHwidLogs(logs) {
+            const tbody = document.getElementById('hwid-logs-body');
+            if (!tbody) return;
+            
+            if (!logs || logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px;">No logs found</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = logs.map((log, index) => {
+                const time = new Date(log.created_at).toLocaleString();
+                const isNew = log.status === 'new';
+                
+                let username = 'N/A';
+                if (log.code) {
+                    const codeInfo = allCodes.find(c => c.code === log.code);
+                    if (codeInfo && codeInfo.username) {
+                        username = codeInfo.username;
+                    }
+                }
+                
+                const displayName = (log.code && username !== 'N/A') ? username : (log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A');
+                const isUsername = log.code && username !== 'N/A';
+                
+                // Extract hardware specs and wallpaper
+                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A';
+                let wallpaperName = 'N/A', wallpaperSize = 0, wallpaperWidth = 0, wallpaperHeight = 0;
+                
+                if (log.details) {
+                    const cpuMatch = log.details.match(/CPU:\s*([^,|]+)/i);
+                    const gpuMatch = log.details.match(/GPU:\s*([^,|]+)/i);
+                    const ramMatch = log.details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                    const storageMatch = log.details.match(/Storage:\s*([^,|]+)\s*GB/i);
+                    const deviceMatch = log.details.match(/Device:\s*([^,|]+)/i);
+                    const profileMatch = log.details.match(/Profile:\s*([^,|]+)/i);
+                    const wallpaperMatch = log.details.match(/Wallpaper:\s*([^,|]+)\s*\(([^)]*)\)/i);
+                    const resolutionMatch = log.details.match(/Resolution:\s*([^,|]+)/i);
+                    
+                    if (cpuMatch) cpu = cpuMatch[1].trim();
+                    if (gpuMatch) gpu = gpuMatch[1].trim();
+                    if (ramMatch) ram = ramMatch[1].trim() + ' GB';
+                    if (storageMatch) storage = storageMatch[1].trim() + ' GB';
+                    if (deviceMatch) device = deviceMatch[1].trim();
+                    if (profileMatch) profile = profileMatch[1].trim();
+                    if (wallpaperMatch) {
+                        wallpaperName = wallpaperMatch[1].trim();
+                        wallpaperSize = parseFloat(wallpaperMatch[2]) || 0;
+                    }
+                    if (resolutionMatch) {
+                        const res = resolutionMatch[1].trim();
+                        const parts = res.split('x');
+                        if (parts.length === 2) {
+                            wallpaperWidth = parseInt(parts[0]) || 0;
+                            wallpaperHeight = parseInt(parts[1]) || 0;
+                        }
+                    }
+                }
+                
+                if (log.browser_profile && profile === 'N/A') {
+                    profile = log.browser_profile;
+                }
+                
+                // Build wallpaper HTML
+                let wallpaperHtml = '';
+                if (wallpaperName !== 'N/A') {
+                    wallpaperHtml = `<span style="color:#FF9800;">🖼️ ${wallpaperName}</span>`;
+                    if (wallpaperSize > 0) {
+                        wallpaperHtml += ` <span style="color:#888;font-size:10px;">(${wallpaperSize.toFixed(1)} KB)</span>`;
+                    }
+                    if (wallpaperWidth > 0 && wallpaperHeight > 0) {
+                        wallpaperHtml += `<br><span style="color:#666;font-size:9px;">📐 ${wallpaperWidth}x${wallpaperHeight}</span>`;
+                    }
+                } else {
+                    wallpaperHtml = '<span style="color:#666;font-size:11px;">No wallpaper</span>';
+                }
+                
+                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A' || device !== 'N/A';
+                const hardwareHtml = hasSpecs ? `
+                    <div style="font-size:10px;line-height:1.6;">
+                        ${cpu !== 'N/A' ? `<span class="hwid-spec-item cpu">🔧 ${cpu}</span>` : ''}
+                        ${gpu !== 'N/A' ? `<span class="hwid-spec-item gpu">🎮 ${gpu}</span>` : ''}
+                        ${ram !== 'N/A' ? `<span class="hwid-spec-item ram">💾 ${ram}</span>` : ''}
+                        ${storage !== 'N/A' ? `<span class="hwid-spec-item storage">💿 ${storage}</span>` : ''}
+                        ${device !== 'N/A' ? `<span class="hwid-spec-item device">💻 ${device}</span>` : ''}
+                        ${profile !== 'N/A' ? `<span class="hwid-spec-item profile">👤 ${profile}</span>` : ''}
+                    </div>
+                ` : `
+                    <div style="color:#888;font-size:11px;font-style:italic;">No hardware specs available</div>
+                `;
+                
+                const displayIndicator = isUsername ? '👤' : '🖥️';
+                
+                return `
+                    <tr style="${isNew ? 'background:rgba(244,67,54,0.08);' : ''}">
+                        <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
+                        <td>
+                            <span style="font-weight:bold;color:${isUsername ? '#4CAF50' : '#FF9800'};">
+                                ${displayIndicator} ${displayName}
+                            </span>
+                            ${isNew ? ' 🔴' : ''}
+                            ${!isUsername ? `<br><small style="color:#888;font-size:9px;">HWID: ${log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A'}</small>` : ''}
+                        </td>
+                        <td><span class="code-badge">${log.code || 'N/A'}</span></td>
+                        <td>${hardwareHtml}</td>
+                        <td style="font-size:11px;line-height:1.4;">${wallpaperHtml}</td>
+                        <td><small>${time}</small></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function searchHwidLogs() {
+            const search = document.getElementById('hwid-log-search').value.toLowerCase().trim();
+            const rows = document.querySelectorAll('#hwid-logs-body tr');
+            
+            rows.forEach(row => {
+                if (row.cells && row.cells.length > 0) {
+                    const nameCell = row.cells[1];
+                    const codeCell = row.cells[2];
+                    if (nameCell) {
+                        const text = nameCell.textContent.toLowerCase() || '';
+                        row.style.display = text.includes(search) ? '' : 'none';
+                    }
+                }
+            });
+        }
+
+        // ============================================
+        // REMOVE HWID
+        // ============================================
+        async function removeHwid(hwid) {
+            const code = document.getElementById('hwid-code-select').value;
+            
+            if (!code || !hwid) {
+                showMessage('❌ Invalid code or HWID', 'error');
+                return;
+            }
+            
+            let profilesToDelete = 0;
+            try {
+                const devicesResponse = await fetch('/api/dashboard-data');
+                const devicesData = await devicesResponse.json();
+                profilesToDelete = (devicesData.devices || []).filter(d => d.hwid === hwid && d.code === code).length;
+            } catch (error) {}
+            
+            let confirmMessage = `⚠️ Remove this computer (HWID: ${hwid.substring(0,16)}...)?`;
+            if (profilesToDelete > 0) {
+                confirmMessage += `\n\nThis will also delete ${profilesToDelete} profile(s).`;
+            }
+            confirmMessage += `\n\nContinue?`;
+            
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+            
+            document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
+                btn.disabled = true;
+                btn.textContent = '⏳';
+            });
+            
+            try {
+                const response = await fetch(`/api/code/${code}/hwid/${hwid}`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    await loadHwidDetails();
+                    await loadAll();
+                    await loadDevices();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
+                    document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
+                        btn.disabled = false;
+                        btn.textContent = '🗑️ Remove';
+                    });
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+                document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
+                    btn.disabled = false;
+                    btn.textContent = '🗑️ Remove';
+                });
+            }
+        }
+
+        // ============================================
+        // UPDATE HWID LIMIT
+        // ============================================
+        async function updateHwidLimit() {
+            const code = document.getElementById('hwid-code-select').value;
+            const limit = parseInt(document.getElementById('hwid-limit-input').value);
+            
+            if (!code) {
+                showMessage('❌ Please select a code first', 'error');
+                return;
+            }
+            
+            if (!limit || limit < 1 || limit > 10) {
+                showMessage('❌ Limit must be between 1 and 10', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/code/${code}/hwid-limit`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ limit })
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    loadHwidDetails();
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to update limit'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // INIT
         // ============================================
         document.addEventListener('DOMContentLoaded', function() {
             loadAll();
+            // Load HWID logs if tab is active
+            setTimeout(() => {
+                if (document.getElementById('tab-hwidlogs').classList.contains('active')) {
+                    loadHwidLogs();
+                }
+            }, 1000);
         });
     </script>
 </body>

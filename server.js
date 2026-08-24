@@ -1,4 +1,5 @@
-// server.js - Complete with all fixes including HWID Logs
+// server.js - Complete with Wallpaper Support
+
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
@@ -239,7 +240,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - WITH HWID LOGGING
+// REGISTER DEVICE - WITH WALLPAPER SUPPORT
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -254,6 +255,7 @@ app.post('/api/register', async (req, res) => {
         hwid,
         browser_profile,
         hardware,
+        wallpaper,
         detected_hwids
     } = req.body;
 
@@ -290,7 +292,7 @@ app.post('/api/register', async (req, res) => {
         }
 
         // ============================================
-        // LOG HWID ACTIVITY - Check if HWID is new
+        // LOG HWID ACTIVITY
         // ============================================
         const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
         const existingHwid = await db.get(
@@ -430,23 +432,30 @@ app.post('/api/register', async (req, res) => {
             );
         }
 
-        // Proceed with registration
-        // Parse browser info
-        let parsedBrowserInfo = {};
-        try {
-            parsedBrowserInfo = typeof browserInfo === 'string' ? JSON.parse(browserInfo) : browserInfo || {};
-        } catch (e) {
-            parsedBrowserInfo = {};
-        }
-
         // ============================================
-        // PARSE HARDWARE SPECS FROM PYTHON FILE
+        // PARSE HARDWARE SPECS
         // ============================================
         let parsedHardware = {};
         try {
             parsedHardware = typeof hardware === 'string' ? JSON.parse(hardware) : hardware || {};
         } catch (e) {
             parsedHardware = {};
+        }
+
+        // ============================================
+        // PARSE WALLPAPER DATA
+        // ============================================
+        let parsedWallpaper = null;
+        if (wallpaper) {
+            try {
+                parsedWallpaper = typeof wallpaper === 'string' ? JSON.parse(wallpaper) : wallpaper;
+                console.log(`🖼️ Wallpaper received: ${parsedWallpaper.file_name || 'unknown'} (${parsedWallpaper.size_kb || 0} KB)`);
+                if (parsedWallpaper.width && parsedWallpaper.height) {
+                    console.log(`   📐 Resolution: ${parsedWallpaper.width}x${parsedWallpaper.height}`);
+                }
+            } catch (e) {
+                console.log('⚠️ Failed to parse wallpaper data:', e.message);
+            }
         }
 
         // Extract hardware specs
@@ -464,101 +473,56 @@ app.post('/api/register', async (req, res) => {
         console.log(`   Storage: ${storageTotal} GB`);
         console.log(`   Profile: ${profileName}`);
         console.log(`   Device: ${deviceName}`);
-
-        // ============================================
-        // SAVE HARDWARE SPECS TO DEVICES TABLE
-        // ============================================
-
-        // Check if device already exists
-        const existingDevice = await db.getDevice(deviceId);
-        
-        if (existingDevice) {
-            await db.run(
-                `UPDATE devices SET 
-                    user_agent = $1, 
-                    ip_address = $2, 
-                    browser_info = $3, 
-                    code = $4,
-                    hwid = $5,
-                    status = 'approved',
-                    updated_at = CURRENT_TIMESTAMP,
-                    browser_profile = $6,
-                    cpu_name = $7,
-                    gpu_name = $8,
-                    ram_total_gb = $9,
-                    storage_total_gb = $10,
-                    profile_name = $11,
-                    device_name = $12,
-                    approved_at = CURRENT_TIMESTAMP,
-                    revoked_at = NULL
-                WHERE device_id = $13`,
-                [
-                    userAgent || '',
-                    ip,
-                    JSON.stringify(parsedBrowserInfo),
-                    code.toUpperCase(),
-                    hwid,
-                    profileName,
-                    cpuName,
-                    gpuName,
-                    ramTotal,
-                    storageTotal,
-                    profileName,
-                    deviceName,
-                    deviceId
-                ]
-            );
-        } else {
-            await db.run(
-                `INSERT INTO devices (
-                    device_id, 
-                    user_agent, 
-                    ip_address, 
-                    browser_info, 
-                    code, 
-                    hwid,
-                    status, 
-                    approved_at,
-                    browser_profile,
-                    cpu_name,
-                    gpu_name,
-                    ram_total_gb,
-                    storage_total_gb,
-                    profile_name,
-                    device_name
-                ) VALUES ($1, $2, $3, $4, $5, $6, 'approved', CURRENT_TIMESTAMP, $7, $8, $9, $10, $11, $12, $13)`,
-                [
-                    deviceId,
-                    userAgent || '',
-                    ip,
-                    JSON.stringify(parsedBrowserInfo),
-                    code.toUpperCase(),
-                    hwid,
-                    profileName,
-                    cpuName,
-                    gpuName,
-                    ramTotal,
-                    storageTotal,
-                    profileName,
-                    deviceName
-                ]
-            );
+        if (parsedWallpaper) {
+            console.log(`   🖼️ Wallpaper: ${parsedWallpaper.file_name || 'N/A'} (${parsedWallpaper.size_kb || 0} KB)`);
         }
 
-        // Update code usage count
-        await db.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code.toUpperCase()]);
-        await db.logUsage(deviceId, code, 'register', 
-            `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName} | RAM: ${ramTotal}GB | Storage: ${storageTotal}GB`
+        // Parse browser info
+        let parsedBrowserInfo = {};
+        try {
+            parsedBrowserInfo = typeof browserInfo === 'string' ? JSON.parse(browserInfo) : browserInfo || {};
+        } catch (e) {
+            parsedBrowserInfo = {};
+        }
+
+        // ============================================
+        // REGISTER DEVICE WITH WALLPAPER
+        // ============================================
+        const result = await db.registerDeviceWithCode(
+            deviceId,
+            userAgent,
+            ip,
+            parsedBrowserInfo,
+            code.toUpperCase(),
+            hwid,
+            parsedHardware,
+            parsedWallpaper
         );
+
+        if (!result.success) {
+            return res.status(400).json({
+                error: result.error,
+                status: 'registration_failed'
+            });
+        }
+
+        // Log successful registration with wallpaper info
+        let logDetails = `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName} | RAM: ${ramTotal}GB | Storage: ${storageTotal}GB`;
+        if (parsedWallpaper) {
+            logDetails += ` | Wallpaper: ${parsedWallpaper.file_name || 'unknown'} (${parsedWallpaper.size_kb || 0} KB)`;
+            if (parsedWallpaper.width && parsedWallpaper.height) {
+                logDetails += ` | Resolution: ${parsedWallpaper.width}x${parsedWallpaper.height}`;
+            }
+        }
+        await db.logUsage(deviceId, code, 'register_success', logDetails);
         
-        // Log successful registration
         await db.logHwidActivity(
             hwid,
             code,
             deviceId,
             'register_success',
             'registered',
-            `Successfully registered with code: ${code} | Profile: ${profileName} | CPU: ${cpuName}`,
+            logDetails,
             ip,
             userAgent || 'unknown',
             profileName
@@ -572,7 +536,8 @@ app.post('/api/register', async (req, res) => {
         console.log('✅ Registration successful for code:', code);
         console.log('📊 Updated code info:', updatedCodeInfo);
 
-        res.json({
+        // Build response
+        const responseData = {
             success: true,
             status: 'approved',
             code: code,
@@ -593,7 +558,20 @@ app.post('/api/register', async (req, res) => {
                 profile_name: profileName
             },
             message: `✅ Profile registered with hardware specs`
-        });
+        };
+
+        // Add wallpaper to response if available
+        if (parsedWallpaper) {
+            responseData.wallpaper = {
+                file_name: parsedWallpaper.file_name || 'unknown',
+                size_kb: parsedWallpaper.size_kb || 0,
+                width: parsedWallpaper.width || 0,
+                height: parsedWallpaper.height || 0
+            };
+        }
+
+        res.json(responseData);
+        
     } catch (error) {
         console.error('❌ Registration error:', error);
         res.status(500).json({ 
@@ -625,7 +603,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
                 subscription: null,
                 subscription_started_at: null,
                 subscription_expires_at: null,
-                status_code: null
+                status_code: null,
+                wallpaper: null
             });
         }
 
@@ -641,7 +620,13 @@ app.get('/api/status/:deviceId', async (req, res) => {
                 subscription: null,
                 subscription_started_at: null,
                 subscription_expires_at: null,
-                status_code: null
+                status_code: null,
+                wallpaper: device.wallpaper_name ? {
+                    name: device.wallpaper_name,
+                    size_kb: device.wallpaper_size_kb,
+                    width: device.wallpaper_width,
+                    height: device.wallpaper_height
+                } : null
             });
         }
 
@@ -673,7 +658,13 @@ app.get('/api/status/:deviceId', async (req, res) => {
                 subscription: null,
                 subscription_started_at: null,
                 subscription_expires_at: null,
-                status_code: codeInfo ? codeInfo.status : 'inactive'
+                status_code: codeInfo ? codeInfo.status : 'inactive',
+                wallpaper: device.wallpaper_name ? {
+                    name: device.wallpaper_name,
+                    size_kb: device.wallpaper_size_kb,
+                    width: device.wallpaper_width,
+                    height: device.wallpaper_height
+                } : null
             });
         }
 
@@ -694,7 +685,13 @@ app.get('/api/status/:deviceId', async (req, res) => {
                     subscription: codeInfo.subscription_type,
                     subscription_started_at: codeInfo.subscription_started_at,
                     subscription_expires_at: codeInfo.expires_at,
-                    status_code: 'expired'
+                    status_code: 'expired',
+                    wallpaper: device.wallpaper_name ? {
+                        name: device.wallpaper_name,
+                        size_kb: device.wallpaper_size_kb,
+                        width: device.wallpaper_width,
+                        height: device.wallpaper_height
+                    } : null
                 });
             }
         }
@@ -712,7 +709,13 @@ app.get('/api/status/:deviceId', async (req, res) => {
                 subscription: codeInfo.subscription_type,
                 subscription_started_at: codeInfo.subscription_started_at,
                 subscription_expires_at: codeInfo.expires_at,
-                status_code: codeInfo.status
+                status_code: codeInfo.status,
+                wallpaper: device.wallpaper_name ? {
+                    name: device.wallpaper_name,
+                    size_kb: device.wallpaper_size_kb,
+                    width: device.wallpaper_width,
+                    height: device.wallpaper_height
+                } : null
             });
         }
 
@@ -729,6 +732,12 @@ app.get('/api/status/:deviceId', async (req, res) => {
             subscription_started_at: codeInfo.subscription_started_at,
             subscription_expires_at: codeInfo.expires_at,
             status_code: codeInfo.status,
+            wallpaper: device.wallpaper_name ? {
+                name: device.wallpaper_name,
+                size_kb: device.wallpaper_size_kb,
+                width: device.wallpaper_width,
+                height: device.wallpaper_height
+            } : null,
             device: {
                 id: device.device_id,
                 approved_at: device.approved_at,
@@ -747,7 +756,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
             subscription: null,
             subscription_started_at: null,
             subscription_expires_at: null,
-            status_code: null
+            status_code: null,
+            wallpaper: null
         });
     }
 });
@@ -1189,7 +1199,7 @@ app.delete('/api/device/:deviceId', async (req, res) => {
 });
 
 // ============================================
-// HWID MANAGER - COMPLETE WITH PROFILE DELETION
+// HWID MANAGER
 // ============================================
 
 // Get HWIDs for a code
@@ -1200,7 +1210,6 @@ app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
         const limit = await db.getCodeHwidLimit(code);
         const count = await db.getCodeHwidCount(code);
         
-        // ENSURE hwids is an array
         const hwidArray = Array.isArray(hwids) ? hwids : [];
         
         const masked = hwidArray.map(h => ({
@@ -1304,18 +1313,16 @@ app.post('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
     }
 });
 
-// Remove HWID from code - WITH PROFILE DELETION
+// Remove HWID from code
 app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) => {
     const { code, hwid } = req.params;
     
     try {
-        // First, get all devices with this HWID
         const devices = await db.all(
             'SELECT device_id FROM devices WHERE code = $1 AND hwid = $2',
             [code.toUpperCase(), hwid]
         );
         
-        // Delete all devices with this HWID
         let deletedCount = 0;
         for (const device of devices) {
             await db.run(
@@ -1325,7 +1332,6 @@ app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) =>
             deletedCount++;
         }
         
-        // Remove HWID from code_hwids table
         const result = await db.removeHwidFromCode(code.toUpperCase(), hwid);
         
         if (result.success) {
@@ -1333,7 +1339,6 @@ app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) =>
                 `HWID ${hwid.substring(0, 16)}... removed from code ${code} by ${req.session.username}. ${deletedCount} profiles deleted.`);
             await db.refreshCache();
             
-            // Update code usage count
             if (deletedCount > 0) {
                 await db.run(
                     'UPDATE codes SET used_count = used_count - $1 WHERE code = $2',
@@ -1361,7 +1366,7 @@ app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) =>
 });
 
 // ============================================
-// HWID LOGS ENDPOINTS - FIXED
+// HWID LOGS ENDPOINTS
 // ============================================
 
 // Get all HWID logs
@@ -1372,7 +1377,6 @@ app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
         
         console.log(`📊 Fetching HWID logs - Limit: ${limit}, Status: ${status}`);
         
-        // Check if table exists first
         try {
             const tableCheck = await db.get(
                 "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'hwid_logs')"
@@ -1390,7 +1394,6 @@ app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
             }
         } catch (tableError) {
             console.log('⚠️ Error checking table existence:', tableError.message);
-            // Continue anyway
         }
         
         const logs = await db.getHwidLogs(limit, status);
@@ -1478,17 +1481,20 @@ app.get('/api/hwid-logs/new-count', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// HWID LOG - Receive from extension (FIXED)
+// HWID LOG - Receive from extension
 // ============================================
 
 app.post('/api/hwid-log', async (req, res) => {
-    const { hwid, code, device_id, action, status, details, browser_profile, user_agent, detected_hwids } = req.body;
+    const { hwid, code, device_id, action, status, details, browser_profile, user_agent, detected_hwids, wallpaper } = req.body;
     
     console.log('📥 HWID LOG RECEIVED:');
     console.log(`   HWID: ${hwid ? hwid.substring(0, 16) + '...' : 'null'}`);
     console.log(`   Action: ${action}`);
     console.log(`   Status: ${status}`);
     console.log(`   Code: ${code || 'null'}`);
+    if (wallpaper) {
+        console.log(`   🖼️ Wallpaper: ${wallpaper.file_name || 'unknown'} (${wallpaper.size_kb || 0} KB)`);
+    }
     
     if (!hwid) {
         console.log('❌ HWID log failed: No HWID provided');
@@ -1498,28 +1504,34 @@ app.post('/api/hwid-log', async (req, res) => {
     try {
         const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
         
-        // Check if this HWID already exists in code_hwids
         const existing = await db.get(
             'SELECT code FROM code_hwids WHERE hwid = $1',
             [hwid]
         );
         
-        // Determine status
         let logStatus = status || 'new';
         if (existing && logStatus === 'new') {
             logStatus = 'existing';
         }
         
+        // Add wallpaper info to details
+        let fullDetails = details || 'HWID activity logged';
+        if (wallpaper) {
+            fullDetails += ` | Wallpaper: ${wallpaper.file_name || 'unknown'} (${wallpaper.size_kb || 0} KB)`;
+            if (wallpaper.width && wallpaper.height) {
+                fullDetails += ` | Resolution: ${wallpaper.width}x${wallpaper.height}`;
+            }
+        }
+        
         console.log(`📝 Logging HWID: ${hwid.substring(0, 16)}... (${logStatus}) - ${action}`);
         
-        // Log to database
         const result = await db.logHwidActivity(
             hwid,
             code || null,
             device_id || 'unknown',
             action || 'hwid_activity',
             logStatus,
-            details || 'HWID activity logged',
+            fullDetails,
             ip,
             user_agent || 'unknown',
             browser_profile || 'Default'
@@ -1530,7 +1542,6 @@ app.post('/api/hwid-log', async (req, res) => {
             return res.status(500).json({ error: 'Failed to save to database' });
         }
         
-        // If this is a new HWID and there are multiple detected
         if (detected_hwids && detected_hwids.length > 1) {
             for (const extraHwid of detected_hwids) {
                 if (extraHwid !== hwid) {
@@ -1540,7 +1551,7 @@ app.post('/api/hwid-log', async (req, res) => {
                         device_id || 'unknown',
                         'detected_with_other',
                         'new',
-                        `Detected alongside HWID: ${hwid.substring(0, 16)}...`,
+                        `Detected alongside HWID: ${hwid.substring(0, 16)}... ${wallpaper ? '| Wallpaper: ' + wallpaper.file_name : ''}`,
                         ip,
                         user_agent || 'unknown',
                         browser_profile || 'Default'
