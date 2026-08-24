@@ -1,4 +1,4 @@
-// server.js - Complete with All Endpoints including New HWID features
+// server.js - Complete with All Endpoints including Optimized Wallpaper Handling
 
 require('dotenv').config();
 const express = require('express');
@@ -75,7 +75,8 @@ const limiter = rateLimit({
             '/api/code/',
             '/api/hwid-logs',
             '/api/hwid-log',
-            '/api/hwid-new'
+            '/api/hwid-new',
+            '/api/wallpaper/'
         ];
         return skipPaths.some(path => req.path.startsWith(path));
     }
@@ -480,6 +481,56 @@ app.post('/api/register', async (req, res) => {
 });
 
 // ============================================
+// WALLPAPER ENDPOINT - OPTIMIZED (Lazy Loading)
+// ============================================
+
+app.get('/api/wallpaper/:deviceId', async (req, res) => {
+    const { deviceId } = req.params;
+    
+    try {
+        const device = await db.get(
+            'SELECT wallpaper_base64, wallpaper_name, wallpaper_width, wallpaper_height FROM devices WHERE device_id = $1',
+            [deviceId]
+        );
+        
+        if (!device || !device.wallpaper_base64) {
+            return res.status(404).json({ error: 'Wallpaper not found' });
+        }
+        
+        // Return compressed version if sharp is available
+        try {
+            const sharp = require('sharp');
+            const imageBuffer = Buffer.from(device.wallpaper_base64, 'base64');
+            
+            const compressed = await sharp(imageBuffer)
+                .resize(300, 225, { fit: 'inside', withoutEnlargement: true })
+                .jpeg({ quality: 60 })
+                .toBuffer();
+            
+            res.setHeader('Content-Type', 'image/jpeg');
+            res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache for 24 hours
+            res.send(compressed);
+        } catch (sharpError) {
+            // Fallback: return original base64 if sharp not available
+            const imageSrc = device.wallpaper_base64.startsWith('data:image') 
+                ? device.wallpaper_base64 
+                : 'data:image/jpeg;base64,' + device.wallpaper_base64;
+            
+            res.json({
+                base64: imageSrc,
+                name: device.wallpaper_name,
+                width: device.wallpaper_width,
+                height: device.wallpaper_height
+            });
+        }
+        
+    } catch (error) {
+        console.error('Wallpaper error:', error);
+        res.status(500).json({ error: 'Failed to load wallpaper' });
+    }
+});
+
+// ============================================
 // STATUS CHECK
 // ============================================
 
@@ -836,18 +887,20 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
         await db.cleanupInactiveDevices();
         const cached = db.getCachedData();
         
-        const devicesWithWallpaper = (cached.devices || []).map(device => ({
+        // OPTIMIZED: Don't send wallpaper_base64 to reduce payload size
+        const devicesWithoutWallpaper = (cached.devices || []).map(device => ({
             ...device,
-            wallpaper_base64: device.wallpaper_base64 || null,
+            wallpaper_base64: null, // Don't send full image
             wallpaper_name: device.wallpaper_name || null,
             wallpaper_size_kb: device.wallpaper_size_kb || 0,
             wallpaper_width: device.wallpaper_width || 0,
-            wallpaper_height: device.wallpaper_height || 0
+            wallpaper_height: device.wallpaper_height || 0,
+            has_wallpaper: !!device.wallpaper_base64
         }));
         
         res.json({
             stats: cached.stats || {},
-            devices: devicesWithWallpaper,
+            devices: devicesWithoutWallpaper,
             codes: cached.codes || [],
             requests: cached.requests || [],
             username: req.session.username
@@ -1333,7 +1386,6 @@ app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
         
         console.log(`📊 Fetching HWID logs - Limit: ${limit}, Status: ${status}`);
         
-        // Get logs with assignment status - only unassigned HWIDs
         const logs = await db.getHwidLogsWithAssignment(limit, status);
         const newCount = await db.getUniqueNewHwidCount();
         

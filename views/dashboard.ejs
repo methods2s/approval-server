@@ -155,13 +155,13 @@
             border-radius: 6px; 
             object-fit: cover; 
             border: 2px solid rgba(255,255,255,0.1);
-            background: #111;
+            background: #1a1a2e;
             cursor: pointer;
             transition: all 0.3s ease;
             display: block;
         }
         .wallpaper-preview:hover { 
-            transform: scale(1.5); 
+            transform: scale(1.2); 
             z-index: 100;
             border-color: #FF9800;
             box-shadow: 0 0 20px rgba(255,152,0,0.3);
@@ -195,6 +195,7 @@
             max-height: 85%; 
             border-radius: 12px; 
             box-shadow: 0 0 60px rgba(255,152,0,0.2);
+            background: #111;
         }
         .wallpaper-modal .close-modal { 
             position: absolute; 
@@ -295,6 +296,23 @@
         .hwid-status-badge.has-hwid { background: rgba(76,175,80,0.2); color: #4CAF50; }
         .hwid-status-badge.no-hwid { background: rgba(244,67,54,0.2); color: #f44336; }
         .hwid-status-badge.full { background: rgba(255,152,0,0.2); color: #FF9800; }
+        
+        .wallpaper-loading {
+            width: 100px;
+            height: 70px;
+            border-radius: 6px;
+            background: rgba(255,255,255,0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: #666;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
         
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
@@ -676,31 +694,55 @@
         }
 
         // ============================================
-        // WALLPAPER MODAL
+        // WALLPAPER MODAL - OPTIMIZED (Lazy Load)
         // ============================================
-        function openWallpaperModal(base64Image, fileName, size, resolution) {
+        function openWallpaperModal(deviceId, fileName, size, resolution) {
             const modal = document.getElementById('wallpaper-modal');
             const img = document.getElementById('wallpaper-modal-img');
             const info = document.getElementById('wallpaper-modal-info');
             
-            if (!base64Image) {
-                showMessage('❌ No wallpaper image available', 'error');
+            if (!deviceId) {
+                showMessage('❌ No wallpaper available', 'error');
                 return;
             }
             
-            const imageSrc = base64Image.startsWith('data:image') ? base64Image : 'data:image/jpeg;base64,' + base64Image;
-            img.src = imageSrc;
-            
-            const sizeNum = parseFloat(size) || 0;
-            const resolutionText = (resolution && resolution !== '0x0') ? resolution : '';
-            
-            info.innerHTML = `
-                <strong>${fileName}</strong> 
-                ${sizeNum > 0 ? `📦 ${sizeNum.toFixed(1)} KB` : ''} 
-                ${resolutionText ? `📐 ${resolutionText}` : ''}
-            `;
-            
+            // Show loading state
+            img.src = '';
+            img.alt = 'Loading...';
+            info.innerHTML = '<span class="spinner"></span> Loading wallpaper...';
             modal.classList.add('active');
+            
+            // Load wallpaper from server
+            fetch(`/api/wallpaper/${deviceId}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Wallpaper not found');
+                    }
+                    return response.blob();
+                })
+                .then(blob => {
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        img.src = e.target.result;
+                        img.alt = fileName || 'Wallpaper';
+                        
+                        const sizeNum = parseFloat(size) || 0;
+                        const resolutionText = (resolution && resolution !== '0x0') ? resolution : '';
+                        
+                        info.innerHTML = `
+                            <strong>${fileName || 'Wallpaper'}</strong> 
+                            ${sizeNum > 0 ? `📦 ${sizeNum.toFixed(1)} KB` : ''} 
+                            ${resolutionText ? `📐 ${resolutionText}` : ''}
+                        `;
+                    };
+                    reader.readAsDataURL(blob);
+                })
+                .catch(error => {
+                    console.error('Wallpaper load error:', error);
+                    info.innerHTML = '❌ Failed to load wallpaper';
+                    img.alt = 'Error loading wallpaper';
+                    img.src = '';
+                });
             
             modal.onclick = function(e) {
                 if (e.target === modal) {
@@ -712,6 +754,7 @@
         function closeWallpaperModal() {
             document.getElementById('wallpaper-modal').classList.remove('active');
             document.getElementById('wallpaper-modal-img').src = '';
+            document.getElementById('wallpaper-modal-info').innerHTML = '';
         }
 
         document.addEventListener('keydown', function(e) {
@@ -721,57 +764,34 @@
         });
 
         // ============================================
-        // WALLPAPER HTML HELPERS
+        // WALLPAPER HTML HELPERS - OPTIMIZED
         // ============================================
-        function getWallpaperHtml(wallpaper, showPreview = true) {
+        function getWallpaperHtml(deviceId, wallpaper) {
             if (!wallpaper) {
                 return '<span style="color:#666;font-size:10px;">No wallpaper</span>';
             }
             
-            let html = '';
             const name = wallpaper.name || wallpaper.file_name || 'Unknown';
             const size = parseFloat(wallpaper.size_kb) || 0;
             const width = parseInt(wallpaper.width) || 0;
             const height = parseInt(wallpaper.height) || 0;
-            const base64 = wallpaper.base64 || null;
             const resolution = (width > 0 && height > 0) ? `${width}x${height}` : '';
             
-            if (showPreview && base64) {
-                const imageSrc = base64.startsWith('data:image') ? base64 : 'data:image/jpeg;base64,' + base64;
-                html += `<div class="wallpaper-cell">`;
-                html += `<img class="wallpaper-preview" src="${imageSrc}" 
-                           onclick="event.stopPropagation(); openWallpaperModal('${base64}', '${name}', ${size}, '${resolution}')" 
-                           title="Click to enlarge" alt="${name}"
-                           onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">`;
-                html += `<div class="wallpaper-placeholder" style="display:none;">🖼️</div>`;
-                html += `<div class="wallpaper-info-text">`;
-                html += `<span class="name">${name}</span>`;
-                if (size > 0) {
-                    html += ` <span class="size">(${size.toFixed(1)} KB)</span>`;
-                }
-                if (resolution) {
-                    html += `<br><span class="res">📐 ${resolution}</span>`;
-                }
-                html += `</div>`;
-                html += `</div>`;
-            } else if (showPreview && !base64) {
-                html += `<div class="wallpaper-cell">`;
-                html += `<div class="wallpaper-placeholder">🖼️</div>`;
-                html += `<div class="wallpaper-info-text">`;
-                html += `<span class="name">${name}</span>`;
-                if (size > 0) {
-                    html += ` <span class="size">(${size.toFixed(1)} KB)</span>`;
-                }
-                if (resolution) {
-                    html += `<br><span class="res">📐 ${resolution}</span>`;
-                }
-                html += `</div>`;
-                html += `</div>`;
-            } else {
-                html = `<span style="color:#666;font-size:10px;">${name}</span>`;
-            }
-            
-            return html;
+            // Show placeholder with click to load
+            return `
+                <div class="wallpaper-cell">
+                    <div class="wallpaper-placeholder" 
+                         onclick="openWallpaperModal('${deviceId}', '${name}', ${size}, '${resolution}')"
+                         style="cursor:pointer; border-color: #FF9800; color: #FF9800;">
+                        🖼️ Click to Load
+                    </div>
+                    <div class="wallpaper-info-text">
+                        <span class="name">${name}</span>
+                        ${size > 0 ? ` <span class="size">(${size.toFixed(1)} KB)</span>` : ''}
+                        ${resolution ? `<br><span class="res">📐 ${resolution}</span>` : ''}
+                    </div>
+                </div>
+            `;
         }
 
         // ============================================
@@ -1570,7 +1590,7 @@
         }
 
         // ============================================
-        // RENDER HWID LIST
+        // RENDER HWID LIST - OPTIMIZED
         // ============================================
         function renderHwidList(hwidData, devices) {
             const tbody = document.getElementById('hwid-list-body');
@@ -1597,15 +1617,14 @@
                 const profile = device?.browser_profile || device?.profile_name || 'Default';
                 
                 let wallpaperHtml = '<span style="color:#666;font-size:10px;">No wallpaper</span>';
-                if (device?.wallpaper_name || device?.wallpaper_base64) {
+                if (device?.wallpaper_name) {
                     const wallpaper = {
-                        name: device.wallpaper_name || 'Unknown',
+                        name: device.wallpaper_name,
                         size_kb: device.wallpaper_size_kb || 0,
                         width: device.wallpaper_width || 0,
-                        height: device.wallpaper_height || 0,
-                        base64: device.wallpaper_base64 || null
+                        height: device.wallpaper_height || 0
                     };
-                    wallpaperHtml = getWallpaperHtml(wallpaper, true);
+                    wallpaperHtml = getWallpaperHtml(device.device_id, wallpaper);
                 }
                 
                 const hasSpecs = cpu !== 'N/A' && cpu !== 'Unknown';
