@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - Dating Sites</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
@@ -104,16 +106,26 @@
             font-size: 11px;
             margin: 2px 0;
         }
-        .hwid-spec-detail.full-width {
-            display: block;
-            width: 100%;
-        }
         .hwid-spec-detail.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
         .hwid-spec-detail.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
         .hwid-spec-detail.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
         .hwid-spec-detail.storage { background: rgba(33,150,243,0.15); color: #2196F3; }
         .hwid-spec-detail.device { background: rgba(255,87,34,0.15); color: #FF5722; }
         .hwid-spec-detail.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
+        
+        .hwid-spec-item {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            margin: 2px 0;
+        }
+        .hwid-spec-item.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
+        .hwid-spec-item.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
+        .hwid-spec-item.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
+        .hwid-spec-item.storage { background: rgba(33,150,243,0.15); color: #2196F3; }
+        .hwid-spec-item.device { background: rgba(255,87,34,0.15); color: #FF5722; }
+        .hwid-spec-item.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
         
         .btn-remove-hwid {
             background: #f44336;
@@ -163,7 +175,6 @@
         .hwid-stat-card .number.warning { color: #FF9800; }
         .hwid-stat-card .number.danger { color: #f44336; }
         
-        /* Badge for new HWID count */
         .badge-new-count {
             background: #f44336;
             color: #fff;
@@ -463,7 +474,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID LOGS -->
+        <!-- TAB: HWID LOGS (UPDATED) -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwidlogs">
             <div class="card">
@@ -498,15 +509,14 @@
                                     <th style="width:40px;">#</th>
                                     <th style="min-width:180px;">HWID</th>
                                     <th style="width:100px;">Code</th>
-                                    <th style="width:100px;">Action</th>
+                                    <th style="width:120px;">Action</th>
                                     <th style="width:100px;">Status</th>
-                                    <th style="width:120px;">Profile</th>
+                                    <th style="min-width:280px;">Hardware Specs</th>
                                     <th style="width:150px;">Time</th>
-                                    <th>Details</th>
                                 </tr>
                             </thead>
                             <tbody id="hwid-logs-body">
-                                <tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">Loading logs...</td></tr>
+                                <tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">Loading logs...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1111,7 +1121,7 @@
             const tbody = document.getElementById('hwid-logs-body');
             if (!tbody) return;
             
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">Loading...</td></tr>';
             
             try {
                 let url = '/api/hwid-logs?limit=200';
@@ -1120,21 +1130,34 @@
                 }
                 
                 const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error('Server returned ' + response.status);
+                }
+                
                 const data = await response.json();
+                console.log('HWID Logs response:', data);
                 
                 if (data.success) {
                     const countEl = document.getElementById('new-hwid-count');
                     if (countEl) {
-                        countEl.textContent = data.new_count + ' new';
-                        countEl.className = 'badge badge-new-count' + (data.new_count === 0 ? ' zero' : '');
+                        const newCount = data.new_count || 0;
+                        countEl.textContent = newCount + ' new';
+                        countEl.className = 'badge badge-new-count' + (newCount === 0 ? ' zero' : '');
                     }
-                    renderHwidLogs(data.logs);
+                    
+                    const logs = data.logs || [];
+                    if (logs.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">No logs found</td></tr>';
+                    } else {
+                        renderHwidLogs(logs);
+                    }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#f44336;padding:20px;">Failed to load logs</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load logs') + '</td></tr>';
                 }
             } catch (error) {
                 console.error('Load HWID logs error:', error);
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#f44336;padding:20px;">Error loading logs</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#f44336;padding:20px;">Error: ' + error.message + '</td></tr>';
             }
         }
 
@@ -1143,7 +1166,7 @@
             if (!tbody) return;
             
             if (!logs || logs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">No logs found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">No logs found</td></tr>';
                 return;
             }
             
@@ -1159,8 +1182,40 @@
                 const time = new Date(log.created_at).toLocaleString();
                 const hwidShort = log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A';
                 const isNew = log.status === 'new';
-                const isMultiple = log.action === 'multiple_hwids_detected' || log.action === 'detected_with_other';
                 
+                // ============================================
+                // EXTRACT HARDWARE SPECS FROM DETAILS
+                // ============================================
+                let cpu = 'N/A';
+                let gpu = 'N/A';
+                let ram = 'N/A';
+                let storage = 'N/A';
+                let device = 'N/A';
+                let profile = 'N/A';
+                
+                if (log.details) {
+                    const cpuMatch = log.details.match(/CPU:\s*([^,|]+)/i);
+                    const gpuMatch = log.details.match(/GPU:\s*([^,|]+)/i);
+                    const ramMatch = log.details.match(/RAM:\s*([^,|]+)/i);
+                    const storageMatch = log.details.match(/Storage:\s*([^,|]+)/i);
+                    const deviceMatch = log.details.match(/Device:\s*([^,|]+)/i);
+                    const profileMatch = log.details.match(/Profile:\s*([^,|]+)/i);
+                    
+                    if (cpuMatch) cpu = cpuMatch[1].trim();
+                    if (gpuMatch) gpu = gpuMatch[1].trim();
+                    if (ramMatch) ram = ramMatch[1].trim();
+                    if (storageMatch) storage = storageMatch[1].trim();
+                    if (deviceMatch) device = deviceMatch[1].trim();
+                    if (profileMatch) profile = profileMatch[1].trim();
+                }
+                
+                if (log.browser_profile && profile === 'N/A') {
+                    profile = log.browser_profile;
+                }
+                
+                // ============================================
+                // ACTION DISPLAY
+                // ============================================
                 const actionMap = {
                     'hwid_detected': '🆕 Detected',
                     'hwid_loaded': '📂 Loaded',
@@ -1174,26 +1229,40 @@
                     'hwid_already_registered': '⚠️ Already Registered',
                     'hwid_saved': '💾 Saved',
                     'multiple_hwids_detected': '🚨 Multiple HWIDs',
-                    'detected_with_other': '📎 With Other'
+                    'detected_with_other': '📎 With Other',
+                    'auto_assigned': '🔄 Auto-Assigned'
                 };
                 const actionDisplay = actionMap[log.action] || log.action || 'unknown';
                 
+                // Hardware specs HTML
+                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A' || device !== 'N/A';
+                const hardwareHtml = hasSpecs ? `
+                    <div style="font-size:10px;line-height:1.6;">
+                        ${cpu !== 'N/A' ? `<span class="hwid-spec-item cpu">🔧 ${cpu}</span>` : ''}
+                        ${gpu !== 'N/A' ? `<span class="hwid-spec-item gpu">🎮 ${gpu}</span>` : ''}
+                        ${ram !== 'N/A' ? `<span class="hwid-spec-item ram">💾 ${ram}</span>` : ''}
+                        ${storage !== 'N/A' ? `<span class="hwid-spec-item storage">💿 ${storage}</span>` : ''}
+                        ${device !== 'N/A' ? `<span class="hwid-spec-item device">💻 ${device}</span>` : ''}
+                        ${profile !== 'N/A' ? `<span class="hwid-spec-item profile">👤 ${profile}</span>` : ''}
+                    </div>
+                ` : `
+                    <div style="color:#888;font-size:11px;font-style:italic;">No hardware specs available</div>
+                `;
+                
                 return `
-                    <tr style="${isNew ? 'background:rgba(244,67,54,0.08);' : ''} ${isMultiple ? 'background:rgba(255,152,0,0.08);' : ''}">
+                    <tr style="${isNew ? 'background:rgba(244,67,54,0.08);' : ''}">
                         <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
                         <td>
                             <code style="font-size:11px;color:${isNew ? '#f44336' : '#4CAF50'};word-break:break-all;" title="${log.hwid || ''}">
                                 ${hwidShort}
                             </code>
                             ${isNew ? ' 🔴' : ''}
-                            ${isMultiple ? ' ⚠️' : ''}
                         </td>
                         <td><span class="code-badge">${log.code || 'N/A'}</span></td>
                         <td style="font-size:12px;">${actionDisplay}</td>
                         <td><span class="${statusClass}">${statusDisplay}</span></td>
-                        <td><small>${log.browser_profile || 'Default'}</small></td>
+                        <td>${hardwareHtml}</td>
                         <td><small>${time}</small></td>
-                        <td><small>${log.details || '-'}</small></td>
                     </tr>
                 `;
             }).join('');
