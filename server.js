@@ -1,4 +1,4 @@
-// server.js - Complete with All Endpoints
+// server.js - Complete with All Endpoints and Optimized Loading
 
 require('dotenv').config();
 const express = require('express');
@@ -74,7 +74,8 @@ const limiter = rateLimit({
             '/api/status/',
             '/api/code/',
             '/api/hwid-logs',
-            '/api/hwid-log'
+            '/api/hwid-log',
+            '/api/new-hwids'
         ];
         return skipPaths.some(path => req.path.startsWith(path));
     }
@@ -230,7 +231,8 @@ app.get('/dashboard', isAuthenticated, async (req, res) => {
             devices: cached.devices || [],
             stats: cached.stats || {},
             codes: cached.codes || [],
-            requests: cached.requests || []
+            requests: cached.requests || [],
+            newHwids: cached.newHwids || []
         });
     } catch (error) {
         console.error('Dashboard error:', error);
@@ -240,6 +242,7 @@ app.get('/dashboard', isAuthenticated, async (req, res) => {
             stats: {},
             codes: [],
             requests: [],
+            newHwids: [],
             error: 'Failed to load data'
         });
     }
@@ -265,7 +268,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE
+// REGISTER DEVICE - With New HWID Registry
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -299,6 +302,17 @@ app.post('/api/register', async (req, res) => {
     }
 
     try {
+        // Add to new HWID registry if not yet assigned
+        const existingHwid = await db.get(
+            'SELECT code FROM code_hwids WHERE hwid = $1',
+            [hwid]
+        );
+        
+        if (!existingHwid) {
+            await db.addNewHwidToRegistry(hwid, hardware, browser_profile);
+            console.log(`🆕 Added HWID to new registry: ${hwid.substring(0, 16)}...`);
+        }
+
         const codeInfo = await db.get('SELECT * FROM codes WHERE code = $1', [code.toUpperCase()]);
         if (!codeInfo) {
             return res.status(400).json({
@@ -315,26 +329,7 @@ app.post('/api/register', async (req, res) => {
         }
 
         const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
-        const existingHwid = await db.get(
-            'SELECT code FROM code_hwids WHERE hwid = $1',
-            [hwid]
-        );
-
-        if (!existingHwid) {
-            console.log(`🆕 NEW HWID DETECTED: ${hwid.substring(0, 16)}...`);
-            await db.logHwidActivity(
-                hwid,
-                code,
-                deviceId,
-                'register_attempt',
-                'new',
-                `New HWID attempting to register with code: ${code}`,
-                ip,
-                userAgent || 'unknown',
-                browser_profile || 'Default'
-            );
-        }
-
+        
         const isAuthorized = await db.isHwidAuthorized(code.toUpperCase(), hwid);
 
         if (!isAuthorized) {
@@ -728,7 +723,6 @@ app.post('/api/auto-deactivate', async (req, res) => {
             revokedCount++;
         }
         
-        // Remove all HWIDs
         await db.run(
             'DELETE FROM code_hwids WHERE code = $1',
             [code]
@@ -849,6 +843,7 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
             devices: devicesWithWallpaper,
             codes: cached.codes || [],
             requests: cached.requests || [],
+            newHwids: cached.newHwids || [],
             username: req.session.username
         });
     } catch (error) {
@@ -859,6 +854,7 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
             devices: cached.devices || [],
             codes: cached.codes || [],
             requests: cached.requests || [],
+            newHwids: cached.newHwids || [],
             username: req.session.username
         });
     }
@@ -1054,7 +1050,6 @@ app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
         const hwids = await db.getCodeHwids(code);
         const hwidCount = hwids.length;
         
-        // Remove all HWIDs if code was inactive
         if (!codeInfo.is_active || codeInfo.status === 'inactive' || codeInfo.status.includes('auto_deactivated')) {
             console.log(`🔄 Reactivating code ${code} - Removing ${hwidCount} HWIDs`);
             
@@ -1333,13 +1328,27 @@ app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
         console.log(`📊 Fetching HWID logs - Limit: ${limit}, Status: ${status}`);
         
         const logs = await db.getHwidLogs(limit, status);
+        
+        // Get all assigned HWIDs
+        const assignedHwids = await db.all(
+            'SELECT DISTINCT hwid FROM code_hwids WHERE hwid IS NOT NULL'
+        );
+        const assignedSet = new Set(assignedHwids.map(h => h.hwid));
+        
+        // Filter out assigned HWIDs
+        const filteredLogs = (logs || []).filter(log => {
+            if (log.code) return false;
+            if (log.hwid && assignedSet.has(log.hwid)) return false;
+            return true;
+        });
+        
         const newCount = await db.getNewHwidCount();
         
         res.json({
             success: true,
-            logs: logs || [],
+            logs: filteredLogs || [],
             new_count: newCount || 0,
-            total: logs ? logs.length : 0
+            total: filteredLogs ? filteredLogs.length : 0
         });
     } catch (error) {
         console.error('❌ Get HWID logs error:', error);
@@ -1412,6 +1421,68 @@ app.get('/api/hwid-logs/new-count', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
+// NEW HWID ENDPOINTS
+// ============================================
+
+app.get('/api/new-hwids', isApiAuthenticated, async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 100;
+        const hwids = await db.getNewHwids(limit);
+        const count = await db.getNewHwidCount();
+        
+        res.json({
+            success: true,
+            hwids: hwids || [],
+            count: count || 0,
+            total: hwids ? hwids.length : 0
+        });
+    } catch (error) {
+        console.error('❌ Get new HWIDs error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to get new HWIDs: ' + error.message,
+            hwids: [],
+            count: 0,
+            total: 0
+        });
+    }
+});
+
+app.delete('/api/new-hwid/:hwid', isApiAuthenticated, async (req, res) => {
+    const { hwid } = req.params;
+    
+    try {
+        const success = await db.removeNewHwid(hwid);
+        if (success) {
+            await db.logUsage('admin', null, 'remove_new_hwid', 
+                `Removed new HWID ${hwid.substring(0, 16)}... by ${req.session.username}`);
+            res.json({ success: true, message: 'HWID removed from new registry' });
+        } else {
+            res.status(404).json({ error: 'HWID not found or already assigned' });
+        }
+    } catch (error) {
+        console.error('Remove new HWID error:', error);
+        res.status(500).json({ error: 'Failed to remove HWID' });
+    }
+});
+
+app.post('/api/clear-old-hwid-logs', isApiAuthenticated, async (req, res) => {
+    try {
+        const count = await db.clearOldHwidLogs();
+        await db.logUsage('admin', null, 'clear_old_hwid_logs', 
+            `Cleared ${count} old HWID logs by ${req.session.username}`);
+        res.json({ 
+            success: true, 
+            message: `Cleared ${count} old HWID logs`,
+            cleared: count
+        });
+    } catch (error) {
+        console.error('Clear old HWID logs error:', error);
+        res.status(500).json({ error: 'Failed to clear old logs' });
+    }
+});
+
+// ============================================
 // HWID LOG - Receive from extension
 // ============================================
 
@@ -1432,6 +1503,7 @@ app.post('/api/hwid-log', async (req, res) => {
     try {
         const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
         
+        // Check if HWID already has a code
         const existing = await db.get(
             'SELECT code FROM code_hwids WHERE hwid = $1',
             [hwid]
@@ -1466,20 +1538,35 @@ app.post('/api/hwid-log', async (req, res) => {
             return res.status(500).json({ error: 'Failed to save to database' });
         }
         
+        // Add to new HWID registry if no code
+        if (!existing) {
+            let hardware = {};
+            if (details) {
+                const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
+                const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
+                const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                const storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
+                const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
+                
+                if (cpuMatch) hardware.cpu = cpuMatch[1].trim();
+                if (gpuMatch) hardware.gpu = gpuMatch[1].trim();
+                if (ramMatch) hardware.ram_gb = parseFloat(ramMatch[1].trim());
+                if (storageMatch) hardware.storage_gb = parseFloat(storageMatch[1].trim());
+                if (deviceMatch) hardware.device_name = deviceMatch[1].trim();
+            }
+            await db.addNewHwidToRegistry(hwid, hardware, browser_profile);
+        }
+        
         if (detected_hwids && detected_hwids.length > 1) {
             for (const extraHwid of detected_hwids) {
                 if (extraHwid !== hwid) {
-                    await db.logHwidActivity(
-                        extraHwid,
-                        code || null,
-                        device_id || 'unknown',
-                        'detected_with_other',
-                        'new',
-                        `Detected alongside HWID: ${hwid.substring(0, 16)}...`,
-                        ip,
-                        user_agent || 'unknown',
-                        browser_profile || 'Default'
+                    const extraExisting = await db.get(
+                        'SELECT code FROM code_hwids WHERE hwid = $1',
+                        [extraHwid]
                     );
+                    if (!extraExisting) {
+                        await db.addNewHwidToRegistry(extraHwid, null, browser_profile);
+                    }
                 }
             }
         }
