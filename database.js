@@ -1,4 +1,4 @@
-// database-pg.js - Complete with HWID Logs
+// database-pg.js - Complete with all fixes including HWID Logs
 const { Pool } = require('pg');
 
 class DeviceDatabase {
@@ -406,8 +406,6 @@ class DeviceDatabase {
 
   async removeHwidFromCode(code, hwid) {
     try {
-      // Allow removal even if it's the last one
-      
       // Delete all devices with this HWID
       await this.run(
         'DELETE FROM devices WHERE code = $1 AND hwid = $2',
@@ -421,7 +419,6 @@ class DeviceDatabase {
       );
 
       if (result.changes > 0) {
-        // Update remaining HWID in codes table
         const remaining = await this.getCodeHwids(code);
         if (remaining && remaining.length > 0) {
           await this.run(
@@ -429,7 +426,6 @@ class DeviceDatabase {
             [remaining[0].hwid, code]
           );
         } else {
-          // No remaining HWIDs, clear the hwid field
           await this.run(
             'UPDATE codes SET hwid = NULL WHERE code = $1',
             [code]
@@ -1056,7 +1052,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // HWID LOGGING
+  // HWID LOGGING METHODS - FIXED
   // ============================================
 
   async logHwidActivity(hwid, code, deviceId, action, status, details, ip, userAgent, browserProfile) {
