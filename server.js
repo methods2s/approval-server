@@ -1251,10 +1251,12 @@ app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) =>
             await db.refreshCache();
             
             // Update code usage count
-            await db.run(
-                'UPDATE codes SET used_count = used_count - $1 WHERE code = $2',
-                [deletedCount, code.toUpperCase()]
-            );
+            if (deletedCount > 0) {
+                await db.run(
+                    'UPDATE codes SET used_count = used_count - $1 WHERE code = $2',
+                    [deletedCount, code.toUpperCase()]
+                );
+            }
             
             res.json({
                 success: true,

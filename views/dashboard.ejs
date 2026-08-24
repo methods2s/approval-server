@@ -939,7 +939,7 @@
                 const approvedDevices = hwidDevices.filter(d => d.status === 'approved');
                 const deviceCount = approvedDevices.length;
                 
-                // ALWAYS ENABLE REMOVE BUTTON - kahit isa lang ang HWID
+                // ALWAYS ENABLE REMOVE BUTTON
                 const canRemove = true;
                 
                 // Get specs from the FIRST device with this HWID
@@ -951,7 +951,8 @@
                 const ram = device?.ram_total_gb ? device.ram_total_gb + ' GB' : 'N/A';
                 const storage = device?.storage_total_gb ? device.storage_total_gb + ' GB' : 'N/A';
                 const deviceName = device?.device_name || 'N/A';
-                const profile = device?.browser_profile || 'Default';
+                // Kunin ang profile name mula sa browser_profile (galing sa Python file)
+                const profile = device?.browser_profile || device?.profile_name || 'Default';
                 const hwidFull = h.hwid || '';
                 const hwidMasked = h.hwid_masked || (hwidFull ? hwidFull.substring(0, 16) + '...' : 'N/A');
                 
