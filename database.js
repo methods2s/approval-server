@@ -1,4 +1,4 @@
-// database-pg.js - Complete with all fixes including HWID Logs
+// database-pg.js - Complete with HWID Logs
 const { Pool } = require('pg');
 
 class DeviceDatabase {
@@ -1052,7 +1052,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // HWID LOGGING METHODS - FIXED
+  // HWID LOGGING METHODS
   // ============================================
 
   async logHwidActivity(hwid, code, deviceId, action, status, details, ip, userAgent, browserProfile) {
@@ -1065,7 +1065,7 @@ class DeviceDatabase {
       console.log(`📝 HWID Log: ${action} - ${hwid.substring(0, 16)}... (${status || 'new'})`);
       return true;
     } catch (error) {
-      console.error('Error logging HWID activity:', error);
+      console.error('❌ Error logging HWID activity:', error.message);
       return false;
     }
   }
@@ -1080,9 +1080,10 @@ class DeviceDatabase {
         params.unshift(status);
       }
       
-      return await this.all(query, params);
+      const result = await this.all(query, params);
+      return result || [];
     } catch (error) {
-      console.error('Get HWID logs error:', error);
+      console.error('❌ Get HWID logs error:', error.message);
       return [];
     }
   }
@@ -1094,7 +1095,7 @@ class DeviceDatabase {
         [hwid, limit]
       );
     } catch (error) {
-      console.error('Get HWID logs by HWID error:', error);
+      console.error('❌ Get HWID logs by HWID error:', error.message);
       return [];
     }
   }
@@ -1106,7 +1107,7 @@ class DeviceDatabase {
       );
       return result ? parseInt(result.count) : 0;
     } catch (error) {
-      console.error('Get new HWID count error:', error);
+      console.error('❌ Get new HWID count error:', error.message);
       return 0;
     }
   }
@@ -1119,7 +1120,7 @@ class DeviceDatabase {
       );
       return true;
     } catch (error) {
-      console.error('Mark HWID as seen error:', error);
+      console.error('❌ Mark HWID as seen error:', error.message);
       return false;
     }
   }

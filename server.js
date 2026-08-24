@@ -1361,7 +1361,7 @@ app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) =>
 });
 
 // ============================================
-// HWID LOGS ENDPOINTS
+// HWID LOGS ENDPOINTS - FIXED
 // ============================================
 
 // Get all HWID logs
@@ -1369,18 +1369,50 @@ app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 200;
         const status = req.query.status || null;
+        
+        console.log(`📊 Fetching HWID logs - Limit: ${limit}, Status: ${status}`);
+        
+        // Check if table exists first
+        try {
+            const tableCheck = await db.get(
+                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'hwid_logs')"
+            );
+            
+            if (!tableCheck || !tableCheck.exists) {
+                console.log('⚠️ hwid_logs table does not exist yet');
+                return res.json({
+                    success: true,
+                    logs: [],
+                    new_count: 0,
+                    total: 0,
+                    message: 'Table not created yet'
+                });
+            }
+        } catch (tableError) {
+            console.log('⚠️ Error checking table existence:', tableError.message);
+            // Continue anyway
+        }
+        
         const logs = await db.getHwidLogs(limit, status);
         const newCount = await db.getNewHwidCount();
         
+        console.log(`✅ Retrieved ${logs ? logs.length : 0} HWID logs, ${newCount} new`);
+        
         res.json({
             success: true,
-            logs: logs,
-            new_count: newCount,
-            total: logs.length
+            logs: logs || [],
+            new_count: newCount || 0,
+            total: logs ? logs.length : 0
         });
     } catch (error) {
-        console.error('Get HWID logs error:', error);
-        res.status(500).json({ error: 'Failed to get HWID logs' });
+        console.error('❌ Get HWID logs error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to get HWID logs: ' + error.message,
+            logs: [],
+            new_count: 0,
+            total: 0
+        });
     }
 });
 
@@ -1394,12 +1426,17 @@ app.get('/api/hwid-logs/:hwid', isApiAuthenticated, async (req, res) => {
         res.json({
             success: true,
             hwid: hwid,
-            logs: logs,
-            total: logs.length
+            logs: logs || [],
+            total: logs ? logs.length : 0
         });
     } catch (error) {
-        console.error('Get HWID logs by HWID error:', error);
-        res.status(500).json({ error: 'Failed to get HWID logs' });
+        console.error('❌ Get HWID logs by HWID error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to get HWID logs: ' + error.message,
+            logs: [],
+            total: 0
+        });
     }
 });
 
@@ -1417,7 +1454,7 @@ app.post('/api/hwid-logs/mark-seen', isApiAuthenticated, async (req, res) => {
             message: success ? 'HWID marked as seen' : 'Failed to mark HWID as seen'
         });
     } catch (error) {
-        console.error('Mark HWID as seen error:', error);
+        console.error('❌ Mark HWID as seen error:', error);
         res.status(500).json({ error: 'Failed to mark HWID as seen' });
     }
 });
@@ -1428,11 +1465,15 @@ app.get('/api/hwid-logs/new-count', isApiAuthenticated, async (req, res) => {
         const count = await db.getNewHwidCount();
         res.json({
             success: true,
-            new_count: count
+            new_count: count || 0
         });
     } catch (error) {
-        console.error('Get new HWID count error:', error);
-        res.status(500).json({ error: 'Failed to get new HWID count' });
+        console.error('❌ Get new HWID count error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to get new HWID count',
+            new_count: 0
+        });
     }
 });
 
