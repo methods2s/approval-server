@@ -83,9 +83,6 @@
         .badge-unregistered { background: rgba(255,152,0,0.2); color: #FF9800; font-size: 9px; padding: 1px 6px; border-radius: 8px; }
         .badge-approved { background: rgba(76,175,80,0.2); color: #4CAF50; font-size: 9px; padding: 1px 6px; border-radius: 8px; }
         
-        .badge-new-count { background: #f44336; color: #fff; padding: 2px 10px; border-radius: 12px; font-size: 12px; }
-        .badge-new-count.zero { background: #4CAF50; }
-        
         .edit-input { width: 100%; padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; min-width: 60px; }
         .edit-input:focus { outline: none; border-color: #4CAF50; }
         .edit-select { padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; }
@@ -148,6 +145,9 @@
         .hwid-stat-card .label { font-size: 12px; color: #888; margin-top: 4px; }
         .hwid-stat-card .number.warning { color: #FF9800; }
         .hwid-stat-card .number.danger { color: #f44336; }
+        
+        .badge-new-count { background: #f44336; color: #fff; padding: 4px 12px; border-radius: 12px; font-size: 12px; }
+        .badge-new-count.zero { background: #4CAF50; }
         
         .wallpaper-preview { 
             width: 100px; 
@@ -342,9 +342,7 @@
             <button class="tab-btn" onclick="switchTab('vip')">🔶 VIP</button>
             <button class="tab-btn" onclick="switchTab('hwid')">🖥️ HWID Manager</button>
             <button class="tab-btn" onclick="switchTab('hwidlogs')">📋 HWID Logs</button>
-            <button class="tab-btn" onclick="switchTab('newhwid')" id="new-hwid-tab">
-                🆕 New HWIDs <span class="badge-new-count" id="new-hwid-badge">0</span>
-            </button>
+            <button class="tab-btn" onclick="switchTab('newhwid')">🆕 New HWID</button>
         </div>
 
         <!-- ============================================ -->
@@ -565,8 +563,10 @@
                     <div>
                         <span class="badge badge-new-count" id="new-hwid-count">0 new</span>
                         <button onclick="loadHwidLogs()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
-                        <button onclick="clearOldHwidLogs()" class="btn-small btn-warning" style="margin-left:5px;">🧹 Clear Old</button>
                     </div>
+                </div>
+                <div style="font-size:13px;color:#888;margin-bottom:15px;padding:10px;background:rgba(76,175,80,0.1);border-radius:6px;">
+                    ✅ Showing only <strong>unassigned HWIDs</strong> (HWIDs without a code)
                 </div>
                 <div class="card-body">
                     <div class="scroll-table">
@@ -576,7 +576,7 @@
                                     <th style="width:40px;">#</th>
                                     <th style="min-width:150px;">🖥️ HWID</th>
                                     <th style="width:100px;">🔑 Code</th>
-                                    <th style="min-width:350px;">🖥️ Hardware Specs</th>
+                                    <th style="min-width:350px;">Hardware Specs</th>
                                     <th style="width:160px;">⏰ Time</th>
                                 </tr>
                             </thead>
@@ -594,16 +594,21 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: NEW HWID -->
+        <!-- TAB: NEW HWID DETECTION -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-newhwid">
             <div class="card">
                 <div class="card-header">
-                    <h3>🆕 New HWID Detections</h3>
-                    <div style="display:flex; gap:10px; align-items:center;">
-                        <span class="text-muted" style="font-size:12px;">HWIDs without assigned codes</span>
-                        <button onclick="loadNewHwids()" class="btn-small btn-refresh">🔄 Refresh</button>
+                    <h3>🆕 New HWID Detection</h3>
+                    <div>
+                        <span class="badge badge-new-count" id="new-hwid-unique-count">0 new</span>
+                        <button onclick="loadNewHwids()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
+                        <button onclick="cleanupOldLogs()" class="btn-small btn-warning" style="margin-left:10px;">🧹 Cleanup Logs</button>
                     </div>
+                </div>
+                <div style="font-size:13px;color:#888;margin-bottom:15px;padding:10px;background:rgba(255,152,0,0.1);border-radius:6px;">
+                    ⚠️ These are <strong>unique HWIDs</strong> that have been detected but are <strong>not yet assigned</strong> to any code.
+                    Each HWID appears only once. Assign them to a code or mark as seen.
                 </div>
                 <div class="card-body">
                     <div class="scroll-table">
@@ -612,14 +617,13 @@
                                 <tr>
                                     <th style="width:40px;">#</th>
                                     <th style="min-width:180px;">🖥️ HWID</th>
-                                    <th style="min-width:200px;">🔧 Hardware Specs</th>
-                                    <th style="width:160px;">⏰ Detected At</th>
-                                    <th style="width:160px;">🔄 Last Seen</th>
-                                    <th style="width:120px;">Action</th>
+                                    <th style="min-width:300px;">Hardware Specs</th>
+                                    <th style="width:150px;">First Seen</th>
+                                    <th style="width:200px;">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody id="new-hwids-body">
-                                <tr><td colspan="6" style="text-align:center;color:#888;padding:30px;">
+                            <tbody id="new-hwid-body">
+                                <tr><td colspan="5" style="text-align:center;color:#888;padding:30px;">
                                     <div class="loading-text">
                                         <span class="spinner"></span> Loading new HWIDs...
                                     </div>
@@ -878,12 +882,10 @@
         function switchTab(tab) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            
-            const btn = document.querySelector(`.tab-btn[onclick="switchTab('${tab}')"]`);
-            if (btn) btn.classList.add('active');
-            
-            const content = document.getElementById(`tab-${tab}`);
-            if (content) content.classList.add('active');
+            const tabBtn = document.querySelector(`.tab-btn[onclick="switchTab('${tab}')"]`);
+            if (tabBtn) tabBtn.classList.add('active');
+            const tabContent = document.getElementById(`tab-${tab}`);
+            if (tabContent) tabContent.classList.add('active');
             
             if (tab === 'hwid') {
                 populateHwidCodeDropdown();
@@ -958,23 +960,23 @@
                 
                 await loadHwidStatusForCodes();
                 
-                // Load new HWID count for badge
+                populateHwidCodeDropdown();
+                renderCurrentTab();
+                
+                // Update new HWID count in background
                 try {
-                    const newHwidResponse = await fetchWithRetry('/api/new-hwids?limit=1');
-                    const newHwidData = await newHwidResponse.json();
-                    if (newHwidData.success) {
-                        const badge = document.getElementById('new-hwid-badge');
-                        if (badge) {
-                            badge.textContent = newHwidData.count || 0;
-                            badge.className = 'badge-new-count' + ((newHwidData.count || 0) === 0 ? ' zero' : '');
+                    const newResponse = await fetchWithRetry('/api/hwid-new?limit=1');
+                    const newData = await newResponse.json();
+                    if (newData.success) {
+                        const countEl = document.getElementById('new-hwid-unique-count');
+                        if (countEl) {
+                            countEl.textContent = (newData.total || 0) + ' new';
+                            countEl.className = 'badge badge-new-count' + ((newData.total || 0) === 0 ? ' zero' : '');
                         }
                     }
                 } catch (e) {
-                    console.log('Failed to load new HWID count:', e);
+                    // Ignore
                 }
-                
-                populateHwidCodeDropdown();
-                renderCurrentTab();
                 
                 isLoading = false;
                 
@@ -1719,7 +1721,7 @@
         }
 
         // ============================================
-        // HWID LOGS
+        // HWID LOGS - Only unassigned HWIDs
         // ============================================
         async function loadHwidLogs() {
             const tbody = document.getElementById('hwid-logs-body');
@@ -1746,7 +1748,7 @@
                     
                     const logs = data.logs || [];
                     if (logs.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#4CAF50;padding:20px;">✅ All HWIDs have been assigned to codes</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#4CAF50;padding:30px;">✅ No unassigned HWIDs found - all HWIDs are assigned to codes!</td></tr>';
                     } else {
                         renderHwidLogs(logs);
                     }
@@ -1759,22 +1761,22 @@
             }
         }
 
-        // ============================================
-        // RENDER HWID LOGS - Filter out assigned HWIDs
-        // ============================================
         function renderHwidLogs(logs) {
             const tbody = document.getElementById('hwid-logs-body');
             if (!tbody) return;
             
             if (!logs || logs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#4CAF50;padding:20px;">✅ All HWIDs have been assigned to codes</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#4CAF50;padding:30px;">✅ No unassigned HWID logs found</td></tr>';
                 return;
             }
             
             tbody.innerHTML = logs.map((log, index) => {
                 const time = new Date(log.created_at).toLocaleString();
                 const isNew = log.status === 'new';
+                const hwid = log.hwid || '';
+                const hwidDisplay = hwid ? hwid.substring(0, 16) + '...' : 'N/A';
                 
+                // Extract hardware specs from details
                 let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A';
                 
                 if (log.details) {
@@ -1797,7 +1799,7 @@
                     profile = log.browser_profile;
                 }
                 
-                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A' || device !== 'N/A';
+                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A';
                 const hardwareHtml = hasSpecs ? `
                     <div style="font-size:10px;line-height:1.6;">
                         ${cpu !== 'N/A' ? `<span class="hwid-spec-item cpu">🔧 ${cpu}</span>` : ''}
@@ -1806,22 +1808,21 @@
                         ${storage !== 'N/A' ? `<span class="hwid-spec-item storage">💿 ${storage}</span>` : ''}
                         ${device !== 'N/A' ? `<span class="hwid-spec-item device">💻 ${device}</span>` : ''}
                         ${profile !== 'N/A' ? `<span class="hwid-spec-item profile">👤 ${profile}</span>` : ''}
-                        <span class="hwid-spec-item unregistered">🔓 UNREGISTERED</span>
+                        <span class="hwid-spec-item unregistered">🔓 UNASSIGNED</span>
                     </div>
                 ` : `
                     <div style="color:#888;font-size:11px;font-style:italic;">No hardware specs available</div>
+                    <span class="hwid-spec-item unregistered">🔓 UNASSIGNED</span>
                 `;
                 
                 return `
-                    <tr style="${isNew ? 'background:rgba(255,152,0,0.05);' : ''}">
+                    <tr style="${isNew ? 'background:rgba(244,67,54,0.08);' : ''}">
                         <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
                         <td>
                             <span style="font-weight:bold;color:#FF9800;">
-                                🖥️ ${log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A'}
+                                🖥️ ${hwidDisplay}
                             </span>
                             ${isNew ? ' 🔴' : ''}
-                            <br>
-                            <span class="badge-unregistered">🔓 UNREGISTERED</span>
                         </td>
                         <td><span class="text-muted" style="font-size:10px;">No code assigned</span></td>
                         <td>${hardwareHtml}</td>
@@ -1836,130 +1837,207 @@
         // ============================================
 
         async function loadNewHwids() {
-            const tbody = document.getElementById('new-hwids-body');
+            const tbody = document.getElementById('new-hwid-body');
             if (!tbody) return;
             
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading new HWIDs...</div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading new HWIDs...</div></td></tr>';
             
             try {
-                const response = await fetchWithRetry('/api/new-hwids?limit=100');
-                
-                if (!response.ok) {
-                    throw new Error('Server returned ' + response.status);
-                }
-                
+                const response = await fetchWithRetry('/api/hwid-new?limit=100');
                 const data = await response.json();
                 
                 if (data.success) {
-                    const badge = document.getElementById('new-hwid-badge');
-                    if (badge) {
-                        badge.textContent = data.count || 0;
-                        badge.className = 'badge-new-count' + ((data.count || 0) === 0 ? ' zero' : '');
+                    const countEl = document.getElementById('new-hwid-unique-count');
+                    if (countEl) {
+                        const count = data.total || 0;
+                        countEl.textContent = count + ' new';
+                        countEl.className = 'badge badge-new-count' + (count === 0 ? ' zero' : '');
                     }
                     
                     const hwids = data.hwids || [];
                     if (hwids.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#4CAF50;padding:20px;">✅ No new HWIDs detected</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#4CAF50;padding:30px;">✅ No new unique HWIDs found - all HWIDs are assigned to codes!</td></tr>';
                     } else {
                         renderNewHwids(hwids);
                     }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load new HWIDs') + '</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load new HWIDs') + '</td></tr>';
                 }
             } catch (error) {
                 console.error('Load new HWIDs error:', error);
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
             }
         }
 
         function renderNewHwids(hwids) {
-            const tbody = document.getElementById('new-hwids-body');
+            const tbody = document.getElementById('new-hwid-body');
             if (!tbody) return;
             
-            tbody.innerHTML = hwids.map((h, index) => {
-                const detectedAt = new Date(h.detected_at).toLocaleString();
-                const lastSeen = new Date(h.last_seen).toLocaleString();
-                const hwidShort = h.hwid ? h.hwid.substring(0, 16) + '...' + h.hwid.substring(48) : 'N/A';
+            tbody.innerHTML = hwids.map((item, index) => {
+                const hwid = item.hwid || '';
+                const hwidDisplay = hwid ? hwid.substring(0, 16) + '...' + hwid.substring(48) : 'N/A';
+                const time = item.created_at ? new Date(item.created_at).toLocaleString() : 'N/A';
                 
-                const cpu = h.cpu_name || 'N/A';
-                const gpu = h.gpu_name || 'N/A';
-                const ram = h.ram_total_gb ? h.ram_total_gb + ' GB' : 'N/A';
-                const storage = h.storage_total_gb ? h.storage_total_gb + ' GB' : 'N/A';
-                const device = h.device_name || 'N/A';
-                const profile = h.browser_profile || 'Default';
+                // Hardware specs from the log or device
+                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A';
                 
-                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A' || device !== 'N/A';
+                // Try to extract from details
+                if (item.details) {
+                    const cpuMatch = item.details.match(/CPU:\s*([^,|]+)/i);
+                    const gpuMatch = item.details.match(/GPU:\s*([^,|]+)/i);
+                    const ramMatch = item.details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                    const storageMatch = item.details.match(/Storage:\s*([^,|]+)\s*GB/i);
+                    const deviceMatch = item.details.match(/Device:\s*([^,|]+)/i);
+                    const profileMatch = item.details.match(/Profile:\s*([^,|]+)/i);
+                    
+                    if (cpuMatch) cpu = cpuMatch[1].trim();
+                    if (gpuMatch) gpu = gpuMatch[1].trim();
+                    if (ramMatch) ram = ramMatch[1].trim() + ' GB';
+                    if (storageMatch) storage = storageMatch[1].trim() + ' GB';
+                    if (deviceMatch) device = deviceMatch[1].trim();
+                    if (profileMatch) profile = profileMatch[1].trim();
+                }
+                
+                // Use device data if available
+                if (item.cpu_name && item.cpu_name !== 'Unknown') cpu = item.cpu_name;
+                if (item.gpu_name && item.gpu_name !== 'Unknown') gpu = item.gpu_name;
+                if (item.ram_total_gb) ram = item.ram_total_gb + ' GB';
+                if (item.storage_total_gb) storage = item.storage_total_gb + ' GB';
+                if (item.device_name && item.device_name !== 'Unknown') device = item.device_name;
+                if (item.browser_profile || item.device_profile) profile = item.browser_profile || item.device_profile || 'Default';
+                
+                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A';
+                
+                // Get code dropdown for assignment
+                const codeOptions = allCodes
+                    .filter(c => c.is_active)
+                    .map(c => `<option value="${c.code}">${c.code} - ${c.username || 'N/A'}</option>`)
+                    .join('');
                 
                 return `
-                    <tr style="${h.status === 'new' ? 'background:rgba(255,152,0,0.05);' : ''}">
-                        <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
+                    <tr>
+                        <td style="text-align:center;font-weight:bold;color:#FF9800;">${index + 1}</td>
                         <td>
-                            <code style="font-size:11px;font-weight:bold;color:#FF9800;word-break:break-all;" title="${h.hwid}">${hwidShort}</code>
-                            <span class="badge-unregistered" style="margin-left:5px;">🔓 NEW</span>
+                            <code style="font-size:11px;font-weight:bold;color:#FF9800;word-break:break-all;" title="${hwid}">${hwidDisplay}</code>
                         </td>
-                        <td>
+                        <td style="font-size:11px;line-height:1.8;">
                             ${hasSpecs ? `
-                                <div style="font-size:10px;line-height:1.8;">
-                                    ${cpu !== 'N/A' ? `<span class="hwid-spec-item cpu">🔧 ${cpu}</span>` : ''}
-                                    ${gpu !== 'N/A' ? `<span class="hwid-spec-item gpu">🎮 ${gpu}</span>` : ''}
-                                    ${ram !== 'N/A' ? `<span class="hwid-spec-item ram">💾 ${ram}</span>` : ''}
-                                    ${storage !== 'N/A' ? `<span class="hwid-spec-item storage">💿 ${storage}</span>` : ''}
-                                    ${device !== 'N/A' ? `<span class="hwid-spec-item device">💻 ${device}</span>` : ''}
-                                    <span class="hwid-spec-item profile">👤 ${profile}</span>
-                                </div>
+                                <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
+                                <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
+                                <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
+                                <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
+                                <div><span class="hwid-spec-detail device">💻 Device: ${device}</span></div>
+                                <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
                             ` : `
-                                <div style="color:#888;font-size:11px;font-style:italic;">No hardware specs available</div>
+                                <div style="color:#888;font-style:italic;">No hardware specs available</div>
                             `}
                         </td>
-                        <td><small>${detectedAt}</small></td>
-                        <td><small>${lastSeen}</small></td>
+                        <td><small>${time}</small></td>
                         <td>
-                            <button onclick="removeNewHwid('${h.hwid}')" class="btn-small btn-danger" title="Remove from new HWID list">🗑️ Remove</button>
+                            <div class="action-buttons" style="flex-direction:column;gap:5px;align-items:stretch;">
+                                <div style="display:flex;gap:4px;">
+                                    <select class="edit-select" id="assign-code-${index}" style="flex:1;font-size:11px;padding:4px;">
+                                        <option value="">-- Select Code --</option>
+                                        ${codeOptions}
+                                    </select>
+                                    <button onclick="assignNewHwid('${hwid}', ${index})" class="btn-small btn-success">Assign</button>
+                                </div>
+                                <button onclick="markNewHwidSeen('${hwid}', ${index})" class="btn-small btn-warning" style="font-size:10px;">👁️ Mark as Seen</button>
+                            </div>
                         </td>
                     </tr>
                 `;
             }).join('');
         }
 
-        async function removeNewHwid(hwid) {
-            if (!confirm(`⚠️ Remove this HWID from new registry?\n\nHWID: ${hwid.substring(0, 16)}...`)) {
+        async function assignNewHwid(hwid, index) {
+            const select = document.getElementById(`assign-code-${index}`);
+            const code = select.value;
+            
+            if (!code) {
+                showMessage('❌ Please select a code first', 'error');
                 return;
             }
             
+            if (!confirm(`Assign HWID to code ${code}?`)) return;
+            
             try {
-                const response = await fetchWithRetry(`/api/new-hwid/${encodeURIComponent(hwid)}`, {
-                    method: 'DELETE'
+                showMessage('⏳ Assigning...', 'loading');
+                
+                const response = await fetchWithRetry('/api/hwid-new/assign', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hwid, code })
                 });
+                
                 const result = await response.json();
                 
                 if (result.success) {
-                    showMessage('✅ ' + result.message, 'success');
-                    loadNewHwids();
-                    loadAll();
+                    showMessage(`✅ ${result.message}`, 'success');
+                    await loadNewHwids();
+                    await loadAll();
                 } else {
-                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
+                    showMessage('❌ ' + (result.error || 'Failed to assign'), 'error');
                 }
             } catch (error) {
                 showMessage('❌ Error: ' + error.message, 'error');
             }
         }
 
-        async function clearOldHwidLogs() {
-            if (!confirm('⚠️ Delete old HWID logs (older than 30 days and keep only last 5000)?')) {
+        async function markNewHwidSeen(hwid, index) {
+            try {
+                const response = await fetchWithRetry('/api/hwid-new/mark-seen', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hwid })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ HWID marked as seen`, 'success');
+                    // Remove the row
+                    const row = document.querySelector(`#new-hwid-body tr:nth-child(${index + 1})`);
+                    if (row) row.remove();
+                    
+                    // Update count
+                    const countEl = document.getElementById('new-hwid-unique-count');
+                    if (countEl) {
+                        const current = parseInt(countEl.textContent) || 0;
+                        countEl.textContent = Math.max(0, current - 1) + ' new';
+                    }
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to mark as seen'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // CLEANUP OLD LOGS
+        // ============================================
+
+        async function cleanupOldLogs() {
+            if (!confirm('🧹 Delete all logs older than 7 days?\n\nThis will also delete usage logs older than 30 days.')) {
                 return;
             }
             
             try {
-                const response = await fetchWithRetry('/api/clear-old-hwid-logs', {
+                showMessage('⏳ Cleaning up old logs...', 'loading');
+                
+                const response = await fetchWithRetry('/api/cleanup-logs', {
                     method: 'POST'
                 });
+                
                 const result = await response.json();
                 
                 if (result.success) {
-                    showMessage(`✅ ${result.message}`, 'success');
-                    loadHwidLogs();
+                    showMessage(`✅ ${result.message} (${result.deleted} logs deleted)`, 'success');
+                    await loadNewHwids();
+                    await loadHwidLogs();
                 } else {
-                    showMessage('❌ ' + (result.error || 'Failed to clear logs'), 'error');
+                    showMessage('❌ ' + (result.error || 'Failed to cleanup'), 'error');
                 }
             } catch (error) {
                 showMessage('❌ Error: ' + error.message, 'error');
