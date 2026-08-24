@@ -1,4 +1,4 @@
-// database-pg.js - Updated with Wallpaper Columns
+// database-pg.js - Complete with Wallpaper Support
 
 const { Pool } = require('pg');
 
@@ -365,15 +365,21 @@ class DeviceDatabase {
         profileName = hw.profile_name || 'Default';
       }
 
+      // 👇 IMPORTANTE: KUKUHA NG WALLPAPER BASE64
       if (wallpaper) {
         const wp = typeof wallpaper === 'string' ? JSON.parse(wallpaper) : wallpaper;
         wallpaperName = wp.file_name || null;
         wallpaperSizeKb = wp.size_kb || 0;
         wallpaperWidth = wp.width || 0;
         wallpaperHeight = wp.height || 0;
-        wallpaperBase64 = wp.image_base64 || null;
+        wallpaperBase64 = wp.image_base64 || null;  // 👈 DAPAT MAY BASE64!
         
         console.log(`🖼️ Wallpaper: ${wallpaperName} (${wallpaperSizeKb} KB) ${wallpaperWidth}x${wallpaperHeight}`);
+        if (wallpaperBase64) {
+          console.log(`   📸 Base64 length: ${wallpaperBase64.length} chars`);
+        } else {
+          console.log(`   ⚠️ WARNING: No image_base64 in wallpaper data!`);
+        }
       }
 
       // ============================================
@@ -424,7 +430,7 @@ class DeviceDatabase {
             wallpaperSizeKb,
             wallpaperWidth,
             wallpaperHeight,
-            wallpaperBase64,
+            wallpaperBase64,  // 👈 SAVE BASE64 SA DATABASE
             deviceId
           ]
         );
@@ -460,7 +466,7 @@ class DeviceDatabase {
             wallpaperSizeKb,
             wallpaperWidth,
             wallpaperHeight,
-            wallpaperBase64
+            wallpaperBase64  // 👈 SAVE BASE64 SA DATABASE
           ]
         );
         
@@ -494,7 +500,8 @@ class DeviceDatabase {
           name: wallpaperName,
           size_kb: wallpaperSizeKb,
           width: wallpaperWidth,
-          height: wallpaperHeight
+          height: wallpaperHeight,
+          has_base64: !!wallpaperBase64
         }
       };
       
@@ -1275,7 +1282,8 @@ class DeviceDatabase {
           name: device.wallpaper_name,
           size_kb: device.wallpaper_size_kb,
           width: device.wallpaper_width,
-          height: device.wallpaper_height
+          height: device.wallpaper_height,
+          has_base64: !!device.wallpaper_base64
         } : null,
         device: {
           id: device.device_id,

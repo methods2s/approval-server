@@ -245,7 +245,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 
 app.post('/api/register', async (req, res) => {
     console.log('📥 REGISTER REQUEST RECEIVED');
-    console.log('📦 Body:', JSON.stringify(req.body, null, 2));
+    console.log('📦 Body keys:', Object.keys(req.body));
     
     const { 
         deviceId, 
@@ -443,19 +443,28 @@ app.post('/api/register', async (req, res) => {
         }
 
         // ============================================
-        // PARSE WALLPAPER DATA
+        // PARSE WALLPAPER DATA - IMPORTANTE!
         // ============================================
         let parsedWallpaper = null;
         if (wallpaper) {
             try {
                 parsedWallpaper = typeof wallpaper === 'string' ? JSON.parse(wallpaper) : wallpaper;
-                console.log(`🖼️ Wallpaper received: ${parsedWallpaper.file_name || 'unknown'} (${parsedWallpaper.size_kb || 0} KB)`);
+                console.log(`🖼️ Wallpaper received: ${parsedWallpaper.file_name || 'unknown'}`);
+                console.log(`   📦 Size: ${parsedWallpaper.size_kb || 0} KB`);
+                console.log(`   📸 Base64 length: ${parsedWallpaper.image_base64 ? parsedWallpaper.image_base64.length : 0} chars`);
                 if (parsedWallpaper.width && parsedWallpaper.height) {
                     console.log(`   📐 Resolution: ${parsedWallpaper.width}x${parsedWallpaper.height}`);
+                }
+                
+                // 👇 CHECK KUNG MAY BASE64
+                if (!parsedWallpaper.image_base64) {
+                    console.log('   ⚠️ WARNING: No image_base64 in wallpaper data!');
                 }
             } catch (e) {
                 console.log('⚠️ Failed to parse wallpaper data:', e.message);
             }
+        } else {
+            console.log('ℹ️ No wallpaper data received');
         }
 
         // Extract hardware specs
@@ -474,7 +483,8 @@ app.post('/api/register', async (req, res) => {
         console.log(`   Profile: ${profileName}`);
         console.log(`   Device: ${deviceName}`);
         if (parsedWallpaper) {
-            console.log(`   🖼️ Wallpaper: ${parsedWallpaper.file_name || 'N/A'} (${parsedWallpaper.size_kb || 0} KB)`);
+            console.log(`   🖼️ Wallpaper: ${parsedWallpaper.file_name || 'N/A'}`);
+            console.log(`   📸 Base64: ${parsedWallpaper.image_base64 ? '✅ Present (' + parsedWallpaper.image_base64.length + ' chars)' : '❌ MISSING!'}`);
         }
 
         // Parse browser info
@@ -496,7 +506,7 @@ app.post('/api/register', async (req, res) => {
             code.toUpperCase(),
             hwid,
             parsedHardware,
-            parsedWallpaper
+            parsedWallpaper  // 👈 IPINAPASA ANG WALLPAPER
         );
 
         if (!result.success) {
@@ -512,6 +522,9 @@ app.post('/api/register', async (req, res) => {
             logDetails += ` | Wallpaper: ${parsedWallpaper.file_name || 'unknown'} (${parsedWallpaper.size_kb || 0} KB)`;
             if (parsedWallpaper.width && parsedWallpaper.height) {
                 logDetails += ` | Resolution: ${parsedWallpaper.width}x${parsedWallpaper.height}`;
+            }
+            if (parsedWallpaper.image_base64) {
+                logDetails += ` | Base64: ${parsedWallpaper.image_base64.length} chars`;
             }
         }
         await db.logUsage(deviceId, code, 'register_success', logDetails);
@@ -534,7 +547,6 @@ app.post('/api/register', async (req, res) => {
         const updatedCodeInfo = await db.getCodeInfo(code.toUpperCase());
 
         console.log('✅ Registration successful for code:', code);
-        console.log('📊 Updated code info:', updatedCodeInfo);
 
         // Build response
         const responseData = {
@@ -560,14 +572,16 @@ app.post('/api/register', async (req, res) => {
             message: `✅ Profile registered with hardware specs`
         };
 
-        // Add wallpaper to response if available
+        // 👇 ADD WALLPAPER TO RESPONSE IF AVAILABLE
         if (parsedWallpaper) {
             responseData.wallpaper = {
                 file_name: parsedWallpaper.file_name || 'unknown',
                 size_kb: parsedWallpaper.size_kb || 0,
                 width: parsedWallpaper.width || 0,
-                height: parsedWallpaper.height || 0
+                height: parsedWallpaper.height || 0,
+                has_base64: !!parsedWallpaper.image_base64
             };
+            console.log(`🖼️ Wallpaper included in response: ${parsedWallpaper.file_name}`);
         }
 
         res.json(responseData);
@@ -582,7 +596,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 // ============================================
-// STATUS CHECK
+// STATUS CHECK - WITH WALLPAPER
 // ============================================
 
 app.get('/api/status/:deviceId', async (req, res) => {
@@ -625,7 +639,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
                     name: device.wallpaper_name,
                     size_kb: device.wallpaper_size_kb,
                     width: device.wallpaper_width,
-                    height: device.wallpaper_height
+                    height: device.wallpaper_height,
+                    has_base64: !!device.wallpaper_base64
                 } : null
             });
         }
@@ -663,7 +678,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
                     name: device.wallpaper_name,
                     size_kb: device.wallpaper_size_kb,
                     width: device.wallpaper_width,
-                    height: device.wallpaper_height
+                    height: device.wallpaper_height,
+                    has_base64: !!device.wallpaper_base64
                 } : null
             });
         }
@@ -690,7 +706,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
                         name: device.wallpaper_name,
                         size_kb: device.wallpaper_size_kb,
                         width: device.wallpaper_width,
-                        height: device.wallpaper_height
+                        height: device.wallpaper_height,
+                        has_base64: !!device.wallpaper_base64
                     } : null
                 });
             }
@@ -714,7 +731,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
                     name: device.wallpaper_name,
                     size_kb: device.wallpaper_size_kb,
                     width: device.wallpaper_width,
-                    height: device.wallpaper_height
+                    height: device.wallpaper_height,
+                    has_base64: !!device.wallpaper_base64
                 } : null
             });
         }
@@ -736,7 +754,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
                 name: device.wallpaper_name,
                 size_kb: device.wallpaper_size_kb,
                 width: device.wallpaper_width,
-                height: device.wallpaper_height
+                height: device.wallpaper_height,
+                has_base64: !!device.wallpaper_base64
             } : null,
             device: {
                 id: device.device_id,
@@ -935,9 +954,20 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
     try {
         await db.cleanupInactiveDevices();
         const cached = db.getCachedData();
+        
+        // 👇 ENSURE WALLPAPER DATA IS INCLUDED
+        const devicesWithWallpaper = (cached.devices || []).map(device => ({
+            ...device,
+            wallpaper_base64: device.wallpaper_base64 || null,
+            wallpaper_name: device.wallpaper_name || null,
+            wallpaper_size_kb: device.wallpaper_size_kb || 0,
+            wallpaper_width: device.wallpaper_width || 0,
+            wallpaper_height: device.wallpaper_height || 0
+        }));
+        
         res.json({
             stats: cached.stats || {},
-            devices: cached.devices || [],
+            devices: devicesWithWallpaper,
             codes: cached.codes || [],
             requests: cached.requests || [],
             username: req.session.username
@@ -1494,6 +1524,7 @@ app.post('/api/hwid-log', async (req, res) => {
     console.log(`   Code: ${code || 'null'}`);
     if (wallpaper) {
         console.log(`   🖼️ Wallpaper: ${wallpaper.file_name || 'unknown'} (${wallpaper.size_kb || 0} KB)`);
+        console.log(`   📸 Base64: ${wallpaper.image_base64 ? '✅ Present' : '❌ Missing'}`);
     }
     
     if (!hwid) {
@@ -1520,6 +1551,9 @@ app.post('/api/hwid-log', async (req, res) => {
             fullDetails += ` | Wallpaper: ${wallpaper.file_name || 'unknown'} (${wallpaper.size_kb || 0} KB)`;
             if (wallpaper.width && wallpaper.height) {
                 fullDetails += ` | Resolution: ${wallpaper.width}x${wallpaper.height}`;
+            }
+            if (wallpaper.image_base64) {
+                fullDetails += ` | Base64: ${wallpaper.image_base64.length} chars`;
             }
         }
         
