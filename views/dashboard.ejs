@@ -328,13 +328,15 @@
         .search-box .clear-search:hover { color: #f44336; }
         
         .hwid-status-badge {
-            font-size: 10px;
-            padding: 2px 8px;
-            border-radius: 10px;
+            font-size: 11px;
+            padding: 3px 12px;
+            border-radius: 12px;
             display: inline-block;
+            font-weight: bold;
         }
         .hwid-status-badge.has-hwid { background: rgba(76,175,80,0.2); color: #4CAF50; }
         .hwid-status-badge.no-hwid { background: rgba(244,67,54,0.2); color: #f44336; }
+        .hwid-status-badge.full { background: rgba(255,152,0,0.2); color: #FF9800; }
         
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
@@ -381,18 +383,17 @@
             </div>
         </div>
 
-        <!-- TABS -->
+        <!-- TABS - REMOVED PROFILES TAB -->
         <div class="tab-buttons">
             <button class="tab-btn active" onclick="switchTab('codes')">🔑 All Codes</button>
             <button class="tab-btn" onclick="switchTab('svip')">⭐ SVIP</button>
             <button class="tab-btn" onclick="switchTab('vip')">🔶 VIP</button>
-            <button class="tab-btn" onclick="switchTab('profiles')">📱 Profiles</button>
             <button class="tab-btn" onclick="switchTab('hwid')">🖥️ HWID Manager</button>
             <button class="tab-btn" onclick="switchTab('hwidlogs')">📋 HWID Logs</button>
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: ALL CODES - WITH REMOVE HWID BUTTON -->
+        <!-- TAB: ALL CODES -->
         <!-- ============================================ -->
         <div class="tab-content active" id="tab-codes">
             <div class="card">
@@ -450,7 +451,7 @@
                                 <th>Subscription</th>
                                 <th>Expires</th>
                                 <th style="width:80px;">Profiles</th>
-                                <th style="width:100px;">HWID</th>
+                                <th style="width:100px;">HWID Status</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
                                 <th style="width:220px;">Actions</th>
                             </tr>
@@ -485,7 +486,7 @@
                                 <th>Subscription</th>
                                 <th>Expires</th>
                                 <th>Profiles</th>
-                                <th>HWID</th>
+                                <th>HWID Status</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
                                 <th>Actions</th>
                             </tr>
@@ -520,7 +521,7 @@
                                 <th>Subscription</th>
                                 <th>Expires</th>
                                 <th>Profiles</th>
-                                <th>HWID</th>
+                                <th>HWID Status</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
                                 <th>Actions</th>
                             </tr>
@@ -529,48 +530,6 @@
                             <tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">
                                 <div class="loading-text">
                                     <span class="spinner"></span> Loading VIP codes...
-                                </div>
-                            </td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <!-- ============================================ -->
-        <!-- TAB: PROFILES -->
-        <!-- ============================================ -->
-        <div class="tab-content" id="tab-profiles">
-            <div class="card">
-                <div class="card-header">
-                    <h3>📱 Profile Manager</h3>
-                    <div>
-                        <span class="text-muted">Total: <strong id="device-total-count">0</strong> profiles</span>
-                        <button onclick="loadDevices()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
-                    </div>
-                </div>
-                
-                <div class="form-row" style="margin-bottom:15px;">
-                    <div class="form-group" style="flex:1;">
-                        <label>🔍 Filter by Code</label>
-                        <input type="text" id="device-filter-code" placeholder="Enter code to filter" onkeyup="filterDevices()">
-                    </div>
-                </div>
-
-                <div class="scroll-table">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Profile Name</th>
-                                <th>Code</th>
-                                <th>🖼️ Wallpaper</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="devices-body">
-                            <tr><td colspan="4" style="text-align:center;color:#888;padding:30px;">
-                                <div class="loading-text">
-                                    <span class="spinner"></span> Loading profiles...
                                 </div>
                             </td></tr>
                         </tbody>
@@ -651,7 +610,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID LOGS - WITH WALLPAPER IMAGE -->
+        <!-- TAB: HWID LOGS -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwidlogs">
             <div class="card">
@@ -850,7 +809,7 @@
         }
 
         // ============================================
-        // REMOVE HWID FROM CODE (All Codes Tab)
+        // REMOVE HWID FROM CODE
         // ============================================
         async function removeHwidFromCode(code, hwid) {
             if (!hwid) {
@@ -858,7 +817,7 @@
                 return;
             }
             
-            if (!confirm(`⚠️ Remove HWID ${hwid.substring(0, 16)}... from code ${code}?\n\nThis will also delete all associated profiles.`)) {
+            if (!confirm(`⚠️ Remove HWID from code ${code}?\n\nThis will also delete all associated profiles.`)) {
                 return;
             }
             
@@ -919,9 +878,7 @@
             document.querySelector(`.tab-btn[onclick="switchTab('${tab}')"]`).classList.add('active');
             document.getElementById(`tab-${tab}`).classList.add('active');
             
-            if (tab === 'profiles') {
-                loadDevices();
-            } else if (tab === 'hwid') {
+            if (tab === 'hwid') {
                 populateHwidCodeDropdown();
             } else if (tab === 'hwidlogs') {
                 loadHwidLogs();
@@ -995,7 +952,6 @@
                 populateHwidCodeDropdown();
                 renderCurrentTab();
                 
-                document.getElementById('device-total-count').textContent = allDevices.length;
                 updateTotalProfileCount();
                 
                 isLoading = false;
@@ -1075,102 +1031,7 @@
         }
 
         // ============================================
-        // LOAD PROFILES
-        // ============================================
-        async function loadDevices() {
-            const tbody = document.getElementById('devices-body');
-            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:#888;padding:30px;">
-                <div class="loading-text"><span class="spinner"></span> Loading profiles...</div>
-            </td></tr>`;
-            
-            try {
-                const response = await fetch('/api/dashboard-data');
-                const data = await response.json();
-                allDevices = data.devices || [];
-                document.getElementById('device-total-count').textContent = allDevices.length;
-                updateTotalProfileCount();
-                filterDevices();
-            } catch (error) {
-                console.error('Load profiles error:', error);
-                tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:30px;">
-                    <div class="error-box">
-                        <span class="error-icon">❌</span>
-                        Error loading profiles<br>
-                        <span style="font-size:12px;color:#888;">${error.message}</span>
-                    </div>
-                </td></tr>`;
-            }
-        }
-
-        function filterDevices() {
-            const filterCode = document.getElementById('device-filter-code').value.toLowerCase().trim();
-            filteredDevices = allDevices.filter(d => {
-                const matchCode = !filterCode || (d.code && d.code.toLowerCase().includes(filterCode));
-                return matchCode;
-            });
-            renderDevices();
-        }
-
-        // ============================================
-        // RENDER PROFILES
-        // ============================================
-        function renderDevices() {
-            const tbody = document.getElementById('devices-body');
-            
-            if (!filteredDevices || filteredDevices.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:30px;">No profiles found</td></tr>';
-                return;
-            }
-            
-            tbody.innerHTML = filteredDevices.map(d => {
-                const codeInfo = allCodes.find(c => c.code === d.code);
-                const username = codeInfo?.username || d.browser_profile || 'Default';
-                
-                let wallpaperHtml = '<span style="color:#666;font-size:11px;">No wallpaper</span>';
-                if (d.wallpaper_name || d.wallpaper_base64) {
-                    const wallpaper = {
-                        name: d.wallpaper_name || 'Unknown',
-                        size_kb: d.wallpaper_size_kb || 0,
-                        width: d.wallpaper_width || 0,
-                        height: d.wallpaper_height || 0,
-                        base64: d.wallpaper_base64 || null
-                    };
-                    wallpaperHtml = getWallpaperHtml(wallpaper, true);
-                }
-                
-                return `
-                    <tr>
-                        <td><strong style="color:#2196F3;">${username}</strong></td>
-                        <td><strong>${d.code || '<span class="text-muted">N/A</span>'}</strong></td>
-                        <td>${wallpaperHtml}</td>
-                        <td>
-                            <button onclick="removeDevice('${d.device_id}')" class="btn-small btn-remove">🗑️ Remove</button>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-        }
-
-        async function removeDevice(deviceId) {
-            if (!confirm(`⚠️ Remove profile ${deviceId}?`)) return;
-            
-            try {
-                const response = await fetch(`/api/device/${deviceId}`, { method: 'DELETE' });
-                const result = await response.json();
-                if (result.success) {
-                    showMessage('✅ Profile removed!', 'success');
-                    await loadAll();
-                    await loadDevices();
-                } else {
-                    showMessage('❌ ' + (result.error || 'Failed to remove'), 'error');
-                }
-            } catch (error) {
-                showMessage('❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        // ============================================
-        // RENDER ALL CODES - WITH REMOVE HWID BUTTON
+        // RENDER ALL CODES - WITH HWID COUNT/LIMIT
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
@@ -1249,10 +1110,12 @@
                     `;
                 }
                 
-                // HWID Status Badge
-                let hwidStatusHtml = `<span class="hwid-status-badge no-hwid">❌ No HWID</span>`;
+                // HWID Status Badge - COUNT/LIMIT format
+                let hwidStatusHtml = `<span class="hwid-status-badge no-hwid">0/0</span>`;
                 if (hasHwidAssigned) {
-                    hwidStatusHtml = `<span class="hwid-status-badge has-hwid">✅ ${codeHwid.substring(0, 12)}...</span>`;
+                    let statusClass = 'has-hwid';
+                    if (isFull) statusClass = 'full';
+                    hwidStatusHtml = `<span class="hwid-status-badge ${statusClass}">${hwidDisplay}</span>`;
                 }
                 
                 return `
@@ -1282,7 +1145,7 @@
         }
 
         // ============================================
-        // RENDER SVIP
+        // RENDER SVIP - WITH HWID COUNT/LIMIT
         // ============================================
         function renderSVIP() {
             const svipCodes = allCodes.filter(c => c.access_level === 'SVIP');
@@ -1315,6 +1178,13 @@
                 const codeHwid = c.hwid || null;
                 const hasHwidAssigned = codeHwid && codeHwid.length === 64;
                 
+                let hwidStatusHtml = `<span class="hwid-status-badge no-hwid">0/0</span>`;
+                if (hasHwidAssigned) {
+                    let statusClass = 'has-hwid';
+                    if (isFull) statusClass = 'full';
+                    hwidStatusHtml = `<span class="hwid-status-badge ${statusClass}">${hwidDisplay}</span>`;
+                }
+                
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
@@ -1322,7 +1192,7 @@
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td><strong style="color:#4CAF50;">${profileCount}</strong></td>
-                        <td><span class="badge-hwid-status ${hwidClass}">${hwidDisplay}</span></td>
+                        <td>${hwidStatusHtml}</td>
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
@@ -1340,7 +1210,7 @@
         }
 
         // ============================================
-        // RENDER VIP
+        // RENDER VIP - WITH HWID COUNT/LIMIT
         // ============================================
         function renderVIP() {
             const vipCodes = allCodes.filter(c => c.access_level === 'VIP');
@@ -1373,6 +1243,13 @@
                 const codeHwid = c.hwid || null;
                 const hasHwidAssigned = codeHwid && codeHwid.length === 64;
                 
+                let hwidStatusHtml = `<span class="hwid-status-badge no-hwid">0/0</span>`;
+                if (hasHwidAssigned) {
+                    let statusClass = 'has-hwid';
+                    if (isFull) statusClass = 'full';
+                    hwidStatusHtml = `<span class="hwid-status-badge ${statusClass}">${hwidDisplay}</span>`;
+                }
+                
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
@@ -1380,7 +1257,7 @@
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td><strong style="color:#4CAF50;">${profileCount}</strong></td>
-                        <td><span class="badge-hwid-status ${hwidClass}">${hwidDisplay}</span></td>
+                        <td>${hwidStatusHtml}</td>
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
@@ -1784,7 +1661,6 @@
                     showMessage(`✅ ${result.message}`, 'success');
                     await loadHwidDetails();
                     await loadAll();
-                    await loadDevices();
                 } else {
                     showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
                     document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
@@ -1836,7 +1712,7 @@
         }
 
         // ============================================
-        // HWID LOGS - WITH WALLPAPER IMAGE
+        // HWID LOGS
         // ============================================
         async function loadHwidLogs() {
             const tbody = document.getElementById('hwid-logs-body');
@@ -1877,7 +1753,7 @@
         }
 
         // ============================================
-        // RENDER HWID LOGS - WITH CLICKABLE WALLPAPER IMAGE
+        // RENDER HWID LOGS
         // ============================================
         function renderHwidLogs(logs) {
             const tbody = document.getElementById('hwid-logs-body');
@@ -1907,7 +1783,6 @@
                 const displayName = hasCode ? username : (log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A');
                 const isUsername = hasCode && username !== 'N/A' && username !== log.code;
                 
-                // Extract hardware specs and wallpaper
                 let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A';
                 let wallpaperName = 'N/A', wallpaperSize = 0, wallpaperWidth = 0, wallpaperHeight = 0, wallpaperBase64 = null;
                 
@@ -1949,9 +1824,6 @@
                     profile = log.browser_profile;
                 }
                 
-                // ============================================
-                // WALLPAPER DISPLAY - WITH CLICKABLE IMAGE
-                // ============================================
                 let wallpaperHtml = '';
                 const shouldShowWallpaper = !hasCode || log.code === null || log.code === 'null' || log.code === '';
                 
@@ -1963,7 +1835,7 @@
                         height: wallpaperHeight,
                         base64: wallpaperBase64
                     };
-                    wallpaperHtml = getWallpaperHtml(wallpaper, true, true); // WITH IMAGE PREVIEW
+                    wallpaperHtml = getWallpaperHtml(wallpaper, true, true);
                 } else if (shouldShowWallpaper && wallpaperName !== 'N/A') {
                     wallpaperHtml = `<span style="color:#FF9800;">🖼️ ${wallpaperName}</span>`;
                     if (wallpaperSize > 0) {
