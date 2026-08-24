@@ -1,4 +1,4 @@
-// database-pg.js - FULLY OPTIMIZED with Indexes and Faster Queries
+// database-pg.js - ULTRA OPTIMIZED for Speed
 
 const { Pool } = require('pg');
 
@@ -9,8 +9,8 @@ class DeviceDatabase {
       ssl: {
         rejectUnauthorized: false
       },
-      max: 20,
-      idleTimeoutMillis: 5000,
+      max: 30,
+      idleTimeoutMillis: 3000,
       connectionTimeoutMillis: 2000,
       maxUses: 100
     });
@@ -26,7 +26,7 @@ class DeviceDatabase {
       isLoading: false
     };
     
-    this.CACHE_TTL = 30000;
+    this.CACHE_TTL = 60000;
     
     this.pool.on('error', (err) => {
       console.error('Database pool error:', err);
@@ -97,25 +97,6 @@ class DeviceDatabase {
         )
       `);
 
-      const columnsToAdd = [
-        { name: 'username', type: 'TEXT' },
-        { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
-        { name: 'subscription_type', type: 'TEXT DEFAULT \'Lifetime\'' },
-        { name: 'subscription_started_at', type: 'TIMESTAMP' },
-        { name: 'expires_at', type: 'TIMESTAMP' },
-        { name: 'status', type: 'TEXT DEFAULT \'active\'' },
-        { name: 'hwid', type: 'TEXT' },
-        { name: 'fingerprint', type: 'TEXT' },
-        { name: 'machine_info', type: 'JSONB' },
-        { name: 'max_hwid_limit', type: 'INTEGER DEFAULT 1' }
-      ];
-
-      for (const col of columnsToAdd) {
-        try {
-          await this.query(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-        } catch (e) {}
-      }
-
       // code_hwids table
       await this.query(`
         CREATE TABLE IF NOT EXISTS code_hwids (
@@ -159,28 +140,6 @@ class DeviceDatabase {
           wallpaper_base64 TEXT
         )
       `);
-
-      const deviceColumns = [
-        { name: 'hwid', type: 'TEXT' },
-        { name: 'browser_profile', type: 'TEXT' },
-        { name: 'cpu_name', type: 'TEXT' },
-        { name: 'gpu_name', type: 'TEXT' },
-        { name: 'ram_total_gb', type: 'DECIMAL' },
-        { name: 'storage_total_gb', type: 'DECIMAL' },
-        { name: 'profile_name', type: 'TEXT' },
-        { name: 'device_name', type: 'TEXT' },
-        { name: 'wallpaper_name', type: 'TEXT' },
-        { name: 'wallpaper_size_kb', type: 'DECIMAL' },
-        { name: 'wallpaper_width', type: 'INTEGER' },
-        { name: 'wallpaper_height', type: 'INTEGER' },
-        { name: 'wallpaper_base64', type: 'TEXT' }
-      ];
-
-      for (const col of deviceColumns) {
-        try {
-          await this.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-        } catch (e) {}
-      }
 
       // Requests table
       await this.query(`
@@ -255,7 +214,7 @@ class DeviceDatabase {
       `);
 
       // ============================================
-      // CRITICAL INDEXES FOR FAST QUERIES
+      // CRITICAL INDEXES
       // ============================================
       
       await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
@@ -267,14 +226,12 @@ class DeviceDatabase {
       
       await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_assigned_at ON code_hwids(assigned_at DESC)`);
       
       await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_device_id ON devices(device_id)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_code ON devices(code)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_created_at ON devices(created_at DESC)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_last_ping ON devices(last_ping DESC)`);
       
       await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid ON hwid_logs(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_created_at ON hwid_logs(created_at DESC)`);
@@ -284,9 +241,6 @@ class DeviceDatabase {
       await this.query(`CREATE INDEX IF NOT EXISTS idx_new_hwid_registry_hwid ON new_hwid_registry(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_new_hwid_registry_status ON new_hwid_registry(status)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_new_hwid_registry_detected_at ON new_hwid_registry(detected_at DESC)`);
-      
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_requests_device_id ON requests(device_id)`);
 
       // ============================================
       // AUTO-DELETE TRIGGER
@@ -1323,7 +1277,7 @@ class DeviceDatabase {
   getCachedData() {
     return {
       codes: this.cache.codes || [],
-      stats: this.cache.stats || { total: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
+      stats: this.cache.stats || { total: 0, pending: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
       devices: this.cache.devices || [],
       requests: this.cache.requests || [],
       newHwids: this.cache.newHwids || []
