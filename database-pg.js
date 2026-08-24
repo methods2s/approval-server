@@ -1,1816 +1,1755 @@
-// database-pg.js - Complete with New HWID Registry and Auto-Delete
-
-const { Pool } = require('pg');
-
-class DeviceDatabase {
-  constructor() {
-    this.pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: {
-        rejectUnauthorized: false
-      },
-      max: 10,
-      idleTimeoutMillis: 10000,
-      connectionTimeoutMillis: 2000,
-      maxUses: 100
-    });
-    
-    this.cache = {
-      codes: [],
-      stats: { total: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
-      devices: [],
-      requests: [],
-      lastUpdate: 0,
-      hasInitialData: false
-    };
-    
-    this.pool.on('error', (err) => {
-      console.error('Database pool error:', err);
-    });
-    
-    this.initTables();
-    console.log('✅ PostgreSQL Database initialized');
-  }
-
-  async query(sql, params = []) {
-    let client = null;
-    try {
-      client = await this.pool.connect();
-      const result = await client.query(sql, params);
-      return result;
-    } catch (error) {
-      throw error;
-    } finally {
-      if (client) {
-        try {
-          client.release();
-        } catch (releaseError) {
-          // Ignore release errors
-        }
-      }
-    }
-  }
-
-  async safeQuery(sql, params = []) {
-    try {
-      return await this.query(sql, params);
-    } catch (error) {
-      if (error.code === '42701' || error.message.includes('already exists')) {
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  async run(sql, params = []) {
-    const result = await this.query(sql, params);
-    return { 
-      changes: result.rowCount, 
-      lastID: result.rows[0]?.id || null 
-    };
-  }
-
-  async get(sql, params = []) {
-    const result = await this.query(sql, params);
-    return result.rows[0] || null;
-  }
-
-  async all(sql, params = []) {
-    const result = await this.query(sql, params);
-    return result.rows;
-  }
-
-  // ============================================
-  // INIT TABLES
-  // ============================================
-
-  async initTables() {
-    try {
-      // Codes table
-      await this.query(`
-        CREATE TABLE IF NOT EXISTS codes (
-          code TEXT PRIMARY KEY,
-          max_devices INTEGER DEFAULT 10,
-          used_count INTEGER DEFAULT 0,
-          is_active BOOLEAN DEFAULT TRUE,
-          created_by TEXT,
-          username TEXT,
-          access_level TEXT DEFAULT 'VIP',
-          subscription_type TEXT DEFAULT 'Lifetime',
-          subscription_started_at TIMESTAMP,
-          expires_at TIMESTAMP,
-          status TEXT DEFAULT 'active',
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          notes TEXT,
-          hwid TEXT,
-          fingerprint TEXT,
-          machine_info JSONB,
-          max_hwid_limit INTEGER DEFAULT 1
-        )
-      `);
-
-      // Add missing columns to codes table
-      const columnsToAdd = [
-        { name: 'username', type: 'TEXT' },
-        { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
-        { name: 'subscription_type', type: 'TEXT DEFAULT \'Lifetime\'' },
-        { name: 'subscription_started_at', type: 'TIMESTAMP' },
-        { name: 'expires_at', type: 'TIMESTAMP' },
-        { name: 'status', type: 'TEXT DEFAULT \'active\'' },
-        { name: 'hwid', type: 'TEXT' },
-        { name: 'fingerprint', type: 'TEXT' },
-        { name: 'machine_info', type: 'JSONB' },
-        { name: 'max_hwid_limit', type: 'INTEGER DEFAULT 1' }
-      ];
-
-      for (const col of columnsToAdd) {
-        try {
-          await this.query(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-        } catch (e) {
-          // Column might already exist
-        }
-      }
-
-      // code_hwids table
-      await this.query(`
-        CREATE TABLE IF NOT EXISTS code_hwids (
-          id SERIAL PRIMARY KEY,
-          code TEXT NOT NULL REFERENCES codes(code) ON DELETE CASCADE,
-          hwid TEXT NOT NULL,
-          assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          last_used TIMESTAMP,
-          UNIQUE(code, hwid)
-        )
-      `);
-
-      // Devices table with wallpaper columns
-      await this.query(`
-        CREATE TABLE IF NOT EXISTS devices (
-          id SERIAL PRIMARY KEY,
-          device_id TEXT UNIQUE NOT NULL,
-          user_agent TEXT,
-          ip_address TEXT,
-          browser_info TEXT,
-          code TEXT,
-          hwid TEXT,
-          status TEXT DEFAULT 'approved',
-          approved_at TIMESTAMP,
-          revoked_at TIMESTAMP,
-          last_ping TIMESTAMP,
-          ping_count INTEGER DEFAULT 0,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          browser_profile TEXT,
-          cpu_name TEXT,
-          gpu_name TEXT,
-          ram_total_gb DECIMAL,
-          storage_total_gb DECIMAL,
-          profile_name TEXT,
-          device_name TEXT,
-          wallpaper_name TEXT,
-          wallpaper_size_kb DECIMAL,
-          wallpaper_width INTEGER,
-          wallpaper_height INTEGER,
-          wallpaper_base64 TEXT
-        )
-      `);
-
-      // Add hardware and wallpaper columns to devices table
-      const deviceColumns = [
-        { name: 'hwid', type: 'TEXT' },
-        { name: 'browser_profile', type: 'TEXT' },
-        { name: 'cpu_name', type: 'TEXT' },
-        { name: 'gpu_name', type: 'TEXT' },
-        { name: 'ram_total_gb', type: 'DECIMAL' },
-        { name: 'storage_total_gb', type: 'DECIMAL' },
-        { name: 'profile_name', type: 'TEXT' },
-        { name: 'device_name', type: 'TEXT' },
-        { name: 'wallpaper_name', type: 'TEXT' },
-        { name: 'wallpaper_size_kb', type: 'DECIMAL' },
-        { name: 'wallpaper_width', type: 'INTEGER' },
-        { name: 'wallpaper_height', type: 'INTEGER' },
-        { name: 'wallpaper_base64', type: 'TEXT' }
-      ];
-
-      for (const col of deviceColumns) {
-        try {
-          await this.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-          console.log(`✅ Added column ${col.name} to devices table`);
-        } catch (e) {
-          console.log(`ℹ️ Column ${col.name} already exists or error:`, e.message);
-        }
-      }
-
-      // Requests table
-      await this.query(`
-        CREATE TABLE IF NOT EXISTS requests (
-          id SERIAL PRIMARY KEY,
-          device_id TEXT NOT NULL,
-          code TEXT,
-          reason TEXT,
-          status TEXT DEFAULT 'pending',
-          requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          responded_at TIMESTAMP,
-          admin_response TEXT
-        )
-      `);
-
-      // Usage logs table
-      await this.query(`
-        CREATE TABLE IF NOT EXISTS usage_logs (
-          id SERIAL PRIMARY KEY,
-          device_id TEXT,
-          code TEXT,
-          action TEXT NOT NULL,
-          details TEXT,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // Admins table
-      await this.query(`
-        CREATE TABLE IF NOT EXISTS admins (
-          id SERIAL PRIMARY KEY,
-          username TEXT UNIQUE NOT NULL,
-          password_hash TEXT NOT NULL,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
-
-      // HWID LOGS TABLE
-      await this.query(`
-        CREATE TABLE IF NOT EXISTS hwid_logs (
-          id SERIAL PRIMARY KEY,
-          hwid TEXT NOT NULL,
-          code TEXT,
-          device_id TEXT,
-          action TEXT NOT NULL,
-          status TEXT DEFAULT 'new',
-          details TEXT,
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          ip_address TEXT,
-          user_agent TEXT,
-          browser_profile TEXT
-        )
-      `);
-
-      // NEW HWID REGISTRY TABLE
-      await this.query(`
-        CREATE TABLE IF NOT EXISTS new_hwid_registry (
-          id SERIAL PRIMARY KEY,
-          hwid TEXT UNIQUE NOT NULL,
-          cpu_name TEXT,
-          gpu_name TEXT,
-          ram_total_gb DECIMAL,
-          storage_total_gb DECIMAL,
-          device_name TEXT,
-          browser_profile TEXT,
-          detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          code_assigned TEXT,
-          assigned_at TIMESTAMP,
-          status TEXT DEFAULT 'new'
-        )
-      `);
-
-      // Indexes
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid ON hwid_logs(hwid)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_created_at ON hwid_logs(created_at DESC)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status ON hwid_logs(status)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_new_hwid_registry_hwid ON new_hwid_registry(hwid)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_new_hwid_registry_status ON new_hwid_registry(status)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_new_hwid_registry_detected_at ON new_hwid_registry(detected_at DESC)`);
-
-      // Auto-delete function for HWID logs
-      await this.query(`
-        CREATE OR REPLACE FUNCTION auto_delete_old_hwid_logs() RETURNS trigger AS $$
-        BEGIN
-          DELETE FROM hwid_logs WHERE created_at < NOW() - INTERVAL '30 days';
-          DELETE FROM hwid_logs WHERE id NOT IN (
-            SELECT id FROM hwid_logs ORDER BY created_at DESC LIMIT 5000
-          );
-          RETURN NEW;
-        END;
-        $$ LANGUAGE plpgsql
-      `);
-
-      await this.query(`
-        DROP TRIGGER IF EXISTS trigger_auto_delete_hwid_logs ON hwid_logs;
-        CREATE TRIGGER trigger_auto_delete_hwid_logs
-        AFTER INSERT ON hwid_logs
-        EXECUTE FUNCTION auto_delete_old_hwid_logs();
-      `);
-
-      console.log('✅ Tables created/verified');
-      
-      await this.refreshCache();
-      
-    } catch (error) {
-      console.error('❌ Failed to create tables:', error.message);
-    }
-  }
-
-  // ============================================
-  // NEW HWID REGISTRY METHODS
-  // ============================================
-
-  async addNewHwidToRegistry(hwid, hardware, browserProfile) {
-    try {
-      // Check if exists
-      const existing = await this.get(
-        'SELECT * FROM new_hwid_registry WHERE hwid = $1',
-        [hwid]
-      );
-      
-      if (existing) {
-        // Update last_seen
-        await this.run(
-          'UPDATE new_hwid_registry SET last_seen = CURRENT_TIMESTAMP WHERE hwid = $1',
-          [hwid]
-        );
-        return existing;
-      }
-      
-      let cpuName = 'Unknown', gpuName = 'Unknown', ramTotal = 0, storageTotal = 0, deviceName = 'Unknown', profileName = 'Default';
-      
-      if (hardware) {
-        const hw = typeof hardware === 'string' ? JSON.parse(hardware) : hardware;
-        cpuName = hw.cpu || 'Unknown';
-        gpuName = hw.gpu || 'Unknown';
-        ramTotal = hw.ram_gb || 0;
-        storageTotal = hw.storage_gb || 0;
-        deviceName = hw.device_name || 'Unknown';
-        profileName = hw.profile_name || 'Default';
-      }
-      
-      if (browserProfile) {
-        profileName = browserProfile;
-      }
-      
-      await this.run(
-        `INSERT INTO new_hwid_registry (hwid, cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, browser_profile, detected_at, last_seen, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'new')`,
-        [hwid, cpuName, gpuName, ramTotal, storageTotal, deviceName, profileName]
-      );
-      
-      const inserted = await this.get(
-        'SELECT * FROM new_hwid_registry WHERE hwid = $1',
-        [hwid]
-      );
-      
-      console.log(`🆕 New HWID added to registry: ${hwid.substring(0, 16)}...`);
-      return inserted;
-    } catch (error) {
-      console.error('Add new HWID to registry error:', error.message);
-      return null;
-    }
-  }
-
-  async markHwidAsAssigned(hwid, code) {
-    try {
-      await this.run(
-        `UPDATE new_hwid_registry 
-         SET status = 'assigned', code_assigned = $1, assigned_at = CURRENT_TIMESTAMP 
-         WHERE hwid = $2`,
-        [code, hwid]
-      );
-      // Also delete from hwid_logs since may code na
-      await this.run(
-        'DELETE FROM hwid_logs WHERE hwid = $1 AND code IS NULL',
-        [hwid]
-      );
-      return true;
-    } catch (error) {
-      console.error('Mark HWID as assigned error:', error.message);
-      return false;
-    }
-  }
-
-  async getNewHwids(limit = 100) {
-    try {
-      return await this.all(
-        `SELECT * FROM new_hwid_registry 
-         WHERE status = 'new' 
-         ORDER BY detected_at DESC 
-         LIMIT $1`,
-        [limit]
-      );
-    } catch (error) {
-      console.error('Get new HWIDs error:', error.message);
-      return [];
-    }
-  }
-
-  async getNewHwidCount() {
-    try {
-      const result = await this.get(
-        "SELECT COUNT(*) as count FROM new_hwid_registry WHERE status = 'new'"
-      );
-      return result ? parseInt(result.count) : 0;
-    } catch (error) {
-      console.error('Get new HWID count error:', error.message);
-      return 0;
-    }
-  }
-
-  async removeNewHwid(hwid) {
-    try {
-      const result = await this.run(
-        'DELETE FROM new_hwid_registry WHERE hwid = $1 AND status = $2',
-        [hwid, 'new']
-      );
-      return result.changes > 0;
-    } catch (error) {
-      console.error('Remove new HWID error:', error.message);
-      return false;
-    }
-  }
-
-  async clearOldHwidLogs() {
-    try {
-      // Delete logs older than 30 days
-      const result1 = await this.run(
-        "DELETE FROM hwid_logs WHERE created_at < NOW() - INTERVAL '30 days'"
-      );
-      // Keep only last 5000 logs
-      const result2 = await this.run(
-        `DELETE FROM hwid_logs WHERE id NOT IN (
-          SELECT id FROM hwid_logs ORDER BY created_at DESC LIMIT 5000
-        )`
-      );
-      console.log(`🧹 Cleaned HWID logs: ${result1.changes} old logs, ${result2.changes} overflow logs`);
-      return result1.changes + result2.changes;
-    } catch (error) {
-      console.error('Clear old HWID logs error:', error.message);
-      return 0;
-    }
-  }
-
-  // ============================================
-  // REGISTER DEVICE WITH WALLPAPER
-  // ============================================
-
-  async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null, hardware = null, wallpaper = null) {
-    try {
-      const codeInfo = await this.getCodeInfo(code);
-      if (!codeInfo) {
-        return { success: false, error: 'Invalid code' };
-      }
-
-      if (!codeInfo.is_active) {
-        return { success: false, error: 'Code is inactive' };
-      }
-
-      if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
-        const now = new Date();
-        const expires = new Date(codeInfo.expires_at);
-        if (now > expires) {
-          await this.run(`UPDATE codes SET status = 'expired' WHERE code = $1`, [code]);
-          return { success: false, error: 'Subscription expired' };
-        }
-      }
-
-      if (codeInfo.status !== 'active') {
-        return { success: false, error: `Code is ${codeInfo.status}` };
-      }
-
-      // Add to new HWID registry if not assigned
-      if (hwid) {
-        const existingHwid = await this.get(
-          'SELECT code FROM code_hwids WHERE hwid = $1',
-          [hwid]
-        );
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Dating Sites</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
         
-        if (!existingHwid) {
-          await this.addNewHwidToRegistry(hwid, hardware, browserInfo?.profile_name);
-          console.log(`🆕 Added HWID to new registry: ${hwid.substring(0, 16)}...`);
+        .header { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: rgba(255,255,255,0.05); border-radius: 10px; margin-bottom: 20px; }
+        .header h1 { font-size: 24px; color: #fff; }
+        .header .user { font-size: 14px; color: #aaa; }
+        .header .user strong { color: #4CAF50; }
+        .header .logout-btn { padding: 8px 20px; background: #f44336; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .header .logout-btn:hover { background: #d32f2f; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .stat-card { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.08); }
+        .stat-card .number { font-size: 32px; font-weight: bold; color: #4CAF50; }
+        .stat-card .label { font-size: 13px; color: #888; margin-top: 5px; }
+        
+        .card { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.08); }
+        .card h3 { color: #fff; margin-bottom: 15px; font-size: 18px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+        .card-header h3 { margin-bottom: 0; }
+        
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; font-size: 13px; color: #aaa; margin-bottom: 4px; font-weight: bold; }
+        .form-group input, .form-group select { width: 100%; padding: 10px; border: 1px solid #555; border-radius: 6px; background: #222; color: #fff; font-size: 14px; }
+        .form-group input:focus, .form-group select:focus { border-color: #4CAF50; outline: none; }
+        .form-row { display: flex; gap: 15px; flex-wrap: wrap; }
+        .form-row .form-group { flex: 1; min-width: 150px; }
+        
+        .btn-primary { padding: 10px 25px; background: #4CAF50; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; }
+        .btn-primary:hover { background: #45a049; }
+        .btn-warning { padding: 8px 15px; background: #FF9800; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .btn-warning:hover { background: #e68900; }
+        .btn-danger { padding: 8px 15px; background: #f44336; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .btn-danger:hover { background: #d32f2f; }
+        .btn-success { padding: 8px 15px; background: #4CAF50; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .btn-success:hover { background: #388E3C; }
+        .btn-small { padding: 4px 10px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-edit { background: #2196F3; color: #fff; }
+        .btn-edit:hover { background: #1976D2; }
+        .btn-save { background: #4CAF50; color: #fff; }
+        .btn-save:hover { background: #388E3C; }
+        .btn-cancel { background: #757575; color: #fff; }
+        .btn-cancel:hover { background: #616161; }
+        .btn-refresh { background: #2196F3; color: #fff; padding: 6px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .btn-refresh:hover { background: #1976D2; }
+        .btn-copy-one { background: linear-gradient(135deg, #00BCD4, #FF9800); color: #fff; border: none; border-radius: 4px; padding: 4px 12px; font-size: 11px; cursor: pointer; transition: all 0.2s; }
+        .btn-copy-one:hover { transform: scale(1.05); opacity: 0.9; }
+        .btn-remove-hwid-code { background: #f44336; color: #fff; border: none; border-radius: 4px; padding: 4px 10px; font-size: 10px; cursor: pointer; transition: all 0.2s; }
+        .btn-remove-hwid-code:hover { background: #d32f2f; transform: scale(1.05); }
+        
+        .scroll-table { overflow-x: auto; max-height: 500px; overflow-y: auto; position: relative; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        table th { text-align: left; padding: 10px 8px; background: rgba(255,255,255,0.05); color: #aaa; border-bottom: 2px solid #333; position: sticky; top: 0; z-index: 10; }
+        table td { padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: middle; }
+        table tr:hover { background: rgba(255,255,255,0.03); }
+        table tr.editing { background: rgba(255,152,0,0.15); }
+        
+        .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+        .badge.active { background: rgba(76,175,80,0.2); color: #4CAF50; }
+        .badge.inactive { background: rgba(244,67,54,0.2); color: #f44336; }
+        .badge.vip { background: rgba(255,152,0,0.2); color: #FF9800; }
+        .badge.svip { background: rgba(76,175,80,0.2); color: #4CAF50; }
+        .badge.auto-deactivated { background: rgba(244,67,54,0.2); color: #f44336; }
+        
+        .badge-hwid-status { padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+        .badge-hwid-status.has-hwid { background: rgba(76,175,80,0.2); color: #4CAF50; }
+        .badge-hwid-status.no-hwid { background: rgba(244,67,54,0.2); color: #f44336; }
+        .badge-hwid-status.full { background: rgba(255,152,0,0.2); color: #FF9800; }
+        
+        .badge-unregistered { background: rgba(255,152,0,0.2); color: #FF9800; font-size: 9px; padding: 1px 6px; border-radius: 8px; }
+        .badge-approved { background: rgba(76,175,80,0.2); color: #4CAF50; font-size: 9px; padding: 1px 6px; border-radius: 8px; }
+        
+        .badge-new-count { background: #f44336; color: #fff; padding: 2px 10px; border-radius: 12px; font-size: 12px; }
+        .badge-new-count.zero { background: #4CAF50; }
+        
+        .edit-input { width: 100%; padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; min-width: 60px; }
+        .edit-input:focus { outline: none; border-color: #4CAF50; }
+        .edit-select { padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; }
+        .edit-select:focus { outline: none; border-color: #4CAF50; }
+        
+        .tab-buttons { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+        .tab-btn { padding: 8px 20px; border: 2px solid #555; border-radius: 6px; background: transparent; color: #aaa; cursor: pointer; font-size: 14px; }
+        .tab-btn.active { border-color: #4CAF50; color: #4CAF50; background: rgba(76,175,80,0.1); }
+        .tab-btn:hover { border-color: #888; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        .refresh-btn { padding: 6px 15px; background: #2196F3; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin-left: 10px; }
+        .refresh-btn:hover { background: #1976D2; }
+        .code-font { font-family: monospace; font-size: 13px; }
+        .text-muted { color: #888; }
+        .mt-10 { margin-top: 10px; }
+        .action-buttons { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+        
+        #result-message { position: fixed; bottom: 20px; right: 20px; padding: 12px 24px; border-radius: 8px; display: none; z-index: 9999; font-size: 14px; max-width: 400px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+        #result-message.success { display: block; color: #4CAF50; background: rgba(76,175,80,0.15); border: 1px solid #4CAF50; }
+        #result-message.error { display: block; color: #f44336; background: rgba(244,67,54,0.15); border: 1px solid #f44336; }
+        #result-message.loading { display: block; color: #FF9800; background: rgba(255,152,0,0.15); border: 1px solid #FF9800; }
+        
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%; border-top-color: transparent; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .hwid-spec-item { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; margin: 2px 0; }
+        .hwid-spec-item.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
+        .hwid-spec-item.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
+        .hwid-spec-item.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
+        .hwid-spec-item.storage { background: rgba(33,150,243,0.15); color: #2196F3; }
+        .hwid-spec-item.device { background: rgba(255,87,34,0.15); color: #FF5722; }
+        .hwid-spec-item.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
+        .hwid-spec-item.unregistered { background: rgba(255,152,0,0.1); color: #FF9800; border: 1px dashed #FF9800; }
+        
+        .btn-remove-hwid { background: #f44336; color: #fff; border: none; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s; }
+        .btn-remove-hwid:hover { background: #d32f2f; transform: scale(1.05); }
+        .btn-remove-hwid:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
+        
+        .hwid-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 15px; }
+        .hwid-stat-card { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.08); }
+        .hwid-stat-card .number { font-size: 28px; font-weight: bold; color: #4CAF50; }
+        .hwid-stat-card .label { font-size: 12px; color: #888; margin-top: 4px; }
+        
+        .wallpaper-preview { width: 100px; height: 70px; border-radius: 6px; object-fit: cover; border: 2px solid rgba(255,255,255,0.1); background: #111; cursor: pointer; transition: all 0.3s ease; display: block; }
+        .wallpaper-preview:hover { transform: scale(1.5); z-index: 100; border-color: #FF9800; box-shadow: 0 0 20px rgba(255,152,0,0.3); }
+        .wallpaper-placeholder { width: 100px; height: 70px; border-radius: 6px; background: rgba(255,255,255,0.05); border: 2px dashed #555; display: flex; align-items: center; justify-content: center; font-size: 24px; color: #666; }
+        
+        .wallpaper-modal { display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.95); }
+        .wallpaper-modal.active { display: flex; align-items: center; justify-content: center; flex-direction: column; }
+        .wallpaper-modal img { max-width: 90%; max-height: 85%; border-radius: 12px; box-shadow: 0 0 60px rgba(255,152,0,0.2); }
+        .wallpaper-modal .close-modal { position: absolute; top: 20px; right: 40px; color: #fff; font-size: 50px; cursor: pointer; background: none; border: none; transition: transform 0.2s; }
+        .wallpaper-modal .close-modal:hover { color: #f44336; transform: rotate(90deg); }
+        .wallpaper-modal .wallpaper-info { color: #aaa; font-size: 14px; margin-top: 15px; text-align: center; }
+        .wallpaper-modal .wallpaper-info strong { color: #FF9800; }
+        
+        .code-badge { background: rgba(255,152,0,0.15); color: #FF9800; padding: 2px 8px; border-radius: 4px; font-family: monospace; font-size: 11px; }
+        
+        .error-box { background: rgba(244,67,54,0.15); border: 1px solid #f44336; border-radius: 8px; padding: 20px; text-align: center; color: #f44336; }
+        .error-box .error-icon { font-size: 30px; display: block; margin-bottom: 10px; }
+        
+        .loading-text { color: #FF9800; text-align: center; padding: 30px; font-size: 14px; }
+        .loading-text .spinner { display: inline-block; margin-right: 10px; vertical-align: middle; }
+        
+        .wallpaper-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+        .wallpaper-cell .wallpaper-info-text { font-size: 10px; color: #888; line-height: 1.3; }
+        .wallpaper-cell .wallpaper-info-text .name { color: #FF9800; }
+        .wallpaper-cell .wallpaper-info-text .size { color: #666; }
+        .wallpaper-cell .wallpaper-info-text .res { color: #555; }
+        
+        .search-box { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .search-box input { padding: 8px 14px; border: 1px solid #555; border-radius: 6px; background: #222; color: #fff; font-size: 13px; min-width: 200px; flex: 1; }
+        .search-box input:focus { border-color: #4CAF50; outline: none; }
+        .search-box .search-icon { color: #888; font-size: 14px; }
+        .search-box .clear-search { background: none; border: none; color: #888; cursor: pointer; font-size: 16px; padding: 4px 8px; }
+        .search-box .clear-search:hover { color: #f44336; }
+        
+        .hwid-status-badge { font-size: 11px; padding: 3px 12px; border-radius: 12px; display: inline-block; font-weight: bold; }
+        .hwid-status-badge.has-hwid { background: rgba(76,175,80,0.2); color: #4CAF50; }
+        .hwid-status-badge.no-hwid { background: rgba(244,67,54,0.2); color: #f44336; }
+        .hwid-status-badge.full { background: rgba(255,152,0,0.2); color: #FF9800; }
+        
+        .lazy-loading { text-align: center; padding: 10px; color: #888; font-size: 12px; }
+        .lazy-loading .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #888; border-radius: 50%; border-top-color: transparent; animation: spin 0.6s linear infinite; margin-right: 8px; vertical-align: middle; }
+        
+        @media (max-width: 768px) { 
+            .form-row { flex-direction: column; } 
+            .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .wallpaper-preview { width: 80px; height: 60px; }
+            .wallpaper-placeholder { width: 80px; height: 60px; font-size: 20px; }
+            .search-box input { min-width: 120px; }
         }
-      }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- HEADER -->
+        <div class="header">
+            <div>
+                <h1>🔐 Admin Dashboard</h1>
+                <div class="user">Logged in as: <strong><%= username %></strong></div>
+            </div>
+            <div>
+                <button class="refresh-btn" onclick="refreshData()">🔄 Refresh</button>
+                <a href="/logout"><button class="logout-btn">🚪 Logout</button></a>
+            </div>
+        </div>
 
-      let isAuthorized = false;
-      if (hwid) {
-        isAuthorized = await this.isHwidAuthorized(code, hwid);
-      }
+        <!-- STATS -->
+        <div class="stats-grid" id="stats-grid">
+            <div class="stat-card">
+                <div class="number" id="stat-codes">0</div>
+                <div class="label">🔑 Total Codes</div>
+            </div>
+            <div class="stat-card">
+                <div class="number" id="stat-svip">0</div>
+                <div class="label" style="color:#4CAF50;">⭐ SVIP Codes</div>
+            </div>
+            <div class="stat-card">
+                <div class="number" id="stat-vip">0</div>
+                <div class="label" style="color:#FF9800;">🔶 VIP Codes</div>
+            </div>
+        </div>
 
-      if (!isAuthorized && hwid) {
-        console.log(`🔄 HWID not authorized for code ${code}, attempting auto-assignment...`);
+        <!-- TABS -->
+        <div class="tab-buttons">
+            <button class="tab-btn active" onclick="switchTab('codes')">🔑 All Codes</button>
+            <button class="tab-btn" onclick="switchTab('svip')">⭐ SVIP</button>
+            <button class="tab-btn" onclick="switchTab('vip')">🔶 VIP</button>
+            <button class="tab-btn" onclick="switchTab('hwid')">🖥️ HWID Manager</button>
+            <button class="tab-btn" onclick="switchTab('hwidlogs')">📋 HWID Logs</button>
+            <button class="tab-btn" onclick="switchTab('newhwid')" id="new-hwid-tab">
+                🆕 New HWIDs <span class="badge-new-count" id="new-hwid-badge">0</span>
+            </button>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- TAB: ALL CODES -->
+        <!-- ============================================ -->
+        <div class="tab-content active" id="tab-codes">
+            <div class="card">
+                <h3>➕ Generate New Code</h3>
+                <form id="generate-code-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>👤 Username</label>
+                            <input type="text" id="gen-username" placeholder="e.g., john_doe" required>
+                        </div>
+                        <div class="form-group">
+                            <label>🔐 Access Level</label>
+                            <select id="gen-access">
+                                <option value="VIP">🔶 VIP</option>
+                                <option value="SVIP">⭐ SVIP</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>📅 Subscription</label>
+                            <select id="gen-subscription">
+                                <option value="Lifetime">♾️ Lifetime</option>
+                                <option value="3 Months">3 Months</option>
+                                <option value="6 Months">6 Months</option>
+                                <option value="12 Months">12 Months</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary">✅ Generate Code</button>
+                </form>
+                <div id="gen-result" class="mt-10"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>📋 All Codes</h3>
+                    <div class="search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" id="code-username-search" placeholder="Search username..." onkeyup="filterCodesByUsername()">
+                        <button class="clear-search" onclick="document.getElementById('code-username-search').value=''; filterCodesByUsername();">✕</button>
+                    </div>
+                </div>
+                <div class="scroll-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width:100px;">Code</th>
+                                <th>Username</th>
+                                <th>Access</th>
+                                <th>Subscription</th>
+                                <th>Expires</th>
+                                <th style="width:100px;">HWID Status</th>
+                                <th style="min-width:180px;">Deactivation Reason</th>
+                                <th style="width:220px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="codes-body">
+                            <tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">
+                                <div class="loading-text"><span class="spinner"></span> Loading codes...</div>
+                            </td></tr>
+                        </tbody>
+                    </table>
+                    <div id="scroll-loading" class="lazy-loading" style="display:none;">
+                        <span class="spinner"></span> Loading more...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- TAB: SVIP -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-svip">
+            <div class="card">
+                <div class="card-header">
+                    <h3>⭐ SVIP Codes</h3>
+                    <span class="badge svip" id="svip-count">0 codes</span>
+                </div>
+                <div class="scroll-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Username</th>
+                                <th>Subscription</th>
+                                <th>Expires</th>
+                                <th>HWID Status</th>
+                                <th style="min-width:180px;">Deactivation Reason</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="svip-body">
+                            <tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">
+                                <div class="loading-text"><span class="spinner"></span> Loading SVIP codes...</div>
+                            </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- TAB: VIP -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-vip">
+            <div class="card">
+                <div class="card-header">
+                    <h3>🔶 VIP Codes</h3>
+                    <span class="badge vip" id="vip-count">0 codes</span>
+                </div>
+                <div class="scroll-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Username</th>
+                                <th>Subscription</th>
+                                <th>Expires</th>
+                                <th>HWID Status</th>
+                                <th style="min-width:180px;">Deactivation Reason</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="vip-body">
+                            <tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">
+                                <div class="loading-text"><span class="spinner"></span> Loading VIP codes...</div>
+                            </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- TAB: HWID MANAGER -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-hwid">
+            <div class="card">
+                <div class="card-header">
+                    <h3>🖥️ HWID Management</h3>
+                    <span class="text-muted">Manage which computers can use each code</span>
+                </div>
+                
+                <div class="form-row" style="margin-bottom:15px;">
+                    <div class="form-group" style="flex:2;">
+                        <label>Select Code</label>
+                        <select id="hwid-code-select" onchange="loadHwidDetails()">
+                            <option value="">-- Select a code --</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>HWID Limit (1-10)</label>
+                        <div style="display:flex;gap:10px;">
+                            <input type="number" id="hwid-limit-input" min="1" max="10" value="1">
+                            <button onclick="updateHwidLimit()" class="btn-primary" style="padding:8px 15px;">Update</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="hwid-info" style="display:none;">
+                    <div class="hwid-stats-grid">
+                        <div class="hwid-stat-card">
+                            <div class="number" id="hwid-current-count">0</div>
+                            <div class="label">Current HWIDs</div>
+                        </div>
+                        <div class="hwid-stat-card">
+                            <div class="number" id="hwid-max-limit">0</div>
+                            <div class="label">Max Limit</div>
+                        </div>
+                        <div class="hwid-stat-card">
+                            <div class="number" id="hwid-available-slots">0</div>
+                            <div class="label">Available Slots</div>
+                        </div>
+                    </div>
+                    <div id="hwid-limit-status" style="text-align:center;padding:8px;border-radius:6px;margin-bottom:15px;display:none;"></div>
+                </div>
+
+                <div id="hwid-list-section" style="display:none;">
+                    <h4>📋 Assigned Computers</h4>
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width:40px;">#</th>
+                                    <th style="min-width:180px;">HWID</th>
+                                    <th style="min-width:450px;">Hardware Specs &amp; 🖼️ Wallpaper</th>
+                                    <th style="width:100px;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hwid-list-body">
+                                <tr><td colspan="4" style="text-align:center;color:#888;padding:20px;">Select a code to view HWIDs</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- TAB: HWID LOGS -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-hwidlogs">
+            <div class="card">
+                <div class="card-header">
+                    <h3>📋 HWID Activity Logs</h3>
+                    <div>
+                        <span class="badge badge-new-count" id="new-hwid-count">0 new</span>
+                        <button onclick="loadHwidLogs()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
+                        <button onclick="clearOldHwidLogs()" class="btn-small btn-warning" style="margin-left:5px;">🧹 Clear Old</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width:40px;">#</th>
+                                    <th style="min-width:150px;">🖥️ HWID</th>
+                                    <th style="width:100px;">🔑 Code</th>
+                                    <th style="min-width:350px;">🖥️ Hardware Specs</th>
+                                    <th style="width:160px;">⏰ Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hwid-logs-body">
+                                <tr><td colspan="5" style="text-align:center;color:#888;padding:30px;">
+                                    <div class="loading-text"><span class="spinner"></span> Loading logs...</div>
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- TAB: NEW HWID -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-newhwid">
+            <div class="card">
+                <div class="card-header">
+                    <h3>🆕 New HWID Detections</h3>
+                    <div style="display:flex; gap:10px; align-items:center;">
+                        <span class="text-muted" style="font-size:12px;">HWIDs without assigned codes</span>
+                        <button onclick="loadNewHwids()" class="btn-small btn-refresh">🔄 Refresh</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width:40px;">#</th>
+                                    <th style="min-width:180px;">🖥️ HWID</th>
+                                    <th style="min-width:200px;">🔧 Hardware Specs</th>
+                                    <th style="width:160px;">⏰ Detected At</th>
+                                    <th style="width:160px;">🔄 Last Seen</th>
+                                    <th style="width:120px;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="new-hwids-body">
+                                <tr><td colspan="6" style="text-align:center;color:#888;padding:30px;">
+                                    <div class="loading-text"><span class="spinner"></span> Loading new HWIDs...</div>
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- WALLPAPER MODAL -->
+    <div class="wallpaper-modal" id="wallpaper-modal">
+        <button class="close-modal" onclick="closeWallpaperModal()">&times;</button>
+        <img id="wallpaper-modal-img" src="" alt="Wallpaper">
+        <div class="wallpaper-info" id="wallpaper-modal-info"></div>
+    </div>
+
+    <!-- Result Message -->
+    <div id="result-message">
+        <button class="close-msg" onclick="hideMessage()">✕</button>
+        <span id="result-text"></span>
+    </div>
+
+    <script>
+        // ============================================
+        // MESSAGE HELPERS
+        // ============================================
+        function showMessage(msg, type = 'success') {
+            const el = document.getElementById('result-message');
+            const text = document.getElementById('result-text');
+            if (!el || !text) return;
+            text.innerHTML = msg;
+            el.className = type;
+            el.style.display = 'block';
+            clearTimeout(window.msgTimeout);
+            window.msgTimeout = setTimeout(() => {
+                hideMessage();
+            }, 4000);
+        }
         
-        const assignResult = await this.assignHwidToCode(code, hwid, true);
-        
-        if (!assignResult.success) {
-          if (assignResult.auto_deactivate) {
-            console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
-            const deactivateResult = await this.autoDeactivateCode(code, 'hwid_limit_exceeded_auto_assign');
+        function hideMessage() {
+            const el = document.getElementById('result-message');
+            if (el) {
+                el.style.display = 'none';
+                el.className = '';
+            }
+        }
+
+        // ============================================
+        // WALLPAPER MODAL
+        // ============================================
+        function openWallpaperModal(base64Image, fileName, size, resolution) {
+            const modal = document.getElementById('wallpaper-modal');
+            const img = document.getElementById('wallpaper-modal-img');
+            const info = document.getElementById('wallpaper-modal-info');
             
-            return {
-              success: false,
-              error: `HWID limit reached (${assignResult.max_limit}). Code auto-deactivated.`,
-              auto_deactivated: true,
-              devices_revoked: deactivateResult.devices_revoked || 0
+            if (!base64Image) {
+                showMessage('❌ No wallpaper image available', 'error');
+                return;
+            }
+            
+            const imageSrc = base64Image.startsWith('data:image') ? base64Image : 'data:image/jpeg;base64,' + base64Image;
+            img.src = imageSrc;
+            
+            const sizeNum = parseFloat(size) || 0;
+            const resolutionText = (resolution && resolution !== '0x0') ? resolution : '';
+            
+            info.innerHTML = `
+                <strong>${fileName}</strong> 
+                ${sizeNum > 0 ? `📦 ${sizeNum.toFixed(1)} KB` : ''} 
+                ${resolutionText ? `📐 ${resolutionText}` : ''}
+            `;
+            
+            modal.classList.add('active');
+            
+            modal.onclick = function(e) {
+                if (e.target === modal) {
+                    closeWallpaperModal();
+                }
             };
-          }
-          return { success: false, error: assignResult.error };
         }
-        
-        console.log(`✅ HWID auto-assigned to code ${code}`);
-        isAuthorized = true;
-        
-        await this.logUsage(deviceId, code, 'hwid_auto_assigned', 
-          `HWID ${hwid.substring(0, 16)}... auto-assigned to code ${code}`);
-      }
 
-      if (!isAuthorized && hwid) {
-        return { 
-          success: false, 
-          error: 'This computer is not authorized for this code',
-          needsRegistration: true
+        function closeWallpaperModal() {
+            document.getElementById('wallpaper-modal').classList.remove('active');
+            document.getElementById('wallpaper-modal-img').src = '';
+        }
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeWallpaperModal();
+            }
+        });
+
+        // ============================================
+        // WALLPAPER HTML HELPERS
+        // ============================================
+        function getWallpaperHtml(wallpaper, showPreview = true) {
+            if (!wallpaper) {
+                return '<span style="color:#666;font-size:10px;">No wallpaper</span>';
+            }
+            
+            let html = '';
+            const name = wallpaper.name || wallpaper.file_name || 'Unknown';
+            const size = parseFloat(wallpaper.size_kb) || 0;
+            const width = parseInt(wallpaper.width) || 0;
+            const height = parseInt(wallpaper.height) || 0;
+            const base64 = wallpaper.base64 || null;
+            const resolution = (width > 0 && height > 0) ? `${width}x${height}` : '';
+            
+            if (showPreview && base64) {
+                const imageSrc = base64.startsWith('data:image') ? base64 : 'data:image/jpeg;base64,' + base64;
+                html += `<div class="wallpaper-cell">`;
+                html += `<img class="wallpaper-preview" src="${imageSrc}" 
+                           onclick="event.stopPropagation(); openWallpaperModal('${base64}', '${name}', ${size}, '${resolution}')" 
+                           title="Click to enlarge" alt="${name}"
+                           onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">`;
+                html += `<div class="wallpaper-placeholder" style="display:none;">🖼️</div>`;
+                html += `<div class="wallpaper-info-text">`;
+                html += `<span class="name">${name}</span>`;
+                if (size > 0) {
+                    html += ` <span class="size">(${size.toFixed(1)} KB)</span>`;
+                }
+                if (resolution) {
+                    html += `<br><span class="res">📐 ${resolution}</span>`;
+                }
+                html += `</div>`;
+                html += `</div>`;
+            } else if (showPreview && !base64) {
+                html += `<div class="wallpaper-cell">`;
+                html += `<div class="wallpaper-placeholder">🖼️</div>`;
+                html += `<div class="wallpaper-info-text">`;
+                html += `<span class="name">${name}</span>`;
+                if (size > 0) {
+                    html += ` <span class="size">(${size.toFixed(1)} KB)</span>`;
+                }
+                if (resolution) {
+                    html += `<br><span class="res">📐 ${resolution}</span>`;
+                }
+                html += `</div>`;
+                html += `</div>`;
+            } else {
+                html = `<span style="color:#666;font-size:10px;">${name}</span>`;
+            }
+            
+            return html;
+        }
+
+        // ============================================
+        // COPY FUNCTION
+        // ============================================
+        function copyCodeAndUser(code, username) {
+            const textToCopy = `Code: ${code}\nUsername: ${username || 'N/A'}`;
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                showMessage(`✅ Copied!\nCode: ${code}\nUsername: ${username || 'N/A'}`, 'success');
+            }).catch(() => {
+                const textArea = document.createElement('textarea');
+                textArea.value = textToCopy;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showMessage(`✅ Copied!\nCode: ${code}\nUsername: ${username || 'N/A'}`, 'success');
+            });
+        }
+
+        // ============================================
+        // STATE
+        // ============================================
+        let editingCode = null;
+        let allCodes = [];
+        let allDevices = [];
+        let codeHwidsMap = {};
+        let isLoading = false;
+        let loadError = false;
+        let filteredCodes = [];
+        let hwidDetailsCache = {};
+        let visibleRows = 50;
+        const ROWS_PER_PAGE = 50;
+
+        // ============================================
+        // DEACTIVATION REASON MAPPING
+        // ============================================
+        const deactivationReasons = {
+            'auto_deactivated': '⚠️ Auto-deactivated (General)',
+            'auto_deactivated_multiple_hwids': '🚨 Multiple HWIDs detected',
+            'auto_deactivated_limit_exceeded': '🚨 HWID limit exceeded',
+            'auto_deactivated_unauthorized': '🚨 Unauthorized use detected',
+            'inactive': 'Manually deactivated',
+            'expired': '⏰ Subscription expired'
         };
-      }
 
-      if (!hwid) {
-        return { 
-          success: false, 
-          error: 'HWID is required for registration' 
-        };
-      }
-
-      // Parse hardware and wallpaper
-      let cpuName = 'Unknown', gpuName = 'Unknown', ramTotal = 0, storageTotal = 0, deviceName = 'Unknown', profileName = 'Default';
-      let wallpaperName = null, wallpaperSizeKb = 0, wallpaperWidth = 0, wallpaperHeight = 0, wallpaperBase64 = null;
-
-      if (hardware) {
-        const hw = typeof hardware === 'string' ? JSON.parse(hardware) : hardware;
-        cpuName = hw.cpu || 'Unknown';
-        gpuName = hw.gpu || 'Unknown';
-        ramTotal = hw.ram_gb || 0;
-        storageTotal = hw.storage_gb || 0;
-        deviceName = hw.device_name || 'Unknown';
-        profileName = hw.profile_name || 'Default';
-      }
-
-      if (wallpaper) {
-        const wp = typeof wallpaper === 'string' ? JSON.parse(wallpaper) : wallpaper;
-        wallpaperName = wp.file_name || null;
-        wallpaperSizeKb = wp.size_kb || 0;
-        wallpaperWidth = wp.width || 0;
-        wallpaperHeight = wp.height || 0;
-        wallpaperBase64 = wp.image_base64 || null;
-        
-        console.log(`🖼️ Wallpaper: ${wallpaperName} (${wallpaperSizeKb} KB) ${wallpaperWidth}x${wallpaperHeight}`);
-      }
-
-      const existingDevice = await this.getDevice(deviceId);
-      
-      if (existingDevice) {
-        await this.run(
-          `UPDATE devices SET 
-            user_agent = $1, 
-            ip_address = $2, 
-            browser_info = $3, 
-            code = $4,
-            hwid = $5,
-            status = 'approved',
-            updated_at = CURRENT_TIMESTAMP,
-            browser_profile = $6,
-            cpu_name = $7,
-            gpu_name = $8,
-            ram_total_gb = $9,
-            storage_total_gb = $10,
-            profile_name = $11,
-            device_name = $12,
-            wallpaper_name = $13,
-            wallpaper_size_kb = $14,
-            wallpaper_width = $15,
-            wallpaper_height = $16,
-            wallpaper_base64 = $17,
-            approved_at = CURRENT_TIMESTAMP,
-            revoked_at = NULL
-          WHERE device_id = $18`,
-          [
-            userAgent || '',
-            ip || '',
-            JSON.stringify(browserInfo || {}),
-            code,
-            hwid,
-            profileName,
-            cpuName,
-            gpuName,
-            ramTotal,
-            storageTotal,
-            profileName,
-            deviceName,
-            wallpaperName,
-            wallpaperSizeKb,
-            wallpaperWidth,
-            wallpaperHeight,
-            wallpaperBase64,
-            deviceId
-          ]
-        );
-        
-        console.log(`✅ Device ${deviceId} updated with wallpaper: ${wallpaperName}`);
-        
-      } else {
-        await this.run(
-          `INSERT INTO devices (
-            device_id, user_agent, ip_address, browser_info, code, hwid,
-            status, approved_at, browser_profile,
-            cpu_name, gpu_name, ram_total_gb, storage_total_gb,
-            profile_name, device_name,
-            wallpaper_name, wallpaper_size_kb, wallpaper_width, wallpaper_height, wallpaper_base64
-          ) VALUES ($1, $2, $3, $4, $5, $6, 'approved', CURRENT_TIMESTAMP, $7,
-            $8, $9, $10, $11, $12, $13,
-            $14, $15, $16, $17, $18)`,
-          [
-            deviceId,
-            userAgent || '',
-            ip || '',
-            JSON.stringify(browserInfo || {}),
-            code,
-            hwid,
-            profileName,
-            cpuName,
-            gpuName,
-            ramTotal,
-            storageTotal,
-            profileName,
-            deviceName,
-            wallpaperName,
-            wallpaperSizeKb,
-            wallpaperWidth,
-            wallpaperHeight,
-            wallpaperBase64
-          ]
-        );
-        
-        console.log(`✅ New device ${deviceId} registered with wallpaper: ${wallpaperName}`);
-      }
-
-      // Mark HWID as assigned in registry
-      await this.markHwidAsAssigned(hwid, code);
-
-      await this.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code]);
-      
-      await this.logUsage(deviceId, code, 'register', 
-        `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName} | Wallpaper: ${wallpaperName || 'None'}`
-      );
-      
-      await this.refreshCache();
-
-      const updatedCodeInfo = await this.getCodeInfo(code);
-
-      return { 
-        success: true, 
-        status: 'approved', 
-        code: code,
-        username: updatedCodeInfo.username,
-        access: updatedCodeInfo.access_level,
-        subscription: updatedCodeInfo.subscription_type,
-        subscription_started_at: updatedCodeInfo.subscription_started_at,
-        subscription_expires_at: updatedCodeInfo.expires_at,
-        status_code: updatedCodeInfo.status,
-        hwid_auto_assigned: !isAuthorized,
-        wallpaper: {
-          name: wallpaperName,
-          size_kb: wallpaperSizeKb,
-          width: wallpaperWidth,
-          height: wallpaperHeight,
-          has_base64: !!wallpaperBase64
+        function getDeactivationReason(status) {
+            return deactivationReasons[status] || status || 'Unknown reason';
         }
-      };
-      
-    } catch (error) {
-      console.error('Register device error:', error);
-      return { success: false, error: error.message };
-    }
-  }
 
-  // ============================================
-  // GET DEVICE
-  // ============================================
-
-  async getDevice(deviceId) {
-    try {
-      return await this.get('SELECT * FROM devices WHERE device_id = $1', [deviceId]);
-    } catch (error) {
-      console.error('Get device error:', error);
-      return null;
-    }
-  }
-
-  async getDevices(status = null) {
-    try {
-      let query = 'SELECT * FROM devices';
-      const params = [];
-      
-      if (status) {
-        query += ' WHERE status = $1';
-        params.push(status);
-      }
-      
-      query += ' ORDER BY created_at DESC';
-      return await this.all(query, params);
-    } catch (error) {
-      console.error('Get devices error:', error);
-      return this.cache.devices || [];
-    }
-  }
-
-  async getDevicesByCode(code) {
-    try {
-      return await this.all(
-        'SELECT * FROM devices WHERE code = $1 ORDER BY created_at DESC', 
-        [code]
-      );
-    } catch (error) {
-      console.error('Get devices by code error:', error);
-      return [];
-    }
-  }
-
-  // ============================================
-  // MULTI-HWID SUPPORT METHODS
-  // ============================================
-
-  async getCodeHwidLimit(code) {
-    try {
-      const result = await this.get(
-        'SELECT max_hwid_limit FROM codes WHERE code = $1',
-        [code]
-      );
-      return result ? result.max_hwid_limit : 1;
-    } catch (error) {
-      console.error('Get HWID limit error:', error);
-      return 1;
-    }
-  }
-
-  async updateCodeHwidLimit(code, limit) {
-    try {
-      if (limit < 1) limit = 1;
-      if (limit > 10) limit = 10;
-      
-      const result = await this.run(
-        'UPDATE codes SET max_hwid_limit = $1 WHERE code = $2',
-        [limit, code]
-      );
-      await this.refreshCache();
-      return result.changes > 0;
-    } catch (error) {
-      console.error('Update HWID limit error:', error);
-      return false;
-    }
-  }
-
-  async getCodeHwids(code) {
-    try {
-      const result = await this.all(
-        'SELECT hwid, assigned_at, last_used FROM code_hwids WHERE code = $1 ORDER BY assigned_at DESC',
-        [code]
-      );
-      return Array.isArray(result) ? result : [];
-    } catch (error) {
-      console.error('Get code HWIDs error:', error);
-      return [];
-    }
-  }
-
-  async getCodeHwidCount(code) {
-    try {
-      const result = await this.get(
-        'SELECT COUNT(*) as count FROM code_hwids WHERE code = $1',
-        [code]
-      );
-      return result ? parseInt(result.count) : 0;
-    } catch (error) {
-      console.error('Get HWID count error:', error);
-      return 0;
-    }
-  }
-
-  async isHwidAuthorized(code, hwid) {
-    try {
-      const result = await this.get(
-        'SELECT * FROM code_hwids WHERE code = $1 AND hwid = $2',
-        [code, hwid]
-      );
-      return !!result;
-    } catch (error) {
-      console.error('Check HWID authorized error:', error);
-      return false;
-    }
-  }
-
-  async assignHwidToCode(code, hwid, autoAssign = false) {
-    try {
-      if (!hwid || hwid.length !== 64) {
-        return { success: false, error: 'Invalid HWID format' };
-      }
-
-      const existing = await this.get(
-        'SELECT * FROM code_hwids WHERE code = $1 AND hwid = $2',
-        [code, hwid]
-      );
-      if (existing) {
-        await this.run(
-          'UPDATE code_hwids SET last_used = CURRENT_TIMESTAMP WHERE code = $1 AND hwid = $2',
-          [code, hwid]
-        );
-        // Mark as assigned in registry
-        await this.markHwidAsAssigned(hwid, code);
-        return { success: true, message: 'HWID already assigned, updated last_used' };
-      }
-
-      const otherCode = await this.get(
-        'SELECT code FROM code_hwids WHERE hwid = $1 AND code != $2',
-        [hwid, code]
-      );
-      if (otherCode) {
-        return { 
-          success: false, 
-          error: `HWID is already assigned to code: ${otherCode.code}` 
-        };
-      }
-
-      const currentCount = await this.getCodeHwidCount(code);
-      const limit = await this.getCodeHwidLimit(code);
-
-      if (currentCount >= limit) {
-        if (!autoAssign) {
-          return { 
-            success: false, 
-            error: `HWID limit reached (${limit}). Remove some HWIDs first.`,
-            limit_reached: true,
-            current_count: currentCount,
-            max_limit: limit
-          };
+        // ============================================
+        // FETCH WITH RETRY
+        // ============================================
+        async function fetchWithRetry(url, options = {}, retries = 3) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.status === 429) {
+                        const waitTime = (i + 1) * 2000;
+                        await new Promise(resolve => setTimeout(resolve, waitTime));
+                        continue;
+                    }
+                    return response;
+                } catch (error) {
+                    if (i === retries - 1) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+            throw new Error('Max retries exceeded');
         }
-        return {
-          success: false,
-          error: `HWID limit reached (${limit}). Auto-deactivating code.`,
-          limit_reached: true,
-          current_count: currentCount,
-          max_limit: limit,
-          auto_deactivate: true
-        };
-      }
 
-      await this.run(
-        'INSERT INTO code_hwids (code, hwid, assigned_at) VALUES ($1, $2, CURRENT_TIMESTAMP)',
-        [code, hwid]
-      );
-
-      await this.run(
-        'UPDATE codes SET hwid = $1 WHERE code = $2',
-        [hwid, code]
-      );
-
-      // Mark as assigned in registry
-      await this.markHwidAsAssigned(hwid, code);
-
-      await this.refreshCache();
-      return { success: true, message: 'HWID assigned successfully', auto_assigned: autoAssign };
-    } catch (error) {
-      console.error('Assign HWID error:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  async removeHwidFromCode(code, hwid) {
-    try {
-      await this.run(
-        'DELETE FROM devices WHERE code = $1 AND hwid = $2',
-        [code, hwid]
-      );
-
-      const result = await this.run(
-        'DELETE FROM code_hwids WHERE code = $1 AND hwid = $2',
-        [code, hwid]
-      );
-
-      if (result.changes > 0) {
-        const remaining = await this.getCodeHwids(code);
-        if (remaining && remaining.length > 0) {
-          await this.run(
-            'UPDATE codes SET hwid = $1 WHERE code = $2',
-            [remaining[0].hwid, code]
-          );
-        } else {
-          await this.run(
-            'UPDATE codes SET hwid = NULL WHERE code = $1',
-            [code]
-          );
+        // ============================================
+        // TAB SWITCHING
+        // ============================================
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            const btn = document.querySelector(`.tab-btn[onclick="switchTab('${tab}')"]`);
+            if (btn) btn.classList.add('active');
+            
+            const content = document.getElementById(`tab-${tab}`);
+            if (content) content.classList.add('active');
+            
+            if (tab === 'hwid') {
+                populateHwidCodeDropdown();
+            } else if (tab === 'hwidlogs') {
+                loadHwidLogs();
+            } else if (tab === 'newhwid') {
+                loadNewHwids();
+            } else {
+                renderCurrentTab();
+            }
         }
-        await this.refreshCache();
-        return { 
-          success: true, 
-          message: 'HWID removed successfully',
-          devices_deleted: result.changes 
-        };
-      }
-      return { success: false, error: 'HWID not found' };
-    } catch (error) {
-      console.error('Remove HWID error:', error);
-      return { success: false, error: error.message };
-    }
-  }
 
-  async verifyHwidAccess(code, hwid) {
-    try {
-      const authorized = await this.isHwidAuthorized(code, hwid);
-      if (!authorized) {
-        return { 
-          valid: false, 
-          error: 'This computer is not authorized for this code',
-          needsRegistration: true
-        };
-      }
-
-      const codeInfo = await this.get(
-        'SELECT * FROM codes WHERE code = $1 AND is_active = true',
-        [code]
-      );
-
-      if (!codeInfo) {
-        return { valid: false, error: 'Invalid or inactive code' };
-      }
-
-      if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
-        const now = new Date();
-        const expires = new Date(codeInfo.expires_at);
-        if (now > expires) {
-          await this.run(`UPDATE codes SET status = 'expired' WHERE code = $1`, [code]);
-          return { valid: false, error: 'Subscription expired' };
+        function renderCurrentTab() {
+            const activeTab = document.querySelector('.tab-content.active');
+            if (!activeTab) return;
+            
+            const id = activeTab.id;
+            if (id === 'tab-codes') renderAllCodes();
+            else if (id === 'tab-svip') renderSVIP();
+            else if (id === 'tab-vip') renderVIP();
         }
-      }
 
-      if (codeInfo.status !== 'active') {
-        return { valid: false, error: `Code is ${codeInfo.status}` };
-      }
-
-      await this.run(
-        'UPDATE code_hwids SET last_used = CURRENT_TIMESTAMP WHERE code = $1 AND hwid = $2',
-        [code, hwid]
-      );
-
-      return {
-        valid: true,
-        username: codeInfo.username,
-        access: codeInfo.access_level,
-        subscription: codeInfo.subscription_type,
-        subscription_started_at: codeInfo.subscription_started_at,
-        subscription_expires_at: codeInfo.expires_at,
-        status_code: codeInfo.status,
-        hwid_limit: codeInfo.max_hwid_limit || 1
-      };
-    } catch (error) {
-      console.error('Verify HWID access error:', error);
-      return { valid: false, error: 'Verification failed' };
-    }
-  }
-
-  // ============================================
-  // AUTO-DEACTIVATE CODE
-  // ============================================
-
-  async autoDeactivateCode(code, reason = 'unauthorized_use') {
-    try {
-        let status = 'auto_deactivated';
-        if (reason === 'multiple_hwids_detected') {
-            status = 'auto_deactivated_multiple_hwids';
-        } else if (reason === 'hwid_limit_exceeded' || reason === 'hwid_limit_exceeded_auto_assign') {
-            status = 'auto_deactivated_limit_exceeded';
-        } else if (reason === 'unauthorized_use') {
-            status = 'auto_deactivated_unauthorized';
+        // ============================================
+        // OPTIMIZED LOADING - Parallel Requests
+        // ============================================
+        async function loadAll() {
+            if (isLoading) return;
+            isLoading = true;
+            loadError = false;
+            
+            try {
+                // Load critical data first
+                const [statsResponse, codesResponse] = await Promise.all([
+                    fetchWithRetry('/api/dashboard-stats'),
+                    fetchWithRetry('/api/dashboard-codes')
+                ]);
+                
+                const statsData = await statsResponse.json();
+                const codes = await codesResponse.json();
+                
+                // Update stats immediately
+                document.getElementById('stat-codes').textContent = statsData.codes_count || 0;
+                document.getElementById('stat-svip').textContent = statsData.stats?.svip_count || 0;
+                document.getElementById('stat-vip').textContent = statsData.stats?.vip_count || 0;
+                
+                allCodes = codes;
+                filteredCodes = [...codes];
+                
+                // Load HWID status in background
+                setTimeout(async () => {
+                    await loadHwidStatusForCodes();
+                    renderCurrentTab();
+                }, 100);
+                
+                // Load devices separately
+                setTimeout(async () => {
+                    try {
+                        const devicesResponse = await fetchWithRetry('/api/dashboard-devices');
+                        const devicesData = await devicesResponse.json();
+                        allDevices = devicesData.devices || [];
+                        renderCurrentTab();
+                    } catch (e) {
+                        console.log('Background device load error:', e);
+                    }
+                }, 200);
+                
+                populateHwidCodeDropdown();
+                
+                // Load new HWID count
+                try {
+                    const newHwidResponse = await fetchWithRetry('/api/new-hwids?limit=1');
+                    const newHwidData = await newHwidResponse.json();
+                    if (newHwidData.success) {
+                        const badge = document.getElementById('new-hwid-badge');
+                        if (badge) {
+                            badge.textContent = newHwidData.count || 0;
+                            badge.className = 'badge-new-count' + ((newHwidData.count || 0) === 0 ? ' zero' : '');
+                        }
+                    }
+                } catch (e) {}
+                
+                isLoading = false;
+                
+            } catch (error) {
+                console.error('Load data error:', error);
+                loadError = true;
+                isLoading = false;
+                showMessage('❌ Error loading data: ' + error.message, 'error');
+            }
         }
-        
-        await this.run(
-            'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
-            [status, code]
-        );
-        
-        const devices = await this.all(
-            'SELECT device_id FROM devices WHERE code = $1',
-            [code]
-        );
-        
-        for (const dev of devices) {
-            await this.run(
-                'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
-                ['revoked', dev.device_id]
-            );
-            await this.logUsage(
-                dev.device_id, 
-                code, 
-                'auto_revoked_' + reason, 
-                `🔒 Device auto-revoked due to ${reason}`
-            );
+
+        // ============================================
+        // REFRESH
+        // ============================================
+        async function refreshData() {
+            showMessage('🔄 Refreshing...', 'loading');
+            try {
+                const response = await fetchWithRetry('/api/force-refresh', { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    hwidDetailsCache = {};
+                    await loadAll();
+                    showMessage('✅ Data refreshed!', 'success');
+                } else {
+                    showMessage('❌ Refresh failed', 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error refreshing: ' + error.message, 'error');
+            }
         }
-        
-        // Remove all HWIDs
-        await this.run(
-            'DELETE FROM code_hwids WHERE code = $1',
-            [code]
-        );
-        
-        await this.run(
-            'UPDATE codes SET hwid = NULL WHERE code = $1',
-            [code]
-        );
-        
-        await this.logUsage(
-            'system', 
-            code, 
-            'auto_deactivated_' + reason, 
-            `🔒 Code ${code} auto-deactivated due to ${reason}. ${devices.length} devices revoked.`
-        );
-        
-        await this.refreshCache();
-        
-        return {
-            success: true,
-            code: code,
-            devices_revoked: devices.length,
-            reason: reason,
-            status: status
-        };
-    } catch (error) {
-        console.error('Auto-deactivate code error:', error);
-        return {
-            success: false,
-            error: error.message
-        };
-    }
-  }
 
-  // ============================================
-  // CODE MANAGEMENT
-  // ============================================
-
-  calculateExpiration(startDate, subscriptionType) {
-    const date = new Date(startDate);
-    const months = {
-      '3 Months': 3,
-      '6 Months': 6,
-      '9 Months': 9,
-      '12 Months': 12
-    };
-    const monthOffset = months[subscriptionType] || 0;
-    if (monthOffset > 0) {
-      date.setMonth(date.getMonth() + monthOffset);
-      return date.toISOString();
-    }
-    return null;
-  }
-
-  async generateCode(maxDevices = 10, createdBy = 'admin', username = '', notes = '', accessLevel = 'VIP', subscriptionType = 'Lifetime') {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 8; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    code = code.slice(0, 4) + '-' + code.slice(4);
-
-    try {
-      const now = new Date().toISOString();
-      const expiresAt = subscriptionType === 'Lifetime' ? null : this.calculateExpiration(now, subscriptionType);
-      
-      await this.run(
-        `INSERT INTO codes (code, max_devices, created_by, username, notes, access_level, subscription_type, subscription_started_at, expires_at, status, max_hwid_limit)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', 1)`,
-        [code, maxDevices, createdBy, username.trim(), notes || '', accessLevel, subscriptionType, now, expiresAt]
-      );
-      
-      await this.refreshCache();
-      
-      console.log(`✅ Code generated: ${code} for user: ${username} (${accessLevel}, ${subscriptionType})`);
-      return code;
-    } catch (error) {
-      console.error('Generate code error:', error);
-      throw error;
-    }
-  }
-
-  async getCodeInfo(code) {
-    try {
-      return await this.get('SELECT * FROM codes WHERE code = $1', [code]);
-    } catch (error) {
-      console.error('Get code info error:', error);
-      return null;
-    }
-  }
-
-  async getCodeWithAuth(code, username) {
-    try {
-      const result = await this.get(
-        `SELECT * FROM codes WHERE code = $1 AND username = $2 AND is_active = true`,
-        [code, username]
-      );
-      return result;
-    } catch (error) {
-      console.error('Get code with auth error:', error);
-      return null;
-    }
-  }
-
-  async validateCodeAccess(code, username) {
-    try {
-      const codeInfo = await this.getCodeWithAuth(code, username);
-      
-      if (!codeInfo) {
-        return { valid: false, error: 'Invalid code or username' };
-      }
-
-      if (!codeInfo.is_active) {
-        return { valid: false, error: 'Code is inactive' };
-      }
-
-      if (codeInfo.status !== 'active') {
-        return { valid: false, error: `Code is ${codeInfo.status}` };
-      }
-
-      if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
-        const now = new Date();
-        const expires = new Date(codeInfo.expires_at);
-        if (now > expires) {
-          await this.run(
-            `UPDATE codes SET status = 'expired' WHERE code = $1`,
-            [code]
-          );
-          return { valid: false, error: 'Subscription expired' };
+        // ============================================
+        // FILTER CODES BY USERNAME
+        // ============================================
+        function filterCodesByUsername() {
+            const search = document.getElementById('code-username-search').value.toLowerCase().trim();
+            filteredCodes = search ? allCodes.filter(c => (c.username || '').toLowerCase().includes(search)) : [...allCodes];
+            visibleRows = 50;
+            renderAllCodes();
         }
-      }
 
-      return {
-        valid: true,
-        username: codeInfo.username,
-        access: codeInfo.access_level,
-        subscription: codeInfo.subscription_type,
-        subscription_started_at: codeInfo.subscription_started_at,
-        subscription_expires_at: codeInfo.expires_at,
-        status: codeInfo.status
-      };
-    } catch (error) {
-      console.error('Validate code access error:', error);
-      return { valid: false, error: 'Validation failed' };
-    }
-  }
-
-  async getAllCodes() {
-    try {
-      const result = await this.all(
-        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit
-         FROM codes ORDER BY created_at DESC`
-      );
-      return result || [];
-    } catch (error) {
-      console.error('Get all codes error:', error);
-      return this.cache.codes || [];
-    }
-  }
-
-  async getActiveCodes() {
-    try {
-      const result = await this.all(
-        `SELECT * FROM codes WHERE is_active = true AND status = 'active' ORDER BY created_at DESC`
-      );
-      return result || [];
-    } catch (error) {
-      console.error('Get active codes error:', error);
-      return this.cache.codes || [];
-    }
-  }
-
-  async getCodeUsage(code) {
-    try {
-      const devices = await this.all(
-        `SELECT * FROM devices WHERE code = $1 AND status != 'revoked'`,
-        [code]
-      );
-      const codeInfo = await this.getCodeInfo(code);
-      return {
-        code: code,
-        used: devices.length,
-        devices: devices,
-        username: codeInfo ? codeInfo.username : null,
-        access_level: codeInfo ? codeInfo.access_level : null,
-        subscription_type: codeInfo ? codeInfo.subscription_type : null,
-        status: codeInfo ? codeInfo.status : null
-      };
-    } catch (error) {
-      console.error('Get code usage error:', error);
-      return { code, used: 0, devices: [], username: null, access_level: null, subscription_type: null, status: null };
-    }
-  }
-
-  async deactivateCode(code) {
-    try {
-      // Get devices first
-      const devices = await this.all(
-        'SELECT device_id FROM devices WHERE code = $1 AND status != $2',
-        [code, 'revoked']
-      );
-      
-      // Remove all HWIDs for this code
-      await this.run(
-        'DELETE FROM code_hwids WHERE code = $1',
-        [code]
-      );
-      
-      // Remove devices
-      for (const device of devices) {
-        await this.run(
-          'DELETE FROM devices WHERE device_id = $1',
-          [device.device_id]
-        );
-        console.log(`🗑️ Removed device: ${device.device_id}`);
-      }
-      
-      // Update code status
-      const result = await this.run(
-        'UPDATE codes SET is_active = false, status = $1, hwid = NULL WHERE code = $2',
-        ['inactive', code]
-      );
-      
-      await this.refreshCache();
-      
-      if (result.changes > 0) {
-        console.log(`✅ Code deactivated: ${code} - ${devices.length} devices removed`);
-        return { success: true, devicesRemoved: devices.length };
-      }
-      return { success: false, devicesRemoved: 0 };
-    } catch (error) {
-      console.error('Deactivate code error:', error);
-      return { success: false, devicesRemoved: 0, error: error.message };
-    }
-  }
-
-  async reactivateCode(code, subscriptionType = 'Lifetime') {
-    try {
-      const codeInfo = await this.getCodeInfo(code);
-      if (!codeInfo) {
-        return { success: false, error: 'Code not found' };
-      }
-
-      // Remove all HWIDs if code was inactive
-      if (!codeInfo.is_active || codeInfo.status === 'inactive' || codeInfo.status.includes('auto_deactivated')) {
-        await this.run(
-          'DELETE FROM code_hwids WHERE code = $1',
-          [code]
-        );
-        await this.run(
-          'UPDATE codes SET hwid = NULL WHERE code = $1',
-          [code]
-        );
-        console.log(`🔄 HWIDs removed during reactivation of code ${code}`);
-      }
-
-      const now = new Date().toISOString();
-      const expiresAt = subscriptionType === 'Lifetime' ? null : this.calculateExpiration(now, subscriptionType);
-      
-      const result = await this.run(
-        `UPDATE codes 
-         SET is_active = true, 
-             status = 'active', 
-             subscription_type = $1,
-             subscription_started_at = $2,
-             expires_at = $3
-         WHERE code = $4`,
-        [subscriptionType, now, expiresAt, code]
-      );
-      
-      await this.refreshCache();
-      
-      if (result.changes > 0) {
-        console.log(`✅ Code reactivated: ${code} (${subscriptionType})`);
-        return { success: true };
-      }
-      return { success: false };
-    } catch (error) {
-      console.error('Reactivate code error:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  async updateCodeAccess(code, accessLevel) {
-    try {
-      const result = await this.run(
-        'UPDATE codes SET access_level = $1 WHERE code = $2',
-        [accessLevel, code]
-      );
-      
-      await this.refreshCache();
-      
-      if (result.changes > 0) {
-        console.log(`✅ Code access updated: ${code} -> ${accessLevel}`);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Update code access error:', error);
-      return false;
-    }
-  }
-
-  async updateCodeUsername(code, username) {
-    try {
-      const result = await this.run(
-        'UPDATE codes SET username = $1 WHERE code = $2',
-        [username.trim(), code]
-      );
-      
-      await this.refreshCache();
-      
-      if (result.changes > 0) {
-        console.log(`✅ Code username updated: ${code} -> ${username}`);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Update code username error:', error);
-      return false;
-    }
-  }
-
-  async updateCodeSubscription(code, subscriptionType) {
-    try {
-      const codeInfo = await this.getCodeInfo(code);
-      if (!codeInfo) return false;
-
-      const now = new Date().toISOString();
-      const expiresAt = subscriptionType === 'Lifetime' ? null : this.calculateExpiration(now, subscriptionType);
-      
-      const result = await this.run(
-        `UPDATE codes 
-         SET subscription_type = $1,
-             subscription_started_at = $2,
-             expires_at = $3,
-             status = 'active',
-             is_active = true
-         WHERE code = $4`,
-        [subscriptionType, now, expiresAt, code]
-      );
-      
-      await this.refreshCache();
-      
-      if (result.changes > 0) {
-        console.log(`✅ Code subscription updated: ${code} -> ${subscriptionType}`);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Update code subscription error:', error);
-      return false;
-    }
-  }
-
-  async deleteCode(code) {
-    try {
-      await this.run('DELETE FROM code_hwids WHERE code = $1', [code]);
-      await this.run('DELETE FROM devices WHERE code = $1', [code]);
-      const result = await this.run('DELETE FROM codes WHERE code = $1', [code]);
-      
-      await this.refreshCache();
-      
-      if (result.changes > 0) {
-        console.log(`🗑️ Code deleted: ${code}`);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Delete code error:', error);
-      return false;
-    }
-  }
-
-  // ============================================
-  // HWID LOGGING
-  // ============================================
-
-  async logHwidActivity(hwid, code, deviceId, action, status, details, ip, userAgent, browserProfile) {
-    try {
-      // Check if HWID is already assigned to a code
-      const assigned = await this.get(
-        'SELECT code FROM code_hwids WHERE hwid = $1',
-        [hwid]
-      );
-      
-      // If HWID has a code, don't log it
-      if (assigned && assigned.code) {
-        console.log(`ℹ️ Skipping HWID log - HWID already assigned to code: ${assigned.code}`);
-        return true;
-      }
-      
-      await this.run(
-        `INSERT INTO hwid_logs (hwid, code, device_id, action, status, details, ip_address, user_agent, browser_profile)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [hwid, code, deviceId, action, status || 'new', details || '', ip || '', userAgent || '', browserProfile || '']
-      );
-      console.log(`📝 HWID Log: ${action} - ${hwid.substring(0, 16)}... (${status || 'new'})`);
-      return true;
-    } catch (error) {
-      console.error('❌ Error logging HWID activity:', error.message);
-      return false;
-    }
-  }
-
-  async getHwidLogs(limit = 200, status = null) {
-    try {
-      let query = 'SELECT * FROM hwid_logs ORDER BY created_at DESC LIMIT $1';
-      const params = [limit];
-      
-      if (status) {
-        query = 'SELECT * FROM hwid_logs WHERE status = $1 ORDER BY created_at DESC LIMIT $2';
-        params.unshift(status);
-      }
-      
-      const result = await this.all(query, params);
-      return result || [];
-    } catch (error) {
-      console.error('❌ Get HWID logs error:', error.message);
-      return [];
-    }
-  }
-
-  async getHwidLogsByHwid(hwid, limit = 50) {
-    try {
-      return await this.all(
-        'SELECT * FROM hwid_logs WHERE hwid = $1 ORDER BY created_at DESC LIMIT $2',
-        [hwid, limit]
-      );
-    } catch (error) {
-      console.error('❌ Get HWID logs by HWID error:', error.message);
-      return [];
-    }
-  }
-
-  async getHwidLogsCount() {
-    try {
-      const result = await this.get(
-        "SELECT COUNT(*) as count FROM hwid_logs"
-      );
-      return result ? parseInt(result.count) : 0;
-    } catch (error) {
-      console.error('❌ Get HWID logs count error:', error.message);
-      return 0;
-    }
-  }
-
-  // ============================================
-  // DEVICE MANAGEMENT
-  // ============================================
-
-  async getDeviceStatus(deviceId) {
-    try {
-      const device = await this.getDevice(deviceId);
-      if (!device) {
-        return { exists: false, status: 'not_found' };
-      }
-      
-      const codeInfo = await this.getCodeInfo(device.code);
-      
-      return { 
-        exists: true, 
-        status: device.status,
-        code: device.code,
-        username: codeInfo ? codeInfo.username : null,
-        access: codeInfo ? codeInfo.access_level : null,
-        subscription: codeInfo ? codeInfo.subscription_type : null,
-        subscription_started_at: codeInfo ? codeInfo.subscription_started_at : null,
-        subscription_expires_at: codeInfo ? codeInfo.expires_at : null,
-        status_code: codeInfo ? codeInfo.status : null,
-        wallpaper: device.wallpaper_name ? {
-          name: device.wallpaper_name,
-          size_kb: device.wallpaper_size_kb,
-          width: device.wallpaper_width,
-          height: device.wallpaper_height,
-          has_base64: !!device.wallpaper_base64
-        } : null,
-        device: {
-          id: device.device_id,
-          approved_at: device.approved_at,
-          revoked_at: device.revoked_at
+        // ============================================
+        // LOAD HWID STATUS
+        // ============================================
+        async function loadHwidStatusForCodes() {
+            codeHwidsMap = {};
+            const promises = allCodes.map(async (code) => {
+                try {
+                    const response = await fetchWithRetry(`/api/code/${code.code}/hwid-limit`);
+                    const data = await response.json();
+                    codeHwidsMap[code.code] = {
+                        count: data.current_hwid_count || 0,
+                        limit: data.max_hwid_limit || 1
+                    };
+                } catch (error) {
+                    codeHwidsMap[code.code] = { count: 0, limit: 1 };
+                }
+            });
+            await Promise.all(promises);
         }
-      };
-    } catch (error) {
-      console.error('Get device status error:', error);
-      return { exists: false, status: 'error' };
-    }
-  }
 
-  async removeUser(deviceId) {
-    try {
-      const device = await this.getDevice(deviceId);
-      if (!device) return false;
-
-      const code = device.code;
-      
-      const result = await this.run('DELETE FROM devices WHERE device_id = $1', [deviceId]);
-      
-      if (result.changes > 0) {
-        if (code) {
-          await this.run('UPDATE codes SET used_count = used_count - 1 WHERE code = $1', [code]);
-          await this.logUsage(deviceId, code, 'remove_user', 'User removed, slot freed');
+        // ============================================
+        // RENDER ALL CODES - With Virtual Scroll
+        // ============================================
+        function renderAllCodes() {
+            const tbody = document.getElementById('codes-body');
+            const loading = document.getElementById('scroll-loading');
+            
+            if (loadError) return;
+            
+            if (!filteredCodes || filteredCodes.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">No codes found</td></tr>`;
+                loading.style.display = 'none';
+                return;
+            }
+            
+            const end = Math.min(visibleRows, filteredCodes.length);
+            const visibleData = filteredCodes.slice(0, end);
+            
+            tbody.innerHTML = visibleData.map(c => renderCodeRow(c)).join('');
+            
+            if (filteredCodes.length > visibleRows) {
+                loading.style.display = 'block';
+                loading.innerHTML = `<span class="spinner"></span> Showing ${visibleRows} of ${filteredCodes.length} codes. Scroll to load more...`;
+            } else {
+                loading.style.display = 'none';
+            }
         }
-        
-        await this.refreshCache();
-        
-        console.log(`🗑️ User ${deviceId} removed`);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Remove user error:', error);
-      return false;
-    }
-  }
 
-  async revokeDevice(deviceId) {
-    try {
-      const device = await this.getDevice(deviceId);
-      if (!device) return false;
-
-      const result = await this.run(
-        'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE device_id = $2',
-        ['revoked', deviceId]
-      );
-      
-      if (result.changes > 0) {
-        if (device.code) {
-          await this.run('UPDATE codes SET used_count = used_count - 1 WHERE code = $1', [device.code]);
-          await this.logUsage(deviceId, device.code, 'revoke', 'Device revoked');
+        // ============================================
+        // RENDER CODE ROW
+        // ============================================
+        function renderCodeRow(c) {
+            const isEditing = editingCode === c.code;
+            const accessClass = c.access_level === 'SVIP' ? 'svip' : 'vip';
+            const accessLabel = c.access_level === 'SVIP' ? '⭐ SVIP' : '🔶 VIP';
+            const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
+            const username = c.username || '';
+            
+            const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
+            const hasHwid = hwidInfo.count > 0;
+            const isFull = hwidInfo.count >= hwidInfo.limit;
+            const hwidDisplay = `${hwidInfo.count}/${hwidInfo.limit}`;
+            const hwidClass = isFull && hasHwid ? 'full' : hasHwid ? 'has-hwid' : 'no-hwid';
+            const deactivationDisplay = !c.is_active ? 
+                `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
+                '<span class="text-muted">—</span>';
+            const codeHwid = c.hwid || null;
+            const hasHwidAssigned = codeHwid && codeHwid.length === 64;
+            
+            if (isEditing) {
+                return `
+                    <tr class="editing">
+                        <td><strong class="code-font">${c.code}</strong></td>
+                        <td><input class="edit-input" id="edit-username-${c.code}" value="${c.username || ''}" placeholder="Username"></td>
+                        <td>
+                            <select class="edit-select" id="edit-access-${c.code}">
+                                <option value="VIP" ${c.access_level === 'VIP' ? 'selected' : ''}>🔶 VIP</option>
+                                <option value="SVIP" ${c.access_level === 'SVIP' ? 'selected' : ''}>⭐ SVIP</option>
+                            </select>
+                        </td>
+                        <td>
+                            <select class="edit-select" id="edit-subscription-${c.code}">
+                                <option value="Lifetime" ${c.subscription_type === 'Lifetime' ? 'selected' : ''}>♾️ Lifetime</option>
+                                <option value="3 Months" ${c.subscription_type === '3 Months' ? 'selected' : ''}>3 Months</option>
+                                <option value="6 Months" ${c.subscription_type === '6 Months' ? 'selected' : ''}>6 Months</option>
+                                <option value="12 Months" ${c.subscription_type === '12 Months' ? 'selected' : ''}>12 Months</option>
+                            </select>
+                        </td>
+                        <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : 'Never'}</td>
+                        <td>
+                            <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;">
+                        </td>
+                        <td>${deactivationDisplay}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button onclick="saveEdit('${c.code}')" class="btn-small btn-save">💾 Save</button>
+                                <button onclick="cancelEdit()" class="btn-small btn-cancel">✖ Cancel</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }
+            
+            const hwidStatusHtml = hasHwidAssigned ? 
+                `<span class="hwid-status-badge ${hwidClass}">${hwidDisplay}</span>` : 
+                `<span class="hwid-status-badge no-hwid">0/0</span>`;
+            
+            return `
+                <tr>
+                    <td><strong class="code-font">${c.code}</strong></td>
+                    <td>${username || '<span class="text-muted">N/A</span>'}</td>
+                    <td><span class="badge ${accessClass}">${accessLabel}</span></td>
+                    <td>${c.subscription_type || 'Lifetime'}</td>
+                    <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
+                    <td>${hwidStatusHtml}</td>
+                    <td>${deactivationDisplay}</td>
+                    <td>
+                        <div class="action-buttons">
+                            <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
+                            <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
+                            <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
+                                ${c.is_active ? '🔒' : '🔓'}
+                            </button>
+                            ${hasHwidAssigned ? `<button onclick="removeHwidFromCode('${c.code}', '${codeHwid}')" class="btn-remove-hwid-code">🗑️ HWID</button>` : ''}
+                            <button onclick="deleteCode('${c.code}')" class="btn-small btn-danger">🗑️</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
         }
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Revoke device error:', error);
-      return false;
-    }
-  }
 
-  async updatePing(deviceId) {
-    try {
-      await this.run(
-        'UPDATE devices SET last_ping = CURRENT_TIMESTAMP, ping_count = ping_count + 1, updated_at = CURRENT_TIMESTAMP WHERE device_id = $1',
-        [deviceId]
-      );
-    } catch (error) {
-      console.error('Update ping error:', error);
-    }
-  }
-
-  // ============================================
-  // LOGGING
-  // ============================================
-
-  async logUsage(deviceId, code, action, details = '') {
-    try {
-      await this.run(
-        'INSERT INTO usage_logs (device_id, code, action, details) VALUES ($1, $2, $3, $4)',
-        [deviceId || 'system', code || null, action, details]
-      );
-    } catch (error) {
-      console.error('Logging error:', error);
-    }
-  }
-
-  async getUsageLogs(deviceId = null, limit = 100) {
-    try {
-      let query = 'SELECT * FROM usage_logs';
-      const params = [];
-      
-      if (deviceId) {
-        query += ' WHERE device_id = $1';
-        params.push(deviceId);
-      }
-      
-      query += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1);
-      params.push(limit);
-      
-      return await this.all(query, params);
-    } catch (error) {
-      console.error('Get usage logs error:', error);
-      return [];
-    }
-  }
-
-  // ============================================
-  // STATS
-  // ============================================
-
-  async getStats() {
-    try {
-      const total = await this.get('SELECT COUNT(*) as count FROM devices');
-      const pending = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'pending'");
-      const approved = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'approved'");
-      const revoked = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'revoked'");
-      const totalPings = await this.get('SELECT COALESCE(SUM(ping_count), 0) as total FROM devices');
-      const totalCodes = await this.get('SELECT COUNT(*) as count FROM codes');
-      const activeCodes = await this.get("SELECT COUNT(*) as count FROM codes WHERE is_active = true AND status = 'active'");
-      const pendingRequests = await this.get("SELECT COUNT(*) as count FROM requests WHERE status = 'pending'");
-
-      const stats = {
-        total: parseInt(total?.count || 0),
-        pending: parseInt(pending?.count || 0),
-        approved: parseInt(approved?.count || 0),
-        revoked: parseInt(revoked?.count || 0),
-        totalPings: parseInt(totalPings?.total || 0),
-        totalCodes: parseInt(totalCodes?.count || 0),
-        activeCodes: parseInt(activeCodes?.count || 0),
-        pendingRequests: parseInt(pendingRequests?.count || 0)
-      };
-      
-      return stats;
-    } catch (error) {
-      console.error('Get stats error:', error);
-      return this.cache.stats || {
-        total: 0,
-        pending: 0,
-        approved: 0,
-        revoked: 0,
-        totalPings: 0,
-        totalCodes: 0,
-        activeCodes: 0,
-        pendingRequests: 0
-      };
-    }
-  }
-
-  // ============================================
-  // ADMIN
-  // ============================================
-
-  async createAdmin(username, passwordHash) {
-    try {
-      const result = await this.run(
-        'INSERT INTO admins (username, password_hash) VALUES ($1, $2) ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash',
-        [username, passwordHash]
-      );
-      return result;
-    } catch (error) {
-      console.error('Create admin error:', error);
-      return null;
-    }
-  }
-
-  async getAdmin(username) {
-    try {
-      return await this.get('SELECT * FROM admins WHERE username = $1', [username]);
-    } catch (error) {
-      console.error('Get admin error:', error);
-      return null;
-    }
-  }
-
-  // ============================================
-  // REQUEST MANAGEMENT
-  // ============================================
-
-  async getPendingRequests() {
-    try {
-      return await this.all(
-        'SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id WHERE r.status = $1 ORDER BY r.requested_at ASC',
-        ['pending']
-      );
-    } catch (error) {
-      console.error('Get pending requests error:', error);
-      return this.cache.requests || [];
-    }
-  }
-
-  async respondToRequest(requestId, status, adminResponse = '') {
-    const request = await this.get('SELECT * FROM requests WHERE id = $1', [requestId]);
-    if (!request) return false;
-
-    const result = await this.run(
-      'UPDATE requests SET status = $1, responded_at = CURRENT_TIMESTAMP, admin_response = $2 WHERE id = $3',
-      [status, adminResponse, requestId]
-    );
-    
-    if (result.changes > 0) {
-      await this.logUsage(request.device_id, request.code, 'request_response', 
-        `Request ${status}: ${adminResponse}`);
-      
-      if (status === 'approved' && request.code) {
-        const codeInfo = await this.getCodeInfo(request.code);
-        if (codeInfo) {
-          const newLimit = codeInfo.max_devices + 1;
-          await this.updateCodeAccess(request.code, newLimit);
-          await this.logUsage(request.device_id, request.code, 'code_extended', 
-            `Extended to ${newLimit} devices due to request`);
+        // ============================================
+        // RENDER SVIP
+        // ============================================
+        function renderSVIP() {
+            const svipCodes = allCodes.filter(c => c.access_level === 'SVIP');
+            const tbody = document.getElementById('svip-body');
+            document.getElementById('svip-count').textContent = svipCodes.length + ' codes';
+            
+            if (svipCodes.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = svipCodes.map(c => {
+                const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
+                const username = c.username || '';
+                const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
+                const hasHwid = hwidInfo.count > 0;
+                const isFull = hwidInfo.count >= hwidInfo.limit;
+                const hwidDisplay = `${hwidInfo.count}/${hwidInfo.limit}`;
+                const hwidClass = isFull && hasHwid ? 'full' : hasHwid ? 'has-hwid' : 'no-hwid';
+                const deactivationDisplay = !c.is_active ? 
+                    `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
+                    '<span class="text-muted">—</span>';
+                const codeHwid = c.hwid || null;
+                const hasHwidAssigned = codeHwid && codeHwid.length === 64;
+                const hwidStatusHtml = hasHwidAssigned ? 
+                    `<span class="hwid-status-badge ${hwidClass}">${hwidDisplay}</span>` : 
+                    `<span class="hwid-status-badge no-hwid">0/0</span>`;
+                
+                return `
+                    <tr>
+                        <td><strong class="code-font">${c.code}</strong></td>
+                        <td>${username || '<span class="text-muted">N/A</span>'}</td>
+                        <td>${c.subscription_type || 'Lifetime'}</td>
+                        <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
+                        <td>${hwidStatusHtml}</td>
+                        <td>${deactivationDisplay}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
+                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
+                                <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
+                                    ${c.is_active ? '🔒' : '🔓'}
+                                </button>
+                                ${hasHwidAssigned ? `<button onclick="removeHwidFromCode('${c.code}', '${codeHwid}')" class="btn-remove-hwid-code">🗑️ HWID</button>` : ''}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
-      }
-      return true;
-    }
-    return false;
-  }
 
-  // ============================================
-  // CACHE
-  // ============================================
-
-  async refreshCache() {
-    try {
-      console.log('🔄 Refreshing cache...');
-      
-      const [codes, stats, devices, requests] = await Promise.all([
-        this.getAllCodes(),
-        this.getStats(),
-        this.getDevices(),
-        this.getPendingRequests()
-      ]);
-      
-      if (codes !== null && codes !== undefined) {
-        if (codes.length > 0) {
-          this.cache.codes = codes;
-          console.log(`✅ Updated codes cache with ${codes.length} codes`);
-        } else if (codes.length === 0 && this.cache.hasInitialData) {
-          console.log(`⚠️ Database returned 0 codes, keeping existing ${this.cache.codes.length} codes in cache`);
-        } else if (codes.length === 0 && !this.cache.hasInitialData) {
-          this.cache.codes = [];
-          console.log('ℹ️ First load, no codes found');
+        // ============================================
+        // RENDER VIP
+        // ============================================
+        function renderVIP() {
+            const vipCodes = allCodes.filter(c => c.access_level === 'VIP');
+            const tbody = document.getElementById('vip-body');
+            document.getElementById('vip-count').textContent = vipCodes.length + ' codes';
+            
+            if (vipCodes.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = vipCodes.map(c => {
+                const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
+                const username = c.username || '';
+                const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
+                const hasHwid = hwidInfo.count > 0;
+                const isFull = hwidInfo.count >= hwidInfo.limit;
+                const hwidDisplay = `${hwidInfo.count}/${hwidInfo.limit}`;
+                const hwidClass = isFull && hasHwid ? 'full' : hasHwid ? 'has-hwid' : 'no-hwid';
+                const deactivationDisplay = !c.is_active ? 
+                    `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
+                    '<span class="text-muted">—</span>';
+                const codeHwid = c.hwid || null;
+                const hasHwidAssigned = codeHwid && codeHwid.length === 64;
+                const hwidStatusHtml = hasHwidAssigned ? 
+                    `<span class="hwid-status-badge ${hwidClass}">${hwidDisplay}</span>` : 
+                    `<span class="hwid-status-badge no-hwid">0/0</span>`;
+                
+                return `
+                    <tr>
+                        <td><strong class="code-font">${c.code}</strong></td>
+                        <td>${username || '<span class="text-muted">N/A</span>'}</td>
+                        <td>${c.subscription_type || 'Lifetime'}</td>
+                        <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
+                        <td>${hwidStatusHtml}</td>
+                        <td>${deactivationDisplay}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
+                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
+                                <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
+                                    ${c.is_active ? '🔒' : '🔓'}
+                                </button>
+                                ${hasHwidAssigned ? `<button onclick="removeHwidFromCode('${c.code}', '${codeHwid}')" class="btn-remove-hwid-code">🗑️ HWID</button>` : ''}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
-      }
-      
-      if (stats !== null && stats !== undefined && Object.keys(stats).length > 0) {
-        this.cache.stats = stats;
-      }
-      
-      if (devices !== null && devices !== undefined) {
-        if (devices.length > 0 || !this.cache.hasInitialData) {
-          this.cache.devices = devices;
-        } else {
-          console.log(`⚠️ Database returned 0 devices, keeping existing ${this.cache.devices.length} devices in cache`);
+
+        // ============================================
+        // INFINITE SCROLL
+        // ============================================
+        function setupInfiniteScroll() {
+            const loading = document.getElementById('scroll-loading');
+            if (!loading) return;
+            
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting && filteredCodes.length > visibleRows) {
+                        visibleRows = Math.min(visibleRows + ROWS_PER_PAGE, filteredCodes.length);
+                        renderAllCodes();
+                    }
+                });
+            }, { rootMargin: '200px' });
+            
+            observer.observe(loading);
         }
-      }
-      
-      if (requests !== null && requests !== undefined) {
-        if (requests.length > 0 || !this.cache.hasInitialData) {
-          this.cache.requests = requests;
+
+        // ============================================
+        // EDIT FUNCTIONS
+        // ============================================
+        function startEdit(code) {
+            editingCode = code;
+            renderAllCodes();
         }
-      }
-      
-      this.cache.lastUpdate = Date.now();
-      this.cache.hasInitialData = true;
-      
-      console.log(`✅ Cache: ${this.cache.codes.length} codes, ${this.cache.devices.length} devices`);
-      
-      return this.cache;
-    } catch (error) {
-      console.error('Cache refresh error:', error);
-      return this.cache;
-    }
-  }
 
-  getCachedData() {
-    return {
-      codes: this.cache.codes || [],
-      stats: this.cache.stats || { total: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
-      devices: this.cache.devices || [],
-      requests: this.cache.requests || []
-    };
-  }
-
-  // ============================================
-  // CLEANUP
-  // ============================================
-
-  async cleanupInactiveDevices() {
-    try {
-      const result = await this.query(`
-        DELETE FROM devices 
-        WHERE last_ping < NOW() - INTERVAL '7 days'
-        AND status != 'revoked'
-        RETURNING device_id, code
-      `);
-      
-      if (result.rowCount > 0) {
-        console.log(`🧹 Cleaned up ${result.rowCount} inactive devices`);
-        
-        for (const row of result.rows) {
-          await this.query(
-            `UPDATE codes SET used_count = used_count - 1 WHERE code = $1`,
-            [row.code]
-          );
+        function cancelEdit() {
+            editingCode = null;
+            renderAllCodes();
         }
-      }
-      
-      return result.rowCount;
-    } catch (error) {
-      console.error('Cleanup inactive devices error:', error);
-      return 0;
-    }
-  }
 
-  close() {
-    this.pool.end();
-  }
-}
+        async function saveEdit(code) {
+            const username = document.getElementById(`edit-username-${code}`).value.trim();
+            const accessLevel = document.getElementById(`edit-access-${code}`).value;
+            const subscriptionType = document.getElementById(`edit-subscription-${code}`).value;
+            const hwidLimit = parseInt(document.getElementById(`edit-hwid-limit-${code}`).value) || 1;
+            
+            try {
+                showMessage('💾 Saving...', 'loading');
+                const currentCode = allCodes.find(c => c.code === code);
+                
+                if (currentCode && username && currentCode.username !== username) {
+                    const response = await fetchWithRetry(`/api/code/${code}/username`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username })
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                        showMessage('❌ ' + (result.error || 'Failed to update username'), 'error');
+                        return;
+                    }
+                }
+                
+                if (currentCode && currentCode.access_level !== accessLevel) {
+                    const response = await fetchWithRetry(`/api/code/${code}/access`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ accessLevel })
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                        showMessage('❌ ' + (result.error || 'Failed to update access'), 'error');
+                        return;
+                    }
+                }
+                
+                if (currentCode && currentCode.subscription_type !== subscriptionType) {
+                    const response = await fetchWithRetry(`/api/code/${code}/subscription`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ subscriptionType })
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                        showMessage('❌ ' + (result.error || 'Failed to update subscription'), 'error');
+                        return;
+                    }
+                }
 
-module.exports = new DeviceDatabase();
+                if (currentCode && currentCode.max_hwid_limit !== hwidLimit) {
+                    const response = await fetchWithRetry(`/api/code/${code}/hwid-limit`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ limit: hwidLimit })
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                        showMessage('❌ ' + (result.error || 'Failed to update HWID limit'), 'error');
+                        return;
+                    }
+                }
+                
+                editingCode = null;
+                showMessage('✅ Changes saved!', 'success');
+                await loadAll();
+                
+            } catch (error) {
+                showMessage('❌ Error saving: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // TOGGLE STATUS
+        // ============================================
+        async function toggleStatus(code) {
+            const codeInfo = allCodes.find(c => c.code === code);
+            if (!codeInfo) return;
+            
+            const confirmMsg = codeInfo.is_active ? 
+                `⚠️ Deactivate code ${code}?\n\nThis will remove all HWIDs and devices.` :
+                `🔓 Reactivate code ${code}?\n\nThis will remove all existing HWIDs.`;
+            
+            if (!confirm(confirmMsg)) return;
+            
+            try {
+                let response;
+                if (codeInfo.is_active) {
+                    response = await fetchWithRetry(`/api/code/${code}/deactivate`, { method: 'POST' });
+                } else {
+                    response = await fetchWithRetry(`/api/code/${code}/reactivate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ subscriptionType: codeInfo.subscription_type || 'Lifetime' })
+                    });
+                }
+                const result = await response.json();
+                if (result.success) {
+                    showMessage(`✅ Code ${code} ${codeInfo.is_active ? 'deactivated' : 'reactivated'}!`, 'success');
+                    hwidDetailsCache = {};
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to toggle status'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // DELETE CODE
+        // ============================================
+        async function deleteCode(code) {
+            if (!confirm(`⚠️ Permanently delete code ${code}?`)) return;
+            
+            try {
+                const response = await fetchWithRetry(`/api/code/${code}`, { method: 'DELETE' });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    hwidDetailsCache = {};
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to delete code'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // GENERATE CODE
+        // ============================================
+        document.getElementById('generate-code-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const username = document.getElementById('gen-username').value.trim();
+            const accessLevel = document.getElementById('gen-access').value;
+            const subscriptionType = document.getElementById('gen-subscription').value;
+            
+            if (!username) {
+                showMessage('❌ Username is required!', 'error');
+                return;
+            }
+            
+            showMessage('⏳ Generating...', 'loading');
+            
+            try {
+                const response = await fetchWithRetry('/api/generate-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, accessLevel, subscriptionType })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ Code ${result.code} generated for ${result.username}`, 'success');
+                    document.getElementById('gen-username').value = '';
+                    hwidDetailsCache = {};
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        });
+
+        // ============================================
+        // REMOVE HWID FROM CODE
+        // ============================================
+        async function removeHwidFromCode(code, hwid) {
+            if (!hwid) {
+                showMessage('❌ No HWID assigned to this code', 'error');
+                return;
+            }
+            
+            if (!confirm(`⚠️ Remove HWID from code ${code}?`)) return;
+            
+            try {
+                showMessage('⏳ Removing HWID...', 'loading');
+                const response = await fetchWithRetry(`/api/code/${code}/hwid/${hwid}`, { method: 'DELETE' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // HWID MANAGEMENT
+        // ============================================
+        function populateHwidCodeDropdown() {
+            const select = document.getElementById('hwid-code-select');
+            const currentValue = select.value;
+            
+            select.innerHTML = '<option value="">-- Select a code --</option>';
+            allCodes.forEach(c => {
+                const option = document.createElement('option');
+                option.value = c.code;
+                const statusText = c.is_active ? '' : ' (Inactive)';
+                option.textContent = `${c.code} - ${c.username || 'N/A'}${statusText}`;
+                if (c.code === currentValue) option.selected = true;
+                select.appendChild(option);
+            });
+            
+            if (currentValue) loadHwidDetails();
+        }
+
+        async function loadHwidDetails() {
+            const code = document.getElementById('hwid-code-select').value;
+            if (!code) {
+                document.getElementById('hwid-info').style.display = 'none';
+                document.getElementById('hwid-list-section').style.display = 'none';
+                return;
+            }
+            
+            if (hwidDetailsCache[code] && (Date.now() - hwidDetailsCache[code].timestamp < 30000)) {
+                const cached = hwidDetailsCache[code];
+                updateHwidStats(cached);
+                renderHwidList(cached.hwidData, cached.devices);
+                return;
+            }
+            
+            try {
+                document.getElementById('hwid-info').style.display = 'block';
+                document.getElementById('hwid-list-section').style.display = 'block';
+                document.getElementById('hwid-list-body').innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading...</div></td></tr>';
+                
+                const [limitResponse, hwidResponse, devicesResponse] = await Promise.all([
+                    fetchWithRetry(`/api/code/${code}/hwid-limit`),
+                    fetchWithRetry(`/api/code/${code}/hwids`),
+                    fetchWithRetry('/api/dashboard-devices')
+                ]);
+                
+                const limitData = await limitResponse.json();
+                const hwidData = await hwidResponse.json();
+                const devicesData = await devicesResponse.json();
+                
+                const allDevicesForCode = (devicesData.devices || []).filter(d => d.code === code);
+                
+                hwidDetailsCache[code] = {
+                    timestamp: Date.now(),
+                    limitData: limitData,
+                    hwidData: hwidData,
+                    devices: allDevicesForCode
+                };
+                
+                updateHwidStats({ limitData, hwidData, devices: allDevicesForCode });
+                renderHwidList(hwidData, allDevicesForCode);
+                
+            } catch (error) {
+                document.getElementById('hwid-list-body').innerHTML = `<tr><td colspan="4" style="text-align:center;color:#f44336;padding:20px;">❌ Error loading HWIDs: ${error.message}</td></tr>`;
+                showMessage('❌ Error loading HWID details', 'error');
+            }
+        }
+
+        function updateHwidStats(data) {
+            const currentCount = data.hwidData.hwids ? data.hwidData.hwids.length : 0;
+            const maxLimit = data.limitData.max_hwid_limit || 1;
+            const availableSlots = maxLimit - currentCount;
+            
+            document.getElementById('hwid-current-count').textContent = currentCount;
+            document.getElementById('hwid-max-limit').textContent = maxLimit;
+            document.getElementById('hwid-available-slots').textContent = availableSlots < 0 ? 0 : availableSlots;
+            document.getElementById('hwid-limit-input').value = maxLimit;
+            
+            const statusEl = document.getElementById('hwid-limit-status');
+            if (availableSlots <= 0) {
+                statusEl.style.display = 'block';
+                statusEl.style.background = 'rgba(244,67,54,0.15)';
+                statusEl.style.color = '#f44336';
+                statusEl.style.border = '1px solid #f44336';
+                statusEl.innerHTML = `⚠️ HWID LIMIT REACHED! (${currentCount}/${maxLimit})`;
+            } else if (availableSlots <= 2) {
+                statusEl.style.display = 'block';
+                statusEl.style.background = 'rgba(255,152,0,0.15)';
+                statusEl.style.color = '#FF9800';
+                statusEl.style.border = '1px solid #FF9800';
+                statusEl.innerHTML = `⚠️ Only ${availableSlots} slot(s) remaining (${currentCount}/${maxLimit})`;
+            } else {
+                statusEl.style.display = 'none';
+            }
+        }
+
+        function renderHwidList(hwidData, devices) {
+            const tbody = document.getElementById('hwid-list-body');
+            const hwids = (hwidData && hwidData.hwids && Array.isArray(hwidData.hwids)) ? hwidData.hwids : [];
+            
+            if (!hwids || hwids.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;">No HWIDs assigned to this code</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = hwids.map((h, index) => {
+                const hwidFull = h.hwid || '';
+                const hwidMasked = h.hwid_masked || (hwidFull ? hwidFull.substring(0, 16) + '...' : 'N/A');
+                const hwidDevices = devices ? devices.filter(d => d.hwid === hwidFull) : [];
+                const device = hwidDevices[0] || null;
+                
+                const cpu = device?.cpu_name || 'N/A';
+                const gpu = device?.gpu_name || 'N/A';
+                const ram = device?.ram_total_gb ? device.ram_total_gb + ' GB' : 'N/A';
+                const storage = device?.storage_total_gb ? device.storage_total_gb + ' GB' : 'N/A';
+                const deviceName = device?.device_name || 'N/A';
+                const profile = device?.browser_profile || device?.profile_name || 'Default';
+                
+                let wallpaperHtml = '<span style="color:#666;font-size:10px;">No wallpaper</span>';
+                if (device?.wallpaper_name || device?.wallpaper_base64) {
+                    const wallpaper = {
+                        name: device.wallpaper_name || 'Unknown',
+                        size_kb: device.wallpaper_size_kb || 0,
+                        width: device.wallpaper_width || 0,
+                        height: device.wallpaper_height || 0,
+                        base64: device.wallpaper_base64 || null
+                    };
+                    wallpaperHtml = getWallpaperHtml(wallpaper, true);
+                }
+                
+                const hasSpecs = cpu !== 'N/A' && cpu !== 'Unknown';
+                
+                return `
+                    <tr>
+                        <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
+                        <td>
+                            <code style="font-size:11px;font-weight:bold;color:#4CAF50;word-break:break-all;" title="${hwidFull}">${hwidMasked}</code>
+                        </td>
+                        <td style="font-size:11px;line-height:1.8;">
+                            ${hasSpecs ? `
+                                <div><span class="hwid-spec-item cpu">🔧 CPU: ${cpu}</span></div>
+                                <div><span class="hwid-spec-item gpu">🎮 GPU: ${gpu}</span></div>
+                                <div><span class="hwid-spec-item ram">💾 RAM: ${ram}</span></div>
+                                <div><span class="hwid-spec-item storage">💿 Storage: ${storage}</span></div>
+                                <div><span class="hwid-spec-item device">💻 Device: ${deviceName}</span></div>
+                                <div><span class="hwid-spec-item profile">👤 Profile: ${profile}</span></div>
+                                <div style="margin-top:6px;border-top:1px solid rgba(255,255,255,0.05);padding-top:6px;">
+                                    <span class="hwid-spec-item wallpaper">🖼️ ${wallpaperHtml}</span>
+                                </div>
+                            ` : `
+                                <div style="color:#888;font-style:italic;">No hardware specs available.</div>
+                            `}
+                        </td>
+                        <td style="text-align:center;">
+                            <button onclick="removeHwid('${hwidFull}')" class="btn-remove-hwid">🗑️ Remove</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function removeHwid(hwid) {
+            const code = document.getElementById('hwid-code-select').value;
+            if (!code || !hwid) {
+                showMessage('❌ Invalid code or HWID', 'error');
+                return;
+            }
+            
+            if (!confirm(`⚠️ Remove this HWID from code ${code}?`)) return;
+            
+            document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
+                btn.disabled = true;
+                btn.textContent = '⏳';
+            });
+            
+            try {
+                const response = await fetchWithRetry(`/api/code/${code}/hwid/${hwid}`, { method: 'DELETE' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    hwidDetailsCache = {};
+                    await loadHwidDetails();
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+            
+            document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
+                btn.disabled = false;
+                btn.textContent = '🗑️ Remove';
+            });
+        }
+
+        async function updateHwidLimit() {
+            const code = document.getElementById('hwid-code-select').value;
+            const limit = parseInt(document.getElementById('hwid-limit-input').value);
+            
+            if (!code) {
+                showMessage('❌ Please select a code first', 'error');
+                return;
+            }
+            
+            if (!limit || limit < 1 || limit > 10) {
+                showMessage('❌ Limit must be between 1 and 10', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetchWithRetry(`/api/code/${code}/hwid-limit`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ limit })
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    hwidDetailsCache = {};
+                    loadHwidDetails();
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to update limit'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // HWID LOGS
+        // ============================================
+        async function loadHwidLogs() {
+            const tbody = document.getElementById('hwid-logs-body');
+            if (!tbody) return;
+            
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading logs...</div></td></tr>';
+            
+            try {
+                const response = await fetchWithRetry('/api/hwid-logs?limit=200');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const countEl = document.getElementById('new-hwid-count');
+                    if (countEl) {
+                        countEl.textContent = (data.new_count || 0) + ' new';
+                        countEl.className = 'badge badge-new-count' + (data.new_count === 0 ? ' zero' : '');
+                    }
+                    
+                    const logs = data.logs || [];
+                    if (logs.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#4CAF50;padding:20px;">✅ All HWIDs have been assigned to codes</td></tr>';
+                    } else {
+                        renderHwidLogs(logs);
+                    }
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load logs') + '</td></tr>';
+                }
+            } catch (error) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
+            }
+        }
+
+        function renderHwidLogs(logs) {
+            const tbody = document.getElementById('hwid-logs-body');
+            if (!logs || logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#4CAF50;padding:20px;">✅ All HWIDs have been assigned to codes</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = logs.map((log, index) => {
+                const time = new Date(log.created_at).toLocaleString();
+                const isNew = log.status === 'new';
+                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A';
+                
+                if (log.details) {
+                    const cpuMatch = log.details.match(/CPU:\s*([^,|]+)/i);
+                    const gpuMatch = log.details.match(/GPU:\s*([^,|]+)/i);
+                    const ramMatch = log.details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                    const storageMatch = log.details.match(/Storage:\s*([^,|]+)\s*GB/i);
+                    const deviceMatch = log.details.match(/Device:\s*([^,|]+)/i);
+                    const profileMatch = log.details.match(/Profile:\s*([^,|]+)/i);
+                    
+                    if (cpuMatch) cpu = cpuMatch[1].trim();
+                    if (gpuMatch) gpu = gpuMatch[1].trim();
+                    if (ramMatch) ram = ramMatch[1].trim() + ' GB';
+                    if (storageMatch) storage = storageMatch[1].trim() + ' GB';
+                    if (deviceMatch) device = deviceMatch[1].trim();
+                    if (profileMatch) profile = profileMatch[1].trim();
+                }
+                
+                if (log.browser_profile && profile === 'N/A') profile = log.browser_profile;
+                
+                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A' || device !== 'N/A';
+                const hardwareHtml = hasSpecs ? `
+                    <div style="font-size:10px;line-height:1.6;">
+                        ${cpu !== 'N/A' ? `<span class="hwid-spec-item cpu">🔧 ${cpu}</span>` : ''}
+                        ${gpu !== 'N/A' ? `<span class="hwid-spec-item gpu">🎮 ${gpu}</span>` : ''}
+                        ${ram !== 'N/A' ? `<span class="hwid-spec-item ram">💾 ${ram}</span>` : ''}
+                        ${storage !== 'N/A' ? `<span class="hwid-spec-item storage">💿 ${storage}</span>` : ''}
+                        ${device !== 'N/A' ? `<span class="hwid-spec-item device">💻 ${device}</span>` : ''}
+                        ${profile !== 'N/A' ? `<span class="hwid-spec-item profile">👤 ${profile}</span>` : ''}
+                        <span class="hwid-spec-item unregistered">🔓 UNREGISTERED</span>
+                    </div>
+                ` : `<div style="color:#888;font-size:11px;font-style:italic;">No hardware specs available</div>`;
+                
+                return `
+                    <tr style="${isNew ? 'background:rgba(255,152,0,0.05);' : ''}">
+                        <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
+                        <td>
+                            <span style="font-weight:bold;color:#FF9800;">🖥️ ${log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A'}</span>
+                            ${isNew ? ' 🔴' : ''}<br>
+                            <span class="badge-unregistered">🔓 UNREGISTERED</span>
+                        </td>
+                        <td><span class="text-muted" style="font-size:10px;">No code assigned</span></td>
+                        <td>${hardwareHtml}</td>
+                        <td><small>${time}</small></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // ============================================
+        // NEW HWID FUNCTIONS
+        // ============================================
+        async function loadNewHwids() {
+            const tbody = document.getElementById('new-hwids-body');
+            if (!tbody) return;
+            
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading new HWIDs...</div></td></tr>';
+            
+            try {
+                const response = await fetchWithRetry('/api/new-hwids?limit=100');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const badge = document.getElementById('new-hwid-badge');
+                    if (badge) {
+                        badge.textContent = data.count || 0;
+                        badge.className = 'badge-new-count' + ((data.count || 0) === 0 ? ' zero' : '');
+                    }
+                    
+                    const hwids = data.hwids || [];
+                    if (hwids.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#4CAF50;padding:20px;">✅ No new HWIDs detected</td></tr>';
+                    } else {
+                        renderNewHwids(hwids);
+                    }
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load new HWIDs') + '</td></tr>';
+                }
+            } catch (error) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
+            }
+        }
+
+        function renderNewHwids(hwids) {
+            const tbody = document.getElementById('new-hwids-body');
+            
+            tbody.innerHTML = hwids.map((h, index) => {
+                const detectedAt = new Date(h.detected_at).toLocaleString();
+                const lastSeen = new Date(h.last_seen).toLocaleString();
+                const hwidShort = h.hwid ? h.hwid.substring(0, 16) + '...' + h.hwid.substring(48) : 'N/A';
+                const cpu = h.cpu_name || 'N/A';
+                const gpu = h.gpu_name || 'N/A';
+                const ram = h.ram_total_gb ? h.ram_total_gb + ' GB' : 'N/A';
+                const storage = h.storage_total_gb ? h.storage_total_gb + ' GB' : 'N/A';
+                const device = h.device_name || 'N/A';
+                const profile = h.browser_profile || 'Default';
+                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A' || device !== 'N/A';
+                
+                return `
+                    <tr>
+                        <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
+                        <td>
+                            <code style="font-size:11px;font-weight:bold;color:#FF9800;word-break:break-all;" title="${h.hwid}">${hwidShort}</code>
+                            <span class="badge-unregistered" style="margin-left:5px;">🔓 NEW</span>
+                        </td>
+                        <td>
+                            ${hasSpecs ? `
+                                <div style="font-size:10px;line-height:1.8;">
+                                    ${cpu !== 'N/A' ? `<span class="hwid-spec-item cpu">🔧 ${cpu}</span>` : ''}
+                                    ${gpu !== 'N/A' ? `<span class="hwid-spec-item gpu">🎮 ${gpu}</span>` : ''}
+                                    ${ram !== 'N/A' ? `<span class="hwid-spec-item ram">💾 ${ram}</span>` : ''}
+                                    ${storage !== 'N/A' ? `<span class="hwid-spec-item storage">💿 ${storage}</span>` : ''}
+                                    ${device !== 'N/A' ? `<span class="hwid-spec-item device">💻 ${device}</span>` : ''}
+                                    <span class="hwid-spec-item profile">👤 ${profile}</span>
+                                </div>
+                            ` : `<div style="color:#888;font-size:11px;font-style:italic;">No hardware specs available</div>`}
+                        </td>
+                        <td><small>${detectedAt}</small></td>
+                        <td><small>${lastSeen}</small></td>
+                        <td>
+                            <button onclick="removeNewHwid('${h.hwid}')" class="btn-small btn-danger">🗑️ Remove</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function removeNewHwid(hwid) {
+            if (!confirm(`⚠️ Remove this HWID from new registry?\n\nHWID: ${hwid.substring(0, 16)}...`)) return;
+            
+            try {
+                const response = await fetchWithRetry(`/api/new-hwid/${encodeURIComponent(hwid)}`, { method: 'DELETE' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('✅ ' + result.message, 'success');
+                    loadNewHwids();
+                    loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        async function clearOldHwidLogs() {
+            if (!confirm('⚠️ Delete old HWID logs (older than 30 days and keep only last 5000)?')) return;
+            
+            try {
+                const response = await fetchWithRetry('/api/clear-old-hwid-logs', { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    loadHwidLogs();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to clear logs'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // INIT
+        // ============================================
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAll();
+            setupInfiniteScroll();
+            
+            setInterval(function() {
+                if (!isLoading) loadAll();
+            }, 60000);
+            
+            setInterval(function() {
+                hwidDetailsCache = {};
+            }, 120000);
+        });
+    </script>
+</body>
+</html>
