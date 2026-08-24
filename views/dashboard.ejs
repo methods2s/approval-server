@@ -54,6 +54,12 @@
         .btn-remove:hover { background: #d32f2f; }
         .btn-refresh { background: #2196F3; color: #fff; padding: 6px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
         .btn-refresh:hover { background: #1976D2; }
+        .btn-copy { background: #9C27B0; color: #fff; }
+        .btn-copy:hover { background: #7B1FA2; }
+        .btn-copy-code { background: #00BCD4; color: #fff; }
+        .btn-copy-code:hover { background: #0097A7; }
+        .btn-copy-username { background: #FF9800; color: #fff; }
+        .btn-copy-username:hover { background: #F57C00; }
         
         .scroll-table { overflow-x: auto; max-height: 500px; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -186,6 +192,30 @@
             background: #4CAF50;
         }
         
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+        }
+        .toast {
+            min-width: 300px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        .toast-success {
+            border-left: 4px solid #28a745;
+        }
+        .toast-error {
+            border-left: 4px solid #dc3545;
+        }
+        .toast-warning {
+            border-left: 4px solid #ffc107;
+        }
+        .toast-info {
+            border-left: 4px solid #17a2b8;
+        }
+        
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
             .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -237,7 +267,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: ALL CODES -->
+        <!-- TAB: ALL CODES (WITH COPY BUTTONS) -->
         <!-- ============================================ -->
         <div class="tab-content active" id="tab-codes">
             <div class="card">
@@ -292,7 +322,7 @@
                                 <th>Profiles</th>
                                 <th>HWID Limit</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
-                                <th style="width:220px;">Actions</th>
+                                <th style="width:280px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="codes-body">
@@ -474,7 +504,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID LOGS (UPDATED) -->
+        <!-- TAB: HWID LOGS -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwidlogs">
             <div class="card">
@@ -488,16 +518,6 @@
                 <div class="card-body">
                     <div class="form-row" style="margin-bottom:10px;">
                         <div class="form-group" style="flex:1;">
-                            <label>Filter by Status</label>
-                            <select id="hwid-log-filter" onchange="loadHwidLogs()">
-                                <option value="">All</option>
-                                <option value="new">🆕 New</option>
-                                <option value="existing">Existing</option>
-                                <option value="registered">✅ Registered</option>
-                                <option value="seen">👁️ Seen</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="flex:1;">
                             <label>Search HWID</label>
                             <input type="text" id="hwid-log-search" placeholder="Search HWID..." onkeyup="searchHwidLogs()">
                         </div>
@@ -509,14 +529,12 @@
                                     <th style="width:40px;">#</th>
                                     <th style="min-width:180px;">HWID</th>
                                     <th style="width:100px;">Code</th>
-                                    <th style="width:120px;">Action</th>
-                                    <th style="width:100px;">Status</th>
-                                    <th style="min-width:280px;">Hardware Specs</th>
+                                    <th style="min-width:350px;">Hardware Specs</th>
                                     <th style="width:150px;">Time</th>
                                 </tr>
                             </thead>
                             <tbody id="hwid-logs-body">
-                                <tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">Loading logs...</td></tr>
+                                <tr><td colspan="5" style="text-align:center;color:#888;padding:30px;">Loading logs...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -526,9 +544,70 @@
 
     </div>
 
+    <!-- Toast Container -->
+    <div class="toast-container"></div>
+    
     <div id="result-message"></div>
 
     <script>
+        // ============================================
+        // TOAST NOTIFICATIONS
+        // ============================================
+        function showToast(message, type = 'success') {
+            const container = document.querySelector('.toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type} show`;
+            toast.role = 'alert';
+            toast.innerHTML = `
+                <div class="toast-header">
+                    <i class="bi bi-${type === 'success' ? 'check-circle' : type === 'error' ? 'x-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'}"></i>
+                    <strong class="me-auto">${type.charAt(0).toUpperCase() + type.slice(1)}</strong>
+                    <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+                </div>
+                <div class="toast-body">${message}</div>
+            `;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+
+        // ============================================
+        // COPY FUNCTIONS
+        // ============================================
+        function copyCode(code) {
+            navigator.clipboard.writeText(code).then(() => {
+                showToast(`✅ Code ${code} copied to clipboard!`, 'success');
+            }).catch(() => {
+                // Fallback
+                const textArea = document.createElement('textarea');
+                textArea.value = code;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showToast(`✅ Code ${code} copied to clipboard!`, 'success');
+            });
+        }
+
+        function copyUsername(username) {
+            if (!username || username === 'N/A') {
+                showToast('⚠️ No username to copy', 'warning');
+                return;
+            }
+            navigator.clipboard.writeText(username).then(() => {
+                showToast(`✅ Username ${username} copied to clipboard!`, 'success');
+            }).catch(() => {
+                const textArea = document.createElement('textarea');
+                textArea.value = username;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showToast(`✅ Username ${username} copied to clipboard!`, 'success');
+            });
+        }
+
         // ============================================
         // STATE
         // ============================================
@@ -593,11 +672,10 @@
                 const result = await response.json();
                 if (result.success) {
                     await loadAll();
-                    showMessage('✅ Data refreshed successfully!', 'success');
-                    setTimeout(() => hideMessage(), 2000);
+                    showToast('✅ Data refreshed successfully!', 'success');
                 }
             } catch (error) {
-                showMessage('❌ Error refreshing: ' + error.message, 'error');
+                showToast('❌ Error refreshing: ' + error.message, 'error');
             }
         }
 
@@ -629,7 +707,7 @@
                 
             } catch (error) {
                 console.error('Load data error:', error);
-                showMessage('❌ Error loading data: ' + error.message, 'error');
+                showToast('❌ Error loading data: ' + error.message, 'error');
             }
         }
 
@@ -645,7 +723,7 @@
                 filterDevices();
             } catch (error) {
                 console.error('Load profiles error:', error);
-                showMessage('❌ Error loading profiles: ' + error.message, 'error');
+                showToast('❌ Error loading profiles: ' + error.message, 'error');
             }
         }
 
@@ -694,23 +772,22 @@
                 const response = await fetch(`/api/device/${deviceId}`, { method: 'DELETE' });
                 const result = await response.json();
                 if (result.success) {
-                    showMessage(`✅ Profile removed successfully!`, 'success');
-                    setTimeout(() => hideMessage(), 2000);
+                    showToast('✅ Profile removed successfully!', 'success');
                     await loadDevices();
                     await loadAll();
                     if (document.getElementById('tab-hwid').classList.contains('active')) {
                         loadHwidDetails();
                     }
                 } else {
-                    showMessage('❌ ' + (result.error || 'Failed to remove profile'), 'error');
+                    showToast('❌ ' + (result.error || 'Failed to remove profile'), 'error');
                 }
             } catch (error) {
-                showMessage('❌ Error: ' + error.message, 'error');
+                showToast('❌ Error: ' + error.message, 'error');
             }
         }
 
         // ============================================
-        // RENDER ALL CODES
+        // RENDER ALL CODES - WITH COPY BUTTONS
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
@@ -779,9 +856,15 @@
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
-                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️ Edit</button>
+                                <button onclick="copyCode('${c.code}')" class="btn-small btn-copy-code" title="Copy Code">
+                                    📋 Code
+                                </button>
+                                <button onclick="copyUsername('${c.username || ''}')" class="btn-small btn-copy-username" title="Copy Username">
+                                    📋 User
+                                </button>
+                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
-                                    ${c.is_active ? '🔒 Deactivate' : '🔓 Reactivate'}
+                                    ${c.is_active ? '🔒' : '🔓'}
                                 </button>
                                 <button onclick="deleteCode('${c.code}')" class="btn-small btn-danger">🗑️</button>
                             </div>
@@ -821,7 +904,9 @@
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
-                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️ Edit</button>
+                                <button onclick="copyCode('${c.code}')" class="btn-small btn-copy-code" title="Copy Code">📋</button>
+                                <button onclick="copyUsername('${c.username || ''}')" class="btn-small btn-copy-username" title="Copy Username">📋</button>
+                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
                                 </button>
@@ -862,7 +947,9 @@
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
-                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️ Edit</button>
+                                <button onclick="copyCode('${c.code}')" class="btn-small btn-copy-code" title="Copy Code">📋</button>
+                                <button onclick="copyUsername('${c.username || ''}')" class="btn-small btn-copy-username" title="Copy Username">📋</button>
+                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
                                 </button>
@@ -951,7 +1038,7 @@
             } catch (error) {
                 console.error('Load HWID details error:', error);
                 document.getElementById('hwid-list-body').innerHTML = `<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">❌ Error loading HWIDs: ${error.message}</td></tr>`;
-                showMessage('❌ Error loading HWID details: ' + error.message, 'error');
+                showToast('❌ Error loading HWID details: ' + error.message, 'error');
             }
         }
 
@@ -1023,7 +1110,7 @@
             const code = document.getElementById('hwid-code-select').value;
             
             if (!code || !hwid) {
-                showMessage('❌ Invalid code or HWID', 'error');
+                showToast('❌ Invalid code or HWID', 'error');
                 return;
             }
             
@@ -1056,20 +1143,20 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showMessage(`✅ ${result.message}`, 'success');
+                    showToast(`✅ ${result.message}`, 'success');
                     setTimeout(() => hideMessage(), 2000);
                     await loadHwidDetails();
                     await loadAll();
                     await loadDevices();
                 } else {
-                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
+                    showToast('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
                     document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
                         btn.disabled = false;
                         btn.textContent = '🗑️ Remove';
                     });
                 }
             } catch (error) {
-                showMessage('❌ Error: ' + error.message, 'error');
+                showToast('❌ Error: ' + error.message, 'error');
                 document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
                     btn.disabled = false;
                     btn.textContent = '🗑️ Remove';
@@ -1082,12 +1169,12 @@
             const limit = parseInt(document.getElementById('hwid-limit-input').value);
             
             if (!code) {
-                showMessage('❌ Please select a code first', 'error');
+                showToast('❌ Please select a code first', 'error');
                 return;
             }
             
             if (!limit || limit < 1 || limit > 10) {
-                showMessage('❌ Limit must be between 1 and 10', 'error');
+                showToast('❌ Limit must be between 1 and 10', 'error');
                 return;
             }
             
@@ -1100,15 +1187,15 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showMessage(`✅ ${result.message}`, 'success');
+                    showToast(`✅ ${result.message}`, 'success');
                     setTimeout(() => hideMessage(), 2000);
                     loadHwidDetails();
                     await loadAll();
                 } else {
-                    showMessage('❌ ' + (result.error || 'Failed to update limit'), 'error');
+                    showToast('❌ ' + (result.error || 'Failed to update limit'), 'error');
                 }
             } catch (error) {
-                showMessage('❌ Error: ' + error.message, 'error');
+                showToast('❌ Error: ' + error.message, 'error');
             }
         }
 
@@ -1117,17 +1204,13 @@
         // ============================================
 
         async function loadHwidLogs() {
-            const filter = document.getElementById('hwid-log-filter').value;
             const tbody = document.getElementById('hwid-logs-body');
             if (!tbody) return;
             
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">Loading...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">Loading...</td></tr>';
             
             try {
                 let url = '/api/hwid-logs?limit=200';
-                if (filter) {
-                    url += '&status=' + filter;
-                }
                 
                 const response = await fetch(url);
                 
@@ -1148,16 +1231,16 @@
                     
                     const logs = data.logs || [];
                     if (logs.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">No logs found</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">No logs found</td></tr>';
                     } else {
                         renderHwidLogs(logs);
                     }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load logs') + '</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load logs') + '</td></tr>';
                 }
             } catch (error) {
                 console.error('Load HWID logs error:', error);
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#f44336;padding:20px;">Error: ' + error.message + '</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">Error: ' + error.message + '</td></tr>';
             }
         }
 
@@ -1166,19 +1249,11 @@
             if (!tbody) return;
             
             if (!logs || logs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">No logs found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">No logs found</td></tr>';
                 return;
             }
             
             tbody.innerHTML = logs.map((log, index) => {
-                const statusClass = log.status === 'new' ? 'badge auto-deactivated' : 
-                                  log.status === 'registered' ? 'badge active' : 
-                                  log.status === 'seen' ? 'badge' : 'badge inactive';
-                
-                const statusDisplay = log.status === 'new' ? '🆕 New' :
-                                     log.status === 'registered' ? '✅ Registered' :
-                                     log.status === 'seen' ? '👁️ Seen' : log.status;
-                
                 const time = new Date(log.created_at).toLocaleString();
                 const hwidShort = log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A';
                 const isNew = log.status === 'new';
@@ -1196,15 +1271,15 @@
                 if (log.details) {
                     const cpuMatch = log.details.match(/CPU:\s*([^,|]+)/i);
                     const gpuMatch = log.details.match(/GPU:\s*([^,|]+)/i);
-                    const ramMatch = log.details.match(/RAM:\s*([^,|]+)/i);
-                    const storageMatch = log.details.match(/Storage:\s*([^,|]+)/i);
+                    const ramMatch = log.details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                    const storageMatch = log.details.match(/Storage:\s*([^,|]+)\s*GB/i);
                     const deviceMatch = log.details.match(/Device:\s*([^,|]+)/i);
                     const profileMatch = log.details.match(/Profile:\s*([^,|]+)/i);
                     
                     if (cpuMatch) cpu = cpuMatch[1].trim();
                     if (gpuMatch) gpu = gpuMatch[1].trim();
-                    if (ramMatch) ram = ramMatch[1].trim();
-                    if (storageMatch) storage = storageMatch[1].trim();
+                    if (ramMatch) ram = ramMatch[1].trim() + ' GB';
+                    if (storageMatch) storage = storageMatch[1].trim() + ' GB';
                     if (deviceMatch) device = deviceMatch[1].trim();
                     if (profileMatch) profile = profileMatch[1].trim();
                 }
@@ -1212,27 +1287,6 @@
                 if (log.browser_profile && profile === 'N/A') {
                     profile = log.browser_profile;
                 }
-                
-                // ============================================
-                // ACTION DISPLAY
-                // ============================================
-                const actionMap = {
-                    'hwid_detected': '🆕 Detected',
-                    'hwid_loaded': '📂 Loaded',
-                    'hwid_ready': '✅ Ready',
-                    'register_attempt': '📤 Register Attempt',
-                    'register_success': '✅ Register Success',
-                    'register_error': '❌ Register Error',
-                    'register_blocked': '🚫 Blocked',
-                    'auto_deactivated': '🔥 Auto-Deactivated',
-                    'hwid_not_authorized': '🔒 Not Authorized',
-                    'hwid_already_registered': '⚠️ Already Registered',
-                    'hwid_saved': '💾 Saved',
-                    'multiple_hwids_detected': '🚨 Multiple HWIDs',
-                    'detected_with_other': '📎 With Other',
-                    'auto_assigned': '🔄 Auto-Assigned'
-                };
-                const actionDisplay = actionMap[log.action] || log.action || 'unknown';
                 
                 // Hardware specs HTML
                 const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A' || device !== 'N/A';
@@ -1259,8 +1313,6 @@
                             ${isNew ? ' 🔴' : ''}
                         </td>
                         <td><span class="code-badge">${log.code || 'N/A'}</span></td>
-                        <td style="font-size:12px;">${actionDisplay}</td>
-                        <td><span class="${statusClass}">${statusDisplay}</span></td>
                         <td>${hardwareHtml}</td>
                         <td><small>${time}</small></td>
                     </tr>
@@ -1314,7 +1366,7 @@
             const hwidLimit = parseInt(document.getElementById(`edit-hwid-limit-${code}`).value) || 1;
             
             try {
-                showMessage('💾 Saving changes...', 'loading');
+                showToast('💾 Saving changes...', 'info');
                 
                 const currentCode = allCodes.find(c => c.code === code);
                 
@@ -1326,7 +1378,7 @@
                     });
                     const result = await response.json();
                     if (!result.success) {
-                        showMessage('❌ ' + (result.error || 'Failed to update username'), 'error');
+                        showToast('❌ ' + (result.error || 'Failed to update username'), 'error');
                         return;
                     }
                 }
@@ -1339,7 +1391,7 @@
                     });
                     const result = await response.json();
                     if (!result.success) {
-                        showMessage('❌ ' + (result.error || 'Failed to update access'), 'error');
+                        showToast('❌ ' + (result.error || 'Failed to update access'), 'error');
                         return;
                     }
                 }
@@ -1352,7 +1404,7 @@
                     });
                     const result = await response.json();
                     if (!result.success) {
-                        showMessage('❌ ' + (result.error || 'Failed to update subscription'), 'error');
+                        showToast('❌ ' + (result.error || 'Failed to update subscription'), 'error');
                         return;
                     }
                 }
@@ -1365,18 +1417,17 @@
                     });
                     const result = await response.json();
                     if (!result.success) {
-                        showMessage('❌ ' + (result.error || 'Failed to update HWID limit'), 'error');
+                        showToast('❌ ' + (result.error || 'Failed to update HWID limit'), 'error');
                         return;
                     }
                 }
                 
                 editingCode = null;
-                showMessage('✅ Changes saved successfully!', 'success');
-                setTimeout(() => hideMessage(), 2000);
+                showToast('✅ Changes saved successfully!', 'success');
                 await loadAll();
                 
             } catch (error) {
-                showMessage('❌ Error saving: ' + error.message, 'error');
+                showToast('❌ Error saving: ' + error.message, 'error');
             }
         }
 
@@ -1406,14 +1457,13 @@
                 }
                 const result = await response.json();
                 if (result.success) {
-                    showMessage(`✅ Code ${code} ${codeInfo.is_active ? 'deactivated' : 'reactivated'}!`, 'success');
-                    setTimeout(() => hideMessage(), 2000);
+                    showToast(`✅ Code ${code} ${codeInfo.is_active ? 'deactivated' : 'reactivated'}!`, 'success');
                     await loadAll();
                 } else {
-                    showMessage('❌ ' + (result.error || 'Failed to toggle status'), 'error');
+                    showToast('❌ ' + (result.error || 'Failed to toggle status'), 'error');
                 }
             } catch (error) {
-                showMessage('❌ Error: ' + error.message, 'error');
+                showToast('❌ Error: ' + error.message, 'error');
             }
         }
 
@@ -1427,14 +1477,13 @@
                 const response = await fetch(`/api/code/${code}`, { method: 'DELETE' });
                 const result = await response.json();
                 if (result.success) {
-                    showMessage(`✅ ${result.message}`, 'success');
-                    setTimeout(() => hideMessage(), 2000);
+                    showToast(`✅ ${result.message}`, 'success');
                     await loadAll();
                 } else {
-                    showMessage('❌ ' + (result.error || 'Failed to delete code'), 'error');
+                    showToast('❌ ' + (result.error || 'Failed to delete code'), 'error');
                 }
             } catch (error) {
-                showMessage('❌ Error: ' + error.message, 'error');
+                showToast('❌ Error: ' + error.message, 'error');
             }
         }
 
@@ -1449,11 +1498,11 @@
             const subscriptionType = document.getElementById('gen-subscription').value;
             
             if (!username) {
-                showMessage('❌ Username is required!', 'error');
+                showToast('❌ Username is required!', 'error');
                 return;
             }
             
-            showMessage('⏳ Generating code...', 'loading');
+            showToast('⏳ Generating code...', 'info');
             
             try {
                 const response = await fetch('/api/generate-code', {
@@ -1465,45 +1514,23 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    showMessage(`
+                    showToast(`
                         ✅ Code generated successfully!<br>
                         <strong>Code:</strong> ${result.code}<br>
                         <strong>Username:</strong> ${result.username}<br>
                         <strong>Access:</strong> ${result.access}<br>
-                        <strong>Subscription:</strong> ${result.subscription}<br>
-                        <span style="color:#FF9800;font-size:12px;">ℹ️ HWID will be auto-assigned when first used (Limit: 1)</span>
+                        <strong>Subscription:</strong> ${result.subscription}
                     `, 'success');
                     
                     document.getElementById('gen-username').value = '';
-                    
-                    setTimeout(() => hideMessage(), 5000);
                     await loadAll();
                 } else {
-                    showMessage('❌ ' + (result.error || 'Unknown error'), 'error');
+                    showToast('❌ ' + (result.error || 'Unknown error'), 'error');
                 }
             } catch (error) {
-                showMessage('❌ Error: ' + error.message, 'error');
+                showToast('❌ Error: ' + error.message, 'error');
             }
         });
-
-        // ============================================
-        // MESSAGE HELPERS
-        // ============================================
-        function showMessage(msg, type) {
-            const el = document.getElementById('result-message');
-            if (!el) return;
-            el.innerHTML = msg;
-            el.className = type;
-            el.style.display = 'block';
-        }
-        
-        function hideMessage() {
-            const el = document.getElementById('result-message');
-            if (el) {
-                el.style.display = 'none';
-                el.className = '';
-            }
-        }
 
         // ============================================
         // INIT
