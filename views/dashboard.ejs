@@ -163,6 +163,18 @@
         .hwid-stat-card .number.warning { color: #FF9800; }
         .hwid-stat-card .number.danger { color: #f44336; }
         
+        /* Badge for new HWID count */
+        .badge-new-count {
+            background: #f44336;
+            color: #fff;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        .badge-new-count.zero {
+            background: #4CAF50;
+        }
+        
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
             .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -210,6 +222,7 @@
             <button class="tab-btn" onclick="switchTab('vip')">🔶 VIP</button>
             <button class="tab-btn" onclick="switchTab('profiles')">📱 Profiles</button>
             <button class="tab-btn" onclick="switchTab('hwid')">🖥️ HWID Manager</button>
+            <button class="tab-btn" onclick="switchTab('hwidlogs')">📋 HWID Logs</button>
         </div>
 
         <!-- ============================================ -->
@@ -405,7 +418,6 @@
                 </div>
 
                 <div id="hwid-info" style="display:none;">
-                    <!-- Stats -->
                     <div class="hwid-stats-grid">
                         <div class="hwid-stat-card">
                             <div class="number" id="hwid-current-count">0</div>
@@ -443,6 +455,58 @@
                             </thead>
                             <tbody id="hwid-list-body">
                                 <tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">No HWIDs assigned</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- TAB: HWID LOGS -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-hwidlogs">
+            <div class="card">
+                <div class="card-header">
+                    <h3>📋 HWID Activity Logs</h3>
+                    <div>
+                        <span class="badge badge-new-count" id="new-hwid-count">0 new</span>
+                        <button onclick="loadHwidLogs()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="form-row" style="margin-bottom:10px;">
+                        <div class="form-group" style="flex:1;">
+                            <label>Filter by Status</label>
+                            <select id="hwid-log-filter" onchange="loadHwidLogs()">
+                                <option value="">All</option>
+                                <option value="new">🆕 New</option>
+                                <option value="existing">Existing</option>
+                                <option value="registered">✅ Registered</option>
+                                <option value="seen">👁️ Seen</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label>Search HWID</label>
+                            <input type="text" id="hwid-log-search" placeholder="Search HWID..." onkeyup="searchHwidLogs()">
+                        </div>
+                    </div>
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width:40px;">#</th>
+                                    <th style="min-width:180px;">HWID</th>
+                                    <th style="width:100px;">Code</th>
+                                    <th style="width:100px;">Action</th>
+                                    <th style="width:100px;">Status</th>
+                                    <th style="width:120px;">Profile</th>
+                                    <th style="width:150px;">Time</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hwid-logs-body">
+                                <tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">Loading logs...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -492,6 +556,8 @@
                 loadDevices();
             } else if (tab === 'hwid') {
                 populateHwidCodeDropdown();
+            } else if (tab === 'hwidlogs') {
+                loadHwidLogs();
             } else {
                 renderCurrentTab();
             }
@@ -585,7 +651,7 @@
         }
 
         // ============================================
-        // RENDER PROFILES - Profile Name = Username
+        // RENDER PROFILES
         // ============================================
         function renderDevices() {
             const tbody = document.getElementById('devices-body');
@@ -596,7 +662,6 @@
             }
             
             tbody.innerHTML = filteredDevices.map(d => {
-                // Kunin ang username mula sa code
                 const codeInfo = allCodes.find(c => c.code === d.code);
                 const username = codeInfo?.username || d.browser_profile || 'Default';
                 
@@ -635,7 +700,7 @@
         }
 
         // ============================================
-        // RENDER ALL CODES - REMOVED STATUS COLUMN
+        // RENDER ALL CODES
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
@@ -717,7 +782,7 @@
         }
 
         // ============================================
-        // RENDER SVIP - REMOVED STATUS COLUMN
+        // RENDER SVIP
         // ============================================
         function renderSVIP() {
             const svipCodes = allCodes.filter(c => c.access_level === 'SVIP');
@@ -758,7 +823,7 @@
         }
 
         // ============================================
-        // RENDER VIP - REMOVED STATUS COLUMN
+        // RENDER VIP
         // ============================================
         function renderVIP() {
             const vipCodes = allCodes.filter(c => c.access_level === 'VIP');
@@ -1036,6 +1101,126 @@
                 showMessage('❌ Error: ' + error.message, 'error');
             }
         }
+
+        // ============================================
+        // HWID LOGS FUNCTIONS
+        // ============================================
+
+        async function loadHwidLogs() {
+            const filter = document.getElementById('hwid-log-filter').value;
+            const tbody = document.getElementById('hwid-logs-body');
+            if (!tbody) return;
+            
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">Loading...</td></tr>';
+            
+            try {
+                let url = '/api/hwid-logs?limit=200';
+                if (filter) {
+                    url += '&status=' + filter;
+                }
+                
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const countEl = document.getElementById('new-hwid-count');
+                    if (countEl) {
+                        countEl.textContent = data.new_count + ' new';
+                        countEl.className = 'badge badge-new-count' + (data.new_count === 0 ? ' zero' : '');
+                    }
+                    renderHwidLogs(data.logs);
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#f44336;padding:20px;">Failed to load logs</td></tr>';
+                }
+            } catch (error) {
+                console.error('Load HWID logs error:', error);
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#f44336;padding:20px;">Error loading logs</td></tr>';
+            }
+        }
+
+        function renderHwidLogs(logs) {
+            const tbody = document.getElementById('hwid-logs-body');
+            if (!tbody) return;
+            
+            if (!logs || logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">No logs found</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = logs.map((log, index) => {
+                const statusClass = log.status === 'new' ? 'badge auto-deactivated' : 
+                                  log.status === 'registered' ? 'badge active' : 
+                                  log.status === 'seen' ? 'badge' : 'badge inactive';
+                
+                const statusDisplay = log.status === 'new' ? '🆕 New' :
+                                     log.status === 'registered' ? '✅ Registered' :
+                                     log.status === 'seen' ? '👁️ Seen' : log.status;
+                
+                const time = new Date(log.created_at).toLocaleString();
+                const hwidShort = log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A';
+                const isNew = log.status === 'new';
+                const isMultiple = log.action === 'multiple_hwids_detected' || log.action === 'detected_with_other';
+                
+                const actionMap = {
+                    'hwid_detected': '🆕 Detected',
+                    'hwid_loaded': '📂 Loaded',
+                    'hwid_ready': '✅ Ready',
+                    'register_attempt': '📤 Register Attempt',
+                    'register_success': '✅ Register Success',
+                    'register_error': '❌ Register Error',
+                    'register_blocked': '🚫 Blocked',
+                    'auto_deactivated': '🔥 Auto-Deactivated',
+                    'hwid_not_authorized': '🔒 Not Authorized',
+                    'hwid_already_registered': '⚠️ Already Registered',
+                    'hwid_saved': '💾 Saved',
+                    'multiple_hwids_detected': '🚨 Multiple HWIDs',
+                    'detected_with_other': '📎 With Other'
+                };
+                const actionDisplay = actionMap[log.action] || log.action || 'unknown';
+                
+                return `
+                    <tr style="${isNew ? 'background:rgba(244,67,54,0.08);' : ''} ${isMultiple ? 'background:rgba(255,152,0,0.08);' : ''}">
+                        <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
+                        <td>
+                            <code style="font-size:11px;color:${isNew ? '#f44336' : '#4CAF50'};word-break:break-all;" title="${log.hwid || ''}">
+                                ${hwidShort}
+                            </code>
+                            ${isNew ? ' 🔴' : ''}
+                            ${isMultiple ? ' ⚠️' : ''}
+                        </td>
+                        <td><span class="code-badge">${log.code || 'N/A'}</span></td>
+                        <td style="font-size:12px;">${actionDisplay}</td>
+                        <td><span class="${statusClass}">${statusDisplay}</span></td>
+                        <td><small>${log.browser_profile || 'Default'}</small></td>
+                        <td><small>${time}</small></td>
+                        <td><small>${log.details || '-'}</small></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function searchHwidLogs() {
+            const search = document.getElementById('hwid-log-search').value.toLowerCase().trim();
+            const rows = document.querySelectorAll('#hwid-logs-body tr');
+            
+            rows.forEach(row => {
+                if (row.cells && row.cells.length > 0) {
+                    const hwidCell = row.cells[1];
+                    if (hwidCell) {
+                        const text = hwidCell.textContent.toLowerCase() || '';
+                        row.style.display = text.includes(search) ? '' : 'none';
+                    }
+                }
+            });
+        }
+
+        // Auto-refresh HWID logs every 30 seconds
+        setInterval(() => {
+            const tab = document.getElementById('tab-hwidlogs');
+            if (tab && tab.classList.contains('active')) {
+                loadHwidLogs();
+            }
+        }, 30000);
 
         // ============================================
         // EDIT FUNCTIONS
