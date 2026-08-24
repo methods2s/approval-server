@@ -78,6 +78,7 @@
         .badge-hwid-status.full { background: rgba(255,152,0,0.2); color: #FF9800; }
         
         .badge-unregistered { background: rgba(255,152,0,0.2); color: #FF9800; font-size: 9px; padding: 1px 6px; border-radius: 8px; }
+        .badge-approved { background: rgba(76,175,80,0.2); color: #4CAF50; font-size: 9px; padding: 1px 6px; border-radius: 8px; }
         
         .edit-input { width: 100%; padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; min-width: 60px; }
         .edit-input:focus { outline: none; border-color: #4CAF50; }
@@ -163,8 +164,8 @@
             box-shadow: 0 0 20px rgba(255,152,0,0.3);
         }
         .wallpaper-preview-sm { 
-            width: 60px; 
-            height: 45px; 
+            width: 80px; 
+            height: 55px; 
             border-radius: 4px; 
             object-fit: cover; 
             border: 1px solid rgba(255,255,255,0.1);
@@ -192,8 +193,8 @@
             color: #666;
         }
         .wallpaper-placeholder-sm { 
-            width: 60px; 
-            height: 45px; 
+            width: 80px; 
+            height: 55px; 
             border-radius: 4px; 
             background: rgba(255,255,255,0.05);
             border: 1px dashed #555;
@@ -289,28 +290,49 @@
         .wallpaper-cell .wallpaper-info-text .size { color: #666; }
         .wallpaper-cell .wallpaper-info-text .res { color: #555; }
         
-        .status-badge-new {
-            background: rgba(255,152,0,0.2);
-            color: #FF9800;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-size: 9px;
-            font-weight: bold;
+        /* Search box */
+        .search-box {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
         }
-        .status-badge-registered {
-            background: rgba(76,175,80,0.2);
-            color: #4CAF50;
-            padding: 2px 8px;
-            border-radius: 10px;
-            font-size: 9px;
-            font-weight: bold;
+        .search-box input {
+            padding: 8px 14px;
+            border: 1px solid #555;
+            border-radius: 6px;
+            background: #222;
+            color: #fff;
+            font-size: 13px;
+            min-width: 200px;
+            flex: 1;
         }
+        .search-box input:focus {
+            border-color: #4CAF50;
+            outline: none;
+        }
+        .search-box .search-icon {
+            color: #888;
+            font-size: 14px;
+        }
+        .search-box .clear-search {
+            background: none;
+            border: none;
+            color: #888;
+            cursor: pointer;
+            font-size: 16px;
+            padding: 4px 8px;
+        }
+        .search-box .clear-search:hover { color: #f44336; }
         
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
             .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
             .wallpaper-preview { width: 80px; height: 60px; }
             .wallpaper-placeholder { width: 80px; height: 60px; font-size: 20px; }
+            .wallpaper-preview-sm { width: 60px; height: 45px; }
+            .wallpaper-placeholder-sm { width: 60px; height: 45px; font-size: 16px; }
+            .search-box input { min-width: 120px; }
         }
     </style>
 </head>
@@ -359,7 +381,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: ALL CODES -->
+        <!-- TAB: ALL CODES - WITH USERNAME SEARCH -->
         <!-- ============================================ -->
         <div class="tab-content active" id="tab-codes">
             <div class="card">
@@ -398,8 +420,13 @@
             <div class="card">
                 <div class="card-header">
                     <h3>📋 All Codes</h3>
-                    <div>
+                    <div style="display:flex; gap:15px; align-items:center; flex-wrap:wrap;">
                         <span class="text-muted" id="codes-count">0 profiles total</span>
+                        <div class="search-box">
+                            <span class="search-icon">🔍</span>
+                            <input type="text" id="code-username-search" placeholder="Search username..." onkeyup="filterCodesByUsername()">
+                            <button class="clear-search" onclick="document.getElementById('code-username-search').value=''; filterCodesByUsername();" title="Clear search">✕</button>
+                        </div>
                     </div>
                 </div>
                 <div class="scroll-table">
@@ -613,7 +640,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID LOGS - WITH CONDITIONAL WALLPAPER -->
+        <!-- TAB: HWID LOGS - WITH WALLPAPER IMAGE -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwidlogs">
             <div class="card">
@@ -639,7 +666,7 @@
                                     <th style="min-width:150px;">👤 Username / HWID</th>
                                     <th style="width:100px;">🔑 Code</th>
                                     <th style="min-width:350px;">🖥️ Hardware Specs</th>
-                                    <th style="min-width:180px;">🖼️ Wallpaper</th>
+                                    <th style="min-width:200px;">🖼️ Wallpaper</th>
                                     <th style="width:160px;">⏰ Time</th>
                                 </tr>
                             </thead>
@@ -827,6 +854,7 @@
         let codeHwidsMap = {};
         let isLoading = false;
         let loadError = false;
+        let filteredCodes = [];
 
         // ============================================
         // DEACTIVATION REASON MAPPING
@@ -921,6 +949,7 @@
                 document.getElementById('stat-vip').textContent = vipCount;
                 
                 allCodes = codes;
+                filteredCodes = [...codes];
                 allDevices = data.devices || [];
                 
                 await loadHwidStatusForCodes();
@@ -962,6 +991,24 @@
             if (countEl) {
                 countEl.textContent = `${totalProfiles} profiles total`;
             }
+        }
+
+        // ============================================
+        // FILTER CODES BY USERNAME
+        // ============================================
+        function filterCodesByUsername() {
+            const search = document.getElementById('code-username-search').value.toLowerCase().trim();
+            
+            if (!search) {
+                filteredCodes = [...allCodes];
+            } else {
+                filteredCodes = allCodes.filter(c => {
+                    const username = (c.username || '').toLowerCase();
+                    return username.includes(search);
+                });
+            }
+            
+            renderAllCodes();
         }
 
         // ============================================
@@ -1085,7 +1132,7 @@
         }
 
         // ============================================
-        // RENDER ALL CODES
+        // RENDER ALL CODES - WITH FILTER
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
@@ -1094,14 +1141,16 @@
                 return;
             }
             
-            if (!allCodes || allCodes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No codes found. Generate one above!</td></tr>';
+            if (!filteredCodes || filteredCodes.length === 0) {
+                const search = document.getElementById('code-username-search').value.trim();
+                const msg = search ? `No codes found for username: "${search}"` : 'No codes found. Generate one above!';
+                tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">${msg}</td></tr>`;
                 return;
             }
             
             updateTotalProfileCount();
             
-            tbody.innerHTML = allCodes.map(c => {
+            tbody.innerHTML = filteredCodes.map(c => {
                 const isEditing = editingCode === c.code;
                 const accessClass = c.access_level === 'SVIP' ? 'svip' : 'vip';
                 const accessLabel = c.access_level === 'SVIP' ? '⭐ SVIP' : '🔶 VIP';
@@ -1732,7 +1781,7 @@
         }
 
         // ============================================
-        // HWID LOGS - WITH CONDITIONAL WALLPAPER
+        // HWID LOGS - WITH WALLPAPER IMAGE FOR UNREGISTERED
         // ============================================
         async function loadHwidLogs() {
             const tbody = document.getElementById('hwid-logs-body');
@@ -1773,7 +1822,7 @@
         }
 
         // ============================================
-        // RENDER HWID LOGS - CONDITIONAL WALLPAPER
+        // RENDER HWID LOGS - WITH WALLPAPER IMAGE
         // ============================================
         function renderHwidLogs(logs) {
             const tbody = document.getElementById('hwid-logs-body');
@@ -1803,7 +1852,7 @@
                 const displayName = hasCode ? username : (log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A');
                 const isUsername = hasCode && username !== 'N/A' && username !== log.code;
                 
-                // Extract hardware specs
+                // Extract hardware specs and wallpaper
                 let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A';
                 let wallpaperName = 'N/A', wallpaperSize = 0, wallpaperWidth = 0, wallpaperHeight = 0, wallpaperBase64 = null;
                 
@@ -1846,13 +1895,12 @@
                 }
                 
                 // ============================================
-                // CONDITIONAL WALLPAPER DISPLAY
-                // ONLY SHOW WALLPAPER IF NO CODE (UNREGISTERED)
+                // WALLPAPER DISPLAY - SHOW IMAGE FOR UNREGISTERED
                 // ============================================
                 let wallpaperHtml = '';
                 const shouldShowWallpaper = !hasCode || log.code === null || log.code === 'null' || log.code === '';
                 
-                if (shouldShowWallpaper && wallpaperName !== 'N/A' && wallpaperBase64) {
+                if (shouldShowWallpaper && wallpaperBase64) {
                     const wallpaper = {
                         name: wallpaperName,
                         size_kb: wallpaperSize,
@@ -1860,14 +1908,15 @@
                         height: wallpaperHeight,
                         base64: wallpaperBase64
                     };
-                    wallpaperHtml = getWallpaperHtml(wallpaper, true, true); // small preview
+                    wallpaperHtml = getWallpaperHtml(wallpaper, true, true); // small preview with image
                 } else if (shouldShowWallpaper && wallpaperName !== 'N/A') {
+                    // No base64 but has name - show text
                     wallpaperHtml = `<span style="color:#FF9800;">🖼️ ${wallpaperName}</span>`;
                     if (wallpaperSize > 0) {
                         wallpaperHtml += ` <span style="color:#888;font-size:9px;">(${wallpaperSize.toFixed(1)} KB)</span>`;
                     }
                 } else if (!shouldShowWallpaper) {
-                    // Registered - show simple icon only
+                    // Registered - show simple text
                     wallpaperHtml = `<span style="color:#666;font-size:10px;">✅ Registered</span>`;
                 } else {
                     wallpaperHtml = '<span style="color:#666;font-size:10px;">No wallpaper</span>';
@@ -1909,7 +1958,8 @@
                         <td>${hardwareHtml}</td>
                         <td style="font-size:11px;line-height:1.4;">
                             ${wallpaperHtml}
-                            ${!hasCode && wallpaperName !== 'N/A' ? `<br><span style="color:#888;font-size:9px;">📸 New HWID detected</span>` : ''}
+                            ${!hasCode && wallpaperBase64 ? `<br><span style="color:#888;font-size:9px;">📸 Click image to enlarge</span>` : ''}
+                            ${!hasCode && !wallpaperBase64 && wallpaperName !== 'N/A' ? `<br><span style="color:#888;font-size:9px;">📸 New HWID detected</span>` : ''}
                         </td>
                         <td><small>${time}</small></td>
                     </tr>
