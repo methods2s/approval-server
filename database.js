@@ -277,10 +277,11 @@ class DeviceDatabase {
 
   async getCodeHwids(code) {
     try {
-      return await this.all(
+      const result = await this.all(
         'SELECT hwid, assigned_at, last_used FROM code_hwids WHERE code = $1 ORDER BY assigned_at DESC',
         [code]
       );
+      return Array.isArray(result) ? result : [];
     } catch (error) {
       console.error('Get code HWIDs error:', error);
       return [];
@@ -385,29 +386,42 @@ class DeviceDatabase {
 
   async removeHwidFromCode(code, hwid) {
     try {
-      const count = await this.getCodeHwidCount(code);
-      if (count <= 1) {
-        return { 
-          success: false, 
-          error: 'Cannot remove the last HWID. Deactivate the code first.' 
-        };
-      }
+      // REMOVED: Check if this is the last HWID
+      // Allow removal even if it's the last one
+      
+      // Delete all devices with this HWID
+      await this.run(
+        'DELETE FROM devices WHERE code = $1 AND hwid = $2',
+        [code, hwid]
+      );
 
+      // Remove from code_hwids
       const result = await this.run(
         'DELETE FROM code_hwids WHERE code = $1 AND hwid = $2',
         [code, hwid]
       );
 
       if (result.changes > 0) {
+        // Update remaining HWID in codes table
         const remaining = await this.getCodeHwids(code);
         if (remaining && remaining.length > 0) {
           await this.run(
             'UPDATE codes SET hwid = $1 WHERE code = $2',
             [remaining[0].hwid, code]
           );
+        } else {
+          // No remaining HWIDs, clear the hwid field
+          await this.run(
+            'UPDATE codes SET hwid = NULL WHERE code = $1',
+            [code]
+          );
         }
         await this.refreshCache();
-        return { success: true, message: 'HWID removed successfully' };
+        return { 
+          success: true, 
+          message: 'HWID removed successfully',
+          devices_deleted: result.changes 
+        };
       }
       return { success: false, error: 'HWID not found' };
     } catch (error) {

@@ -1250,6 +1250,12 @@ app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) =>
                 `HWID ${hwid.substring(0, 16)}... removed from code ${code} by ${req.session.username}. ${deletedCount} profiles deleted.`);
             await db.refreshCache();
             
+            // Update code usage count
+            await db.run(
+                'UPDATE codes SET used_count = used_count - $1 WHERE code = $2',
+                [deletedCount, code.toUpperCase()]
+            );
+            
             res.json({
                 success: true,
                 message: `HWID removed successfully. ${deletedCount} profile(s) deleted.`,

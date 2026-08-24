@@ -939,7 +939,7 @@
                 const approvedDevices = hwidDevices.filter(d => d.status === 'approved');
                 const deviceCount = approvedDevices.length;
                 
-                // Always enable remove button
+                // ALWAYS ENABLE REMOVE BUTTON - kahit isa lang ang HWID
                 const canRemove = true;
                 
                 // Get specs from the FIRST device with this HWID
@@ -955,6 +955,9 @@
                 const hwidFull = h.hwid || '';
                 const hwidMasked = h.hwid_masked || (hwidFull ? hwidFull.substring(0, 16) + '...' : 'N/A');
                 
+                // Check if hardware specs are available
+                const hasSpecs = cpu !== 'N/A' && cpu !== 'Unknown';
+                
                 return `
                     <tr>
                         <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
@@ -968,12 +971,16 @@
                             </span>
                         </td>
                         <td style="font-size:11px;line-height:1.8;">
-                            <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
-                            <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
-                            <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
-                            <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
-                            <div><span class="hwid-spec-detail device">💻 Device: ${deviceName}</span></div>
-                            <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
+                            ${hasSpecs ? `
+                                <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
+                                <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
+                                <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
+                                <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
+                                <div><span class="hwid-spec-detail device">💻 Device: ${deviceName}</span></div>
+                                <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
+                            ` : `
+                                <div style="color:#888;font-style:italic;">No hardware specs available. Please register a device first.</div>
+                            `}
                         </td>
                         <td style="text-align:center;">
                             <button onclick="removeHwid('${hwidFull}')" class="btn-remove-hwid" id="remove-btn-${index}">
