@@ -59,6 +59,8 @@
         .btn-remove-hwid-code { background: #f44336; color: #fff; border: none; border-radius: 4px; padding: 4px 10px; font-size: 10px; cursor: pointer; transition: all 0.2s; }
         .btn-remove-hwid-code:hover { background: #d32f2f; transform: scale(1.05); }
         .btn-remove-hwid-code:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
+        .btn-hwid-manager { background: #9C27B0; color: #fff; border: none; border-radius: 4px; padding: 4px 8px; font-size: 10px; cursor: pointer; transition: all 0.2s; }
+        .btn-hwid-manager:hover { background: #7B1FA2; transform: scale(1.05); }
         
         .scroll-table { overflow-x: auto; max-height: 500px; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -314,6 +316,13 @@
             50% { opacity: 1; }
         }
         
+        .cleanup-btn-container {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
             .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -422,7 +431,7 @@
                                 <th>Expires</th>
                                 <th style="width:100px;">HWID Status</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
-                                <th style="width:220px;">Actions</th>
+                                <th style="width:280px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="codes-body">
@@ -456,7 +465,7 @@
                                 <th>Expires</th>
                                 <th>HWID Status</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
-                                <th>Actions</th>
+                                <th style="width:280px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="svip-body">
@@ -490,7 +499,7 @@
                                 <th>Expires</th>
                                 <th>HWID Status</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
-                                <th>Actions</th>
+                                <th style="width:280px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="vip-body">
@@ -578,9 +587,10 @@
             <div class="card">
                 <div class="card-header">
                     <h3>📋 HWID Activity Logs</h3>
-                    <div>
+                    <div class="cleanup-btn-container">
                         <span class="badge badge-new-count" id="new-hwid-count">0 new</span>
                         <button onclick="loadHwidLogs()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
+                        <button onclick="cleanupOldLogs()" class="btn-small btn-danger" style="margin-left:10px;">🗑️ Clear All Logs</button>
                     </div>
                 </div>
                 <div style="font-size:13px;color:#888;margin-bottom:15px;padding:10px;background:rgba(76,175,80,0.1);border-radius:6px;">
@@ -618,10 +628,10 @@
             <div class="card">
                 <div class="card-header">
                     <h3>🆕 New HWID Detection</h3>
-                    <div>
+                    <div class="cleanup-btn-container">
                         <span class="badge badge-new-count" id="new-hwid-unique-count">0 new</span>
                         <button onclick="loadNewHwids()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
-                        <button onclick="cleanupOldLogs()" class="btn-small btn-warning" style="margin-left:10px;">🧹 Cleanup Logs</button>
+                        <button onclick="cleanupOldLogs()" class="btn-small btn-danger" style="margin-left:10px;">🗑️ Clear All Logs</button>
                     </div>
                 </div>
                 <div style="font-size:13px;color:#888;margin-bottom:15px;padding:10px;background:rgba(255,152,0,0.1);border-radius:6px;">
@@ -691,6 +701,32 @@
                 el.style.display = 'none';
                 el.className = '';
             }
+        }
+
+        // ============================================
+        // GO TO HWID MANAGER FOR SPECIFIC CODE
+        // ============================================
+        function goToHwidManager(code) {
+            // Switch to HWID tab
+            switchTab('hwid');
+            
+            // Select the code in the dropdown
+            const select = document.getElementById('hwid-code-select');
+            if (select) {
+                select.value = code;
+                // Trigger the change event to load HWID details
+                loadHwidDetails();
+            }
+            
+            // Scroll to the HWID manager section
+            const hwidSection = document.getElementById('tab-hwid');
+            if (hwidSection) {
+                setTimeout(() => {
+                    hwidSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 300);
+            }
+            
+            showMessage(`🖥️ Loading HWID Manager for code: ${code}`, 'info');
         }
 
         // ============================================
@@ -777,7 +813,6 @@
             const height = parseInt(wallpaper.height) || 0;
             const resolution = (width > 0 && height > 0) ? `${width}x${height}` : '';
             
-            // Show placeholder with click to load
             return `
                 <div class="wallpaper-cell">
                     <div class="wallpaper-placeholder" 
@@ -1156,6 +1191,7 @@
                         <td>
                             <div class="action-buttons">
                                 <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋 Copy</button>
+                                <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager for this code">🖥️ HWID</button>
                                 <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
@@ -1220,6 +1256,7 @@
                         <td>
                             <div class="action-buttons">
                                 <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
+                                <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
                                 <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
@@ -1283,6 +1320,7 @@
                         <td>
                             <div class="action-buttons">
                                 <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
+                                <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
                                 <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
@@ -2034,29 +2072,38 @@
         }
 
         // ============================================
-        // CLEANUP OLD LOGS
+        // CLEANUP OLD LOGS - FIXED: Deletes ALL logs
         // ============================================
 
         async function cleanupOldLogs() {
-            if (!confirm('🧹 Delete all logs older than 7 days?\n\nThis will also delete usage logs older than 30 days.')) {
+            if (!confirm('🧹 Delete ALL HWID activity logs?\n\nThis will permanently delete ALL HWID logs from the database.\n\nAre you sure?')) {
                 return;
             }
             
             try {
-                showMessage('⏳ Cleaning up old logs...', 'loading');
+                showMessage('⏳ Deleting all logs...', 'loading');
                 
                 const response = await fetchWithRetry('/api/cleanup-logs', {
-                    method: 'POST'
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ delete_all: true })
                 });
                 
                 const result = await response.json();
                 
                 if (result.success) {
                     showMessage(`✅ ${result.message} (${result.deleted} logs deleted)`, 'success');
+                    // Refresh both log tables
                     await loadNewHwids();
                     await loadHwidLogs();
+                    // Update counts to zero
+                    const countElements = document.querySelectorAll('.badge-new-count');
+                    countElements.forEach(el => {
+                        el.textContent = '0 new';
+                        el.className = 'badge badge-new-count zero';
+                    });
                 } else {
-                    showMessage('❌ ' + (result.error || 'Failed to cleanup'), 'error');
+                    showMessage('❌ ' + (result.error || 'Failed to delete logs'), 'error');
                 }
             } catch (error) {
                 showMessage('❌ Error: ' + error.message, 'error');

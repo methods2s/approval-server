@@ -1,4 +1,4 @@
-// server.js - Complete with All Endpoints including Optimized Wallpaper Handling
+// server.js - Complete with All Endpoints including Optimized Wallpaper Handling, Cleanup Logs, and HWID Manager Navigation
 
 require('dotenv').config();
 const express = require('express');
@@ -1836,18 +1836,60 @@ setTimeout(async () => {
     await autoDeleteOldLogs();
 }, 5000);
 
-// Manual endpoint for triggering cleanup
+// ============================================
+// CLEANUP LOGS ENDPOINT - FIXED (Deletes ALL logs when requested)
+// ============================================
+
 app.post('/api/cleanup-logs', isApiAuthenticated, async (req, res) => {
     try {
-        const deleted = await autoDeleteOldLogs();
-        res.json({ 
-            success: true, 
-            message: `Cleaned up ${deleted} old logs`,
-            deleted: deleted
-        });
+        const { delete_all } = req.body;
+        let deleted = 0;
+        let message = '';
+        
+        if (delete_all) {
+            // Delete ALL HWID logs
+            const result = await db.run('DELETE FROM hwid_logs');
+            deleted = result.changes || 0;
+            message = `Deleted ALL ${deleted} HWID logs`;
+            console.log(`🧹 Manually deleted ALL ${deleted} HWID logs`);
+            
+            // Also delete old usage logs
+            const usageResult = await db.run(
+                "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '30 days'"
+            );
+            if (usageResult.changes > 0) {
+                message += ` and ${usageResult.changes} old usage logs`;
+            }
+            
+            res.json({ 
+                success: true, 
+                message: message,
+                deleted: deleted
+            });
+        } else {
+            // Default: delete logs older than 7 days
+            const result = await db.run(
+                "DELETE FROM hwid_logs WHERE created_at < NOW() - INTERVAL '7 days'"
+            );
+            deleted = result.changes || 0;
+            message = `Cleaned up ${deleted} old HWID logs (older than 7 days)`;
+            
+            const usageResult = await db.run(
+                "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '30 days'"
+            );
+            if (usageResult.changes > 0) {
+                message += ` and ${usageResult.changes} old usage logs`;
+            }
+            
+            res.json({ 
+                success: true, 
+                message: message,
+                deleted: deleted
+            });
+        }
     } catch (error) {
         console.error('❌ Cleanup logs error:', error);
-        res.status(500).json({ error: 'Failed to cleanup logs' });
+        res.status(500).json({ error: 'Failed to cleanup logs: ' + error.message });
     }
 });
 
