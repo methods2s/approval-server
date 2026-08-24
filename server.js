@@ -239,7 +239,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE
+// REGISTER DEVICE - WITH HARDWARE SPECS SAVE
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -273,6 +273,7 @@ app.post('/api/register', async (req, res) => {
     }
 
     try {
+        // Check if code exists
         const codeInfo = await db.get('SELECT * FROM codes WHERE code = $1', [code.toUpperCase()]);
         if (!codeInfo) {
             return res.status(400).json({
@@ -288,6 +289,7 @@ app.post('/api/register', async (req, res) => {
             });
         }
 
+        // Check if HWID is authorized
         const isAuthorized = await db.isHwidAuthorized(code.toUpperCase(), hwid);
 
         if (!isAuthorized) {
@@ -356,8 +358,10 @@ app.post('/api/register', async (req, res) => {
             );
         }
 
+        // Proceed with registration
         const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
 
+        // Parse browser info
         let parsedBrowserInfo = {};
         try {
             parsedBrowserInfo = typeof browserInfo === 'string' ? JSON.parse(browserInfo) : browserInfo || {};
@@ -365,6 +369,9 @@ app.post('/api/register', async (req, res) => {
             parsedBrowserInfo = {};
         }
 
+        // ============================================
+        // PARSE HARDWARE SPECS FROM PYTHON FILE
+        // ============================================
         let parsedHardware = {};
         try {
             parsedHardware = typeof hardware === 'string' ? JSON.parse(hardware) : hardware || {};
@@ -372,6 +379,7 @@ app.post('/api/register', async (req, res) => {
             parsedHardware = {};
         }
 
+        // Extract hardware specs
         const cpuName = parsedHardware.cpu || 'Unknown';
         const gpuName = parsedHardware.gpu || 'Unknown';
         const ramTotal = parsedHardware.ram_gb || 0;
@@ -387,6 +395,11 @@ app.post('/api/register', async (req, res) => {
         console.log(`   Profile: ${profileName}`);
         console.log(`   Device: ${deviceName}`);
 
+        // ============================================
+        // SAVE HARDWARE SPECS TO DEVICES TABLE
+        // ============================================
+
+        // Check if device already exists
         const existingDevice = await db.getDevice(deviceId);
         
         if (existingDevice) {
@@ -462,6 +475,7 @@ app.post('/api/register', async (req, res) => {
             );
         }
 
+        // Update code usage count
         await db.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code.toUpperCase()]);
         await db.logUsage(deviceId, code, 'register', 
             `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName} | RAM: ${ramTotal}GB | Storage: ${storageTotal}GB`
@@ -469,9 +483,11 @@ app.post('/api/register', async (req, res) => {
         
         await db.refreshCache();
 
+        // Get updated code info
         const updatedCodeInfo = await db.getCodeInfo(code.toUpperCase());
 
         console.log('✅ Registration successful for code:', code);
+        console.log('📊 Updated code info:', updatedCodeInfo);
 
         res.json({
             success: true,
@@ -1090,9 +1106,10 @@ app.delete('/api/device/:deviceId', async (req, res) => {
 });
 
 // ============================================
-// HWID MANAGER - COMPLETE WITH FIXES
+// HWID MANAGER - COMPLETE WITH PROFILE DELETION
 // ============================================
 
+// Get HWIDs for a code
 app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
     const { code } = req.params;
     try {
@@ -1130,6 +1147,7 @@ app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
     }
 });
 
+// Get HWID limit for a code
 app.get('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
     const { code } = req.params;
     try {
@@ -1147,6 +1165,7 @@ app.get('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
     }
 });
 
+// Update HWID limit
 app.put('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
     const { code } = req.params;
     const { limit } = req.body;
@@ -1177,6 +1196,7 @@ app.put('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
     }
 });
 
+// Assign HWID to code
 app.post('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
     const { code } = req.params;
     const { hwid } = req.body;
@@ -1201,22 +1221,41 @@ app.post('/api/code/:code/hwid', isApiAuthenticated, async (req, res) => {
     }
 });
 
+// Remove HWID from code - WITH PROFILE DELETION
 app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) => {
     const { code, hwid } = req.params;
     
     try {
+        // First, get all devices with this HWID
+        const devices = await db.all(
+            'SELECT device_id FROM devices WHERE code = $1 AND hwid = $2',
+            [code.toUpperCase(), hwid]
+        );
+        
+        // Delete all devices with this HWID
+        let deletedCount = 0;
+        for (const device of devices) {
+            await db.run(
+                'DELETE FROM devices WHERE device_id = $1',
+                [device.device_id]
+            );
+            deletedCount++;
+        }
+        
+        // Remove HWID from code_hwids table
         const result = await db.removeHwidFromCode(code.toUpperCase(), hwid);
         
         if (result.success) {
-            await db.logUsage('admin', code, 'hwid_removed', 
-                `HWID ${hwid.substring(0, 16)}... removed from code ${code} by ${req.session.username}`);
+            await db.logUsage('admin', code, 'hwid_removed_with_profiles', 
+                `HWID ${hwid.substring(0, 16)}... removed from code ${code} by ${req.session.username}. ${deletedCount} profiles deleted.`);
             await db.refreshCache();
             
             res.json({
                 success: true,
-                message: 'HWID removed successfully',
+                message: `HWID removed successfully. ${deletedCount} profile(s) deleted.`,
                 code: code,
-                hwid: hwid
+                hwid: hwid,
+                profiles_deleted: deletedCount
             });
         } else {
             res.status(400).json({

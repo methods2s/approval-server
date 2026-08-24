@@ -392,7 +392,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID MANAGER (REMOVED HARDWARE SPECS SECTION) -->
+        <!-- TAB: HWID MANAGER (COMPLETE FIX) -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwid">
             <div class="card">
@@ -993,7 +993,23 @@
                 return;
             }
             
-            if (!confirm(`⚠️ Remove this computer (HWID: ${hwid.substring(0,16)}...)?\n\nThis will revoke access for this computer.`)) {
+            // Check how many profiles will be deleted
+            let profilesToDelete = 0;
+            try {
+                const devicesResponse = await fetch('/api/dashboard-data');
+                const devicesData = await devicesResponse.json();
+                profilesToDelete = (devicesData.devices || []).filter(d => d.hwid === hwid && d.code === code).length;
+            } catch (error) {
+                // Ignore, proceed with confirm
+            }
+            
+            let confirmMessage = `⚠️ Remove this computer (HWID: ${hwid.substring(0,16)}...)?`;
+            if (profilesToDelete > 0) {
+                confirmMessage += `\n\nThis will also delete ${profilesToDelete} profile(s) using this computer.`;
+            }
+            confirmMessage += `\n\nContinue?`;
+            
+            if (!confirm(confirmMessage)) {
                 return;
             }
             
