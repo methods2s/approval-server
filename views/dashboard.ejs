@@ -267,13 +267,12 @@
                                 <th>Expires</th>
                                 <th>Profiles</th>
                                 <th>HWID Limit</th>
-                                <th>Status</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
                                 <th style="width:220px;">Actions</th>
                             </tr>
                         </thead>
                         <tbody id="codes-body">
-                            <tr><td colspan="10" style="text-align:center;color:#888;padding:30px;">Loading codes...</td></tr>
+                            <tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">Loading codes...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -299,13 +298,12 @@
                                 <th>Expires</th>
                                 <th>Profiles</th>
                                 <th>HWID Limit</th>
-                                <th>Status</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="svip-body">
-                            <tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>
+                            <tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -331,13 +329,12 @@
                                 <th>Expires</th>
                                 <th>Profiles</th>
                                 <th>HWID Limit</th>
-                                <th>Status</th>
                                 <th style="min-width:180px;">Deactivation Reason</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="vip-body">
-                            <tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>
+                            <tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -362,15 +359,6 @@
                         <label>🔍 Filter by Code</label>
                         <input type="text" id="device-filter-code" placeholder="Enter code to filter" onkeyup="filterDevices()">
                     </div>
-                    <div class="form-group" style="flex:1;">
-                        <label>📊 Filter by Status</label>
-                        <select id="device-filter-status" onchange="filterDevices()">
-                            <option value="all">All Status</option>
-                            <option value="approved">✅ Approved</option>
-                            <option value="revoked">❌ Revoked</option>
-                            <option value="pending">⏳ Pending</option>
-                        </select>
-                    </div>
                 </div>
 
                 <div class="scroll-table">
@@ -379,12 +367,11 @@
                             <tr>
                                 <th>Profile Name</th>
                                 <th>Code</th>
-                                <th>Status</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
                         <tbody id="devices-body">
-                            <tr><td colspan="4" style="text-align:center;color:#888;padding:30px;">Loading profiles...</td></tr>
+                            <tr><td colspan="3" style="text-align:center;color:#888;padding:30px;">Loading profiles...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -392,7 +379,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID MANAGER (COMPLETE FIX) -->
+        <!-- TAB: HWID MANAGER -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwid">
             <div class="card">
@@ -588,37 +575,35 @@
 
         function filterDevices() {
             const filterCode = document.getElementById('device-filter-code').value.toLowerCase().trim();
-            const filterStatus = document.getElementById('device-filter-status').value;
             
             filteredDevices = allDevices.filter(d => {
                 const matchCode = !filterCode || (d.code && d.code.toLowerCase().includes(filterCode));
-                const matchStatus = filterStatus === 'all' || d.status === filterStatus;
-                return matchCode && matchStatus;
+                return matchCode;
             });
             
             renderDevices();
         }
 
         // ============================================
-        // RENDER PROFILES
+        // RENDER PROFILES - Profile Name = Username
         // ============================================
         function renderDevices() {
             const tbody = document.getElementById('devices-body');
             
             if (!filteredDevices || filteredDevices.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:30px;">No profiles found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#888;padding:30px;">No profiles found</td></tr>';
                 return;
             }
             
             tbody.innerHTML = filteredDevices.map(d => {
-                const profileName = d.browser_profile || 'Default';
-                const statusClass = d.status === 'approved' ? 'approved' : 'inactive';
+                // Kunin ang username mula sa code
+                const codeInfo = allCodes.find(c => c.code === d.code);
+                const username = codeInfo?.username || d.browser_profile || 'Default';
                 
                 return `
                     <tr>
-                        <td><strong style="color:#2196F3;">${profileName}</strong></td>
+                        <td><strong style="color:#2196F3;">${username}</strong></td>
                         <td><strong>${d.code || '<span class="text-muted">N/A</span>'}</strong></td>
-                        <td><span class="badge ${statusClass}">${d.status}</span></td>
                         <td>
                             <button onclick="removeDevice('${d.device_id}')" class="btn-small btn-remove">🗑️ Remove</button>
                         </td>
@@ -650,12 +635,12 @@
         }
 
         // ============================================
-        // RENDER ALL CODES
+        // RENDER ALL CODES - REMOVED STATUS COLUMN
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
             if (!allCodes || allCodes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:#888;padding:30px;">No codes found. Generate one above!</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No codes found. Generate one above!</td></tr>';
                 return;
             }
             
@@ -663,11 +648,8 @@
                 const isEditing = editingCode === c.code;
                 const accessClass = c.access_level === 'SVIP' ? 'svip' : 'vip';
                 const accessLabel = c.access_level === 'SVIP' ? '⭐ SVIP' : '🔶 VIP';
-                const statusClass = c.is_active ? 'active' : 'inactive';
-                const statusLabel = c.is_active ? '✅ Active' : '❌ Inactive';
-                const statusText = c.status || 'active';
-                const isAutoDeactivated = !c.is_active && (statusText.includes('auto_deactivated') || statusText === 'inactive');
-                const deactivationReason = !c.is_active ? getDeactivationReason(statusText) : '';
+                const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
+                const isAutoDeactivated = !c.is_active && (c.status || '').includes('auto_deactivated');
                 
                 if (isEditing) {
                     return `
@@ -694,9 +676,6 @@
                                 <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;">
                             </td>
                             <td>
-                                <span class="badge ${statusClass}">${statusLabel}</span>
-                            </td>
-                            <td>
                                 ${!c.is_active ? `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : '<span class="text-muted">—</span>'}
                             </td>
                             <td>
@@ -709,9 +688,9 @@
                     `;
                 }
                 
-                const statusBadge = isAutoDeactivated ? 
-                    `<span class="badge auto-deactivated">🚨 Auto-Deactivated</span>` :
-                    `<span class="badge ${statusClass}">${statusLabel}</span>`;
+                const deactivationDisplay = !c.is_active ? 
+                    `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
+                    '<span class="text-muted">—</span>';
                 
                 return `
                     <tr>
@@ -722,10 +701,7 @@
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${c.used_count || 0}</td>
                         <td>${c.max_hwid_limit || 1}</td>
-                        <td>${statusBadge}</td>
-                        <td>
-                            ${!c.is_active ? `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : '<span class="text-muted">—</span>'}
-                        </td>
+                        <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
                                 <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️ Edit</button>
@@ -741,7 +717,7 @@
         }
 
         // ============================================
-        // RENDER SVIP
+        // RENDER SVIP - REMOVED STATUS COLUMN
         // ============================================
         function renderSVIP() {
             const svipCodes = allCodes.filter(c => c.access_level === 'SVIP');
@@ -749,18 +725,15 @@
             document.getElementById('svip-count').textContent = svipCodes.length + ' codes';
             
             if (svipCodes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>';
                 return;
             }
             
             tbody.innerHTML = svipCodes.map(c => {
                 const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
-                const statusClass = c.is_active ? 'active' : 'inactive';
-                const statusLabel = c.is_active ? '✅ Active' : '❌ Inactive';
-                const isAutoDeactivated = !c.is_active && (c.status || '').includes('auto_deactivated');
-                const statusBadge = isAutoDeactivated ? 
-                    `<span class="badge auto-deactivated">🚨 Auto-Deactivated</span>` :
-                    `<span class="badge ${statusClass}">${statusLabel}</span>`;
+                const deactivationDisplay = !c.is_active ? 
+                    `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
+                    '<span class="text-muted">—</span>';
                 
                 return `
                     <tr>
@@ -770,10 +743,7 @@
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${c.used_count || 0}</td>
                         <td>${c.max_hwid_limit || 1}</td>
-                        <td>${statusBadge}</td>
-                        <td>
-                            ${!c.is_active ? `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : '<span class="text-muted">—</span>'}
-                        </td>
+                        <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
                                 <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️ Edit</button>
@@ -788,7 +758,7 @@
         }
 
         // ============================================
-        // RENDER VIP
+        // RENDER VIP - REMOVED STATUS COLUMN
         // ============================================
         function renderVIP() {
             const vipCodes = allCodes.filter(c => c.access_level === 'VIP');
@@ -796,18 +766,15 @@
             document.getElementById('vip-count').textContent = vipCodes.length + ' codes';
             
             if (vipCodes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>';
                 return;
             }
             
             tbody.innerHTML = vipCodes.map(c => {
                 const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
-                const statusClass = c.is_active ? 'active' : 'inactive';
-                const statusLabel = c.is_active ? '✅ Active' : '❌ Inactive';
-                const isAutoDeactivated = !c.is_active && (c.status || '').includes('auto_deactivated');
-                const statusBadge = isAutoDeactivated ? 
-                    `<span class="badge auto-deactivated">🚨 Auto-Deactivated</span>` :
-                    `<span class="badge ${statusClass}">${statusLabel}</span>`;
+                const deactivationDisplay = !c.is_active ? 
+                    `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
+                    '<span class="text-muted">—</span>';
                 
                 return `
                     <tr>
@@ -817,10 +784,7 @@
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${c.used_count || 0}</td>
                         <td>${c.max_hwid_limit || 1}</td>
-                        <td>${statusBadge}</td>
-                        <td>
-                            ${!c.is_active ? `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : '<span class="text-muted">—</span>'}
-                        </td>
+                        <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
                                 <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️ Edit</button>
@@ -866,21 +830,17 @@
             }
             
             try {
-                // Show loading
                 document.getElementById('hwid-info').style.display = 'block';
                 document.getElementById('hwid-list-section').style.display = 'block';
                 document.getElementById('hwid-list-body').innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;">Loading...</td></tr>';
                 
-                // Get HWID limit
                 const limitResponse = await fetch(`/api/code/${code}/hwid-limit`);
                 const limitData = await limitResponse.json();
                 
-                // Get all devices for this code
                 const devicesResponse = await fetch('/api/dashboard-data');
                 const devicesData = await devicesResponse.json();
                 const allDevicesForCode = (devicesData.devices || []).filter(d => d.code === code);
                 
-                // Get HWIDs
                 const hwidResponse = await fetch(`/api/code/${code}/hwids`);
                 const hwidData = await hwidResponse.json();
                 
@@ -894,7 +854,6 @@
                 document.getElementById('hwid-total-profiles').textContent = allDevicesForCode.length || 0;
                 document.getElementById('hwid-limit-input').value = maxLimit;
                 
-                // Update limit status
                 const statusEl = document.getElementById('hwid-limit-status');
                 if (availableSlots <= 0) {
                     statusEl.style.display = 'block';
@@ -912,7 +871,6 @@
                     statusEl.style.display = 'none';
                 }
                 
-                // Render HWID list
                 renderHwidList(hwidData, allDevicesForCode);
                 
             } catch (error) {
@@ -925,7 +883,6 @@
         function renderHwidList(hwidData, devices) {
             const tbody = document.getElementById('hwid-list-body');
             
-            // Check if hwidData has hwids array
             const hwids = (hwidData && hwidData.hwids && Array.isArray(hwidData.hwids)) ? hwidData.hwids : [];
             
             if (!hwids || hwids.length === 0) {
@@ -934,29 +891,23 @@
             }
             
             tbody.innerHTML = hwids.map((h, index) => {
-                // Find ALL devices with this HWID
                 const hwidDevices = devices ? devices.filter(d => d.hwid === h.hwid) : [];
                 const approvedDevices = hwidDevices.filter(d => d.status === 'approved');
                 const deviceCount = approvedDevices.length;
                 
-                // ALWAYS ENABLE REMOVE BUTTON
                 const canRemove = true;
                 
-                // Get specs from the FIRST device with this HWID
                 const device = approvedDevices[0] || hwidDevices[0] || null;
                 
-                // Get accurate hardware specs from the device (galing sa Python file)
                 const cpu = device?.cpu_name || 'N/A';
                 const gpu = device?.gpu_name || 'N/A';
                 const ram = device?.ram_total_gb ? device.ram_total_gb + ' GB' : 'N/A';
                 const storage = device?.storage_total_gb ? device.storage_total_gb + ' GB' : 'N/A';
                 const deviceName = device?.device_name || 'N/A';
-                // Kunin ang profile name mula sa browser_profile (galing sa Python file)
                 const profile = device?.browser_profile || device?.profile_name || 'Default';
                 const hwidFull = h.hwid || '';
                 const hwidMasked = h.hwid_masked || (hwidFull ? hwidFull.substring(0, 16) + '...' : 'N/A');
                 
-                // Check if hardware specs are available
                 const hasSpecs = cpu !== 'N/A' && cpu !== 'Unknown';
                 
                 return `
@@ -1001,15 +952,12 @@
                 return;
             }
             
-            // Check how many profiles will be deleted
             let profilesToDelete = 0;
             try {
                 const devicesResponse = await fetch('/api/dashboard-data');
                 const devicesData = await devicesResponse.json();
                 profilesToDelete = (devicesData.devices || []).filter(d => d.hwid === hwid && d.code === code).length;
-            } catch (error) {
-                // Ignore, proceed with confirm
-            }
+            } catch (error) {}
             
             let confirmMessage = `⚠️ Remove this computer (HWID: ${hwid.substring(0,16)}...)?`;
             if (profilesToDelete > 0) {
@@ -1021,7 +969,6 @@
                 return;
             }
             
-            // Disable all remove buttons
             document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
                 btn.disabled = true;
                 btn.textContent = '⏳';
@@ -1036,13 +983,11 @@
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
                     setTimeout(() => hideMessage(), 2000);
-                    // Reload everything
                     await loadHwidDetails();
                     await loadAll();
                     await loadDevices();
                 } else {
                     showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
-                    // Re-enable buttons
                     document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
                         btn.disabled = false;
                         btn.textContent = '🗑️ Remove';
@@ -1050,7 +995,6 @@
                 }
             } catch (error) {
                 showMessage('❌ Error: ' + error.message, 'error');
-                // Re-enable buttons
                 document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
                     btn.disabled = false;
                     btn.textContent = '🗑️ Remove';
@@ -1189,7 +1133,6 @@
             const codeInfo = allCodes.find(c => c.code === code);
             if (!codeInfo) return;
             
-            const action = codeInfo.is_active ? 'deactivate' : 'reactivate';
             const confirmMsg = codeInfo.is_active ? 
                 `⚠️ Deactivate code ${code}? This will revoke all profiles.` :
                 `🔓 Reactivate code ${code}? This will restore access.`;
