@@ -99,6 +99,10 @@
             background: rgba(244,67,54,0.2);
             color: #f44336;
         }
+        .badge-hwid-status.full {
+            background: rgba(255,152,0,0.2);
+            color: #FF9800;
+        }
         
         .edit-input { width: 100%; padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; min-width: 60px; }
         .edit-input:focus { outline: none; border-color: #4CAF50; }
@@ -291,7 +295,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: ALL CODES (WITH HWID STATUS 0/1 or 1/1) -->
+        <!-- TAB: ALL CODES (WITH HWID STATUS count/limit) -->
         <!-- ============================================ -->
         <div class="tab-content active" id="tab-codes">
             <div class="card">
@@ -821,7 +825,7 @@
         }
 
         // ============================================
-        // RENDER ALL CODES - WITH HWID STATUS (0/1 or 1/1)
+        // RENDER ALL CODES - WITH HWID STATUS (count/limit)
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
@@ -838,11 +842,15 @@
                 const isAutoDeactivated = !c.is_active && (c.status || '').includes('auto_deactivated');
                 const username = c.username || '';
                 
-                // Get HWID status
+                // Get HWID status - FIXED: display count/limit
                 const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
                 const hasHwid = hwidInfo.count > 0;
-                const hwidDisplay = hasHwid ? '✅ 1/1' : '❌ 0/1';
-                const hwidClass = hasHwid ? 'has-hwid' : 'no-hwid';
+                const isFull = hwidInfo.count >= hwidInfo.limit;
+                const hwidDisplay = `${hwidInfo.count}/${hwidInfo.limit}`;
+                
+                let hwidClass = 'no-hwid';
+                if (isFull && hasHwid) hwidClass = 'full';
+                else if (hasHwid) hwidClass = 'has-hwid';
                 
                 if (isEditing) {
                     return `
@@ -934,8 +942,12 @@
                 
                 const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
                 const hasHwid = hwidInfo.count > 0;
-                const hwidDisplay = hasHwid ? '✅ 1/1' : '❌ 0/1';
-                const hwidClass = hasHwid ? 'has-hwid' : 'no-hwid';
+                const isFull = hwidInfo.count >= hwidInfo.limit;
+                const hwidDisplay = `${hwidInfo.count}/${hwidInfo.limit}`;
+                
+                let hwidClass = 'no-hwid';
+                if (isFull && hasHwid) hwidClass = 'full';
+                else if (hasHwid) hwidClass = 'has-hwid';
                 
                 return `
                     <tr>
@@ -982,8 +994,12 @@
                 
                 const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
                 const hasHwid = hwidInfo.count > 0;
-                const hwidDisplay = hasHwid ? '✅ 1/1' : '❌ 0/1';
-                const hwidClass = hasHwid ? 'has-hwid' : 'no-hwid';
+                const isFull = hwidInfo.count >= hwidInfo.limit;
+                const hwidDisplay = `${hwidInfo.count}/${hwidInfo.limit}`;
+                
+                let hwidClass = 'no-hwid';
+                if (isFull && hasHwid) hwidClass = 'full';
+                else if (hasHwid) hwidClass = 'has-hwid';
                 
                 return `
                     <tr>
