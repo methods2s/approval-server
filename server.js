@@ -57,7 +57,7 @@ app.use(session({
 }));
 
 // ============================================
-// RATE LIMIT - FIXED
+// RATE LIMIT
 // ============================================
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -268,7 +268,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - With New HWID Registry
+// REGISTER DEVICE
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -302,9 +302,8 @@ app.post('/api/register', async (req, res) => {
     }
 
     try {
-        // Add to new HWID registry if not yet assigned
         const existingHwid = await db.get(
-            'SELECT code FROM code_hwids WHERE hwid = $1',
+            'SELECT code FROM code_hwids WHERE hwid = $1 LIMIT 1',
             [hwid]
         );
         
@@ -353,7 +352,7 @@ app.post('/api/register', async (req, res) => {
                 }
                 
                 const otherCode = await db.get(
-                    'SELECT code FROM code_hwids WHERE hwid = $1',
+                    'SELECT code FROM code_hwids WHERE hwid = $1 LIMIT 1',
                     [hwid]
                 );
                 
@@ -387,7 +386,6 @@ app.post('/api/register', async (req, res) => {
         if (wallpaper) {
             try {
                 parsedWallpaper = typeof wallpaper === 'string' ? JSON.parse(wallpaper) : wallpaper;
-                console.log(`🖼️ Wallpaper received: ${parsedWallpaper.file_name || 'unknown'}`);
             } catch (e) {
                 console.log('⚠️ Failed to parse wallpaper data:', e.message);
             }
@@ -1329,13 +1327,11 @@ app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
         
         const logs = await db.getHwidLogs(limit, status);
         
-        // Get all assigned HWIDs
         const assignedHwids = await db.all(
             'SELECT DISTINCT hwid FROM code_hwids WHERE hwid IS NOT NULL'
         );
         const assignedSet = new Set(assignedHwids.map(h => h.hwid));
         
-        // Filter out assigned HWIDs
         const filteredLogs = (logs || []).filter(log => {
             if (log.code) return false;
             if (log.hwid && assignedSet.has(log.hwid)) return false;
@@ -1503,9 +1499,8 @@ app.post('/api/hwid-log', async (req, res) => {
     try {
         const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
         
-        // Check if HWID already has a code
         const existing = await db.get(
-            'SELECT code FROM code_hwids WHERE hwid = $1',
+            'SELECT code FROM code_hwids WHERE hwid = $1 LIMIT 1',
             [hwid]
         );
         
@@ -1538,7 +1533,6 @@ app.post('/api/hwid-log', async (req, res) => {
             return res.status(500).json({ error: 'Failed to save to database' });
         }
         
-        // Add to new HWID registry if no code
         if (!existing) {
             let hardware = {};
             if (details) {
@@ -1561,7 +1555,7 @@ app.post('/api/hwid-log', async (req, res) => {
             for (const extraHwid of detected_hwids) {
                 if (extraHwid !== hwid) {
                     const extraExisting = await db.get(
-                        'SELECT code FROM code_hwids WHERE hwid = $1',
+                        'SELECT code FROM code_hwids WHERE hwid = $1 LIMIT 1',
                         [extraHwid]
                     );
                     if (!extraExisting) {
