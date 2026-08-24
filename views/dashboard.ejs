@@ -139,7 +139,7 @@
         .btn-remove-hwid:hover { background: #d32f2f; transform: scale(1.05); }
         .btn-remove-hwid:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
         
-        .hwid-stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 15px; }
+        .hwid-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 15px; }
         .hwid-stat-card { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.08); }
         .hwid-stat-card .number { font-size: 28px; font-weight: bold; color: #4CAF50; }
         .hwid-stat-card .label { font-size: 12px; color: #888; margin-top: 4px; }
@@ -319,7 +319,7 @@
             </div>
         </div>
 
-        <!-- STATS - REMOVED TOTAL PROFILES -->
+        <!-- STATS -->
         <div class="stats-grid" id="stats-grid">
             <div class="stat-card">
                 <div class="number" id="stat-codes">0</div>
@@ -487,7 +487,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID MANAGER - WITH WALLPAPER -->
+        <!-- TAB: HWID MANAGER - WITH HARDWARE SPECS & WALLPAPER -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwid">
             <div class="card">
@@ -955,7 +955,7 @@
         }
 
         // ============================================
-        // RENDER ALL CODES - NO PROFILE COUNT
+        // RENDER ALL CODES
         // ============================================
         function renderAllCodes() {
             const tbody = document.getElementById('codes-body');
@@ -1061,7 +1061,7 @@
         }
 
         // ============================================
-        // RENDER SVIP - NO PROFILE COUNT
+        // RENDER SVIP
         // ============================================
         function renderSVIP() {
             const svipCodes = allCodes.filter(c => c.access_level === 'SVIP');
@@ -1124,7 +1124,7 @@
         }
 
         // ============================================
-        // RENDER VIP - NO PROFILE COUNT
+        // RENDER VIP
         // ============================================
         function renderVIP() {
             const vipCodes = allCodes.filter(c => c.access_level === 'VIP');
@@ -1403,13 +1403,18 @@
                 document.getElementById('hwid-list-section').style.display = 'block';
                 document.getElementById('hwid-list-body').innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading...</div></td></tr>';
                 
-                const [limitResponse, hwidResponse] = await Promise.all([
+                // GET BOTH HWIDS AND DEVICES DATA
+                const [limitResponse, hwidResponse, devicesResponse] = await Promise.all([
                     fetch(`/api/code/${code}/hwid-limit`),
-                    fetch(`/api/code/${code}/hwids`)
+                    fetch(`/api/code/${code}/hwids`),
+                    fetch('/api/dashboard-data')
                 ]);
                 
                 const limitData = await limitResponse.json();
                 const hwidData = await hwidResponse.json();
+                const devicesData = await devicesResponse.json();
+                
+                const allDevicesForCode = (devicesData.devices || []).filter(d => d.code === code);
                 
                 const currentCount = hwidData.hwids ? hwidData.hwids.length : 0;
                 const maxLimit = limitData.max_hwid_limit || 1;
@@ -1437,7 +1442,8 @@
                     statusEl.style.display = 'none';
                 }
                 
-                renderHwidList(hwidData);
+                // Pass devices data to renderHwidList
+                renderHwidList(hwidData, allDevicesForCode);
                 
             } catch (error) {
                 console.error('Load HWID details error:', error);
@@ -1447,9 +1453,9 @@
         }
 
         // ============================================
-        // RENDER HWID LIST - WITH WALLPAPER, NO PROFILE COUNT
+        // RENDER HWID LIST - WITH HARDWARE SPECS & WALLPAPER
         // ============================================
-        function renderHwidList(hwidData) {
+        function renderHwidList(hwidData, devices) {
             const tbody = document.getElementById('hwid-list-body');
             
             const hwids = (hwidData && hwidData.hwids && Array.isArray(hwidData.hwids)) ? hwidData.hwids : [];
@@ -1463,15 +1469,32 @@
                 const hwidFull = h.hwid || '';
                 const hwidMasked = h.hwid_masked || (hwidFull ? hwidFull.substring(0, 16) + '...' : 'N/A');
                 
-                // Sample hardware specs - you can expand this
-                const cpu = 'N/A';
-                const gpu = 'N/A';
-                const ram = 'N/A';
-                const storage = 'N/A';
-                const deviceName = 'N/A';
-                const profile = 'N/A';
+                // Find devices for this HWID
+                const hwidDevices = devices ? devices.filter(d => d.hwid === hwidFull) : [];
+                const device = hwidDevices[0] || null;
                 
+                // Get hardware specs from device
+                const cpu = device?.cpu_name || 'N/A';
+                const gpu = device?.gpu_name || 'N/A';
+                const ram = device?.ram_total_gb ? device.ram_total_gb + ' GB' : 'N/A';
+                const storage = device?.storage_total_gb ? device.storage_total_gb + ' GB' : 'N/A';
+                const deviceName = device?.device_name || 'N/A';
+                const profile = device?.browser_profile || device?.profile_name || 'Default';
+                
+                // Get wallpaper from device
                 let wallpaperHtml = '<span style="color:#666;font-size:10px;">No wallpaper</span>';
+                if (device?.wallpaper_name || device?.wallpaper_base64) {
+                    const wallpaper = {
+                        name: device.wallpaper_name || 'Unknown',
+                        size_kb: device.wallpaper_size_kb || 0,
+                        width: device.wallpaper_width || 0,
+                        height: device.wallpaper_height || 0,
+                        base64: device.wallpaper_base64 || null
+                    };
+                    wallpaperHtml = getWallpaperHtml(wallpaper, true);
+                }
+                
+                const hasSpecs = cpu !== 'N/A' && cpu !== 'Unknown';
                 
                 return `
                     <tr>
@@ -1480,15 +1503,19 @@
                             <code style="font-size:11px;font-weight:bold;color:#4CAF50;word-break:break-all;" title="${hwidFull}">${hwidMasked}</code>
                         </td>
                         <td style="font-size:11px;line-height:1.8;">
-                            <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
-                            <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
-                            <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
-                            <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
-                            <div><span class="hwid-spec-detail device">💻 Device: ${deviceName}</span></div>
-                            <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
-                            <div style="margin-top:6px;border-top:1px solid rgba(255,255,255,0.05);padding-top:6px;">
-                                <span class="hwid-spec-detail wallpaper">🖼️ ${wallpaperHtml}</span>
-                            </div>
+                            ${hasSpecs ? `
+                                <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
+                                <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
+                                <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
+                                <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
+                                <div><span class="hwid-spec-detail device">💻 Device: ${deviceName}</span></div>
+                                <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
+                                <div style="margin-top:6px;border-top:1px solid rgba(255,255,255,0.05);padding-top:6px;">
+                                    <span class="hwid-spec-detail wallpaper">🖼️ ${wallpaperHtml}</span>
+                                </div>
+                            ` : `
+                                <div style="color:#888;font-style:italic;">No hardware specs available. Please register a device first.</div>
+                            `}
                         </td>
                         <td style="text-align:center;">
                             <button onclick="removeHwid('${hwidFull}')" class="btn-remove-hwid" id="remove-btn-${index}">
