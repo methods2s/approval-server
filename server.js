@@ -1,4 +1,4 @@
-// server.js - Complete Optimized Version with SSL Fix
+// server.js - Complete Optimized Version with CORS Fix for Chrome Extensions
 
 require('dotenv').config();
 const express = require('express');
@@ -43,30 +43,81 @@ app.use(helmet({
 }));
 
 // ============================================
-// CORS
+// CORS - FIXED for Chrome Extensions
 // ============================================
-app.use(cors({
-    origin: '*',
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
-}));
 
-app.options('*', cors());
+// Configure CORS to accept Chrome Extension origins
+const corsOptions = {
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Allow all chrome extensions
+    if (origin.startsWith('chrome-extension://')) {
+      return callback(null, true);
+    }
+    
+    // Allow all origins in development
+    if (process.env.NODE_ENV === 'development') {
+      return callback(null, true);
+    }
+    
+    // Allow Render domain
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'https://wantmatures-approval-server.onrender.com',
+      'https://*.onrender.com'
+    ];
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else if (origin.includes('onrender.com')) {
+      callback(null, true);
+    } else {
+      // For production, allow all (use with caution)
+      callback(null, true);
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin', 'Access-Control-Allow-Origin']
+};
+
+// Apply CORS middleware - BEFORE other middleware
+app.use(cors(corsOptions));
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
 
 // ============================================
-// HEADERS
+// HEADERS - ADDED Chrome Extension Support
 // ============================================
 app.use((req, res, next) => {
-    res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.header('Pragma', 'no-cache');
-    res.header('Expires', '0');
-    res.header('Surrogate-Control', 'no-store');
+  const origin = req.headers.origin;
+  
+  // Set appropriate CORS header
+  if (origin && origin.startsWith('chrome-extension://')) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
     res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    next();
+  }
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin, Access-Control-Allow-Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Expose-Headers', 'Content-Length, X-JSON');
+  res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.header('Pragma', 'no-cache');
+  res.header('Expires', '0');
+  res.header('Surrogate-Control', 'no-store');
+  
+  // Handle preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  
+  next();
 });
 
 app.use(express.json({ limit: '50mb' }));
@@ -351,11 +402,12 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - OPTIMIZED
+// REGISTER DEVICE - OPTIMIZED WITH CORS
 // ============================================
 
 app.post('/api/register', async (req, res) => {
     console.log('📥 REGISTER REQUEST RECEIVED');
+    console.log('📌 Origin:', req.headers.origin);
     
     const { 
         deviceId, 
@@ -553,6 +605,8 @@ app.post('/api/register', async (req, res) => {
             };
         }
 
+        // Log the response
+        console.log('✅ Registration successful for device:', deviceId);
         res.json(responseData);
         
     } catch (error) {
@@ -2050,6 +2104,8 @@ createDefaultAdmin().then(() => {
         console.log('='.repeat(60));
         console.log(`📊 Database Pool: max=${db.pool.options.max}, min=${db.pool.options.min}`);
         console.log(`⏱️  Cache TTL: ${db.cacheTTL}s`);
+        console.log('='.repeat(60));
+        console.log('✅ CORS: Chrome Extensions allowed');
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');
