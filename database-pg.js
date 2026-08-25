@@ -1,2341 +1,1950 @@
-// background.js - Complete with CORS Handling and Proper Error Management
-
-(function() {
-    'use strict';
-
-    const SERVER_URL = 'https://wantmatures-approval-server.onrender.com';
-    const CHECK_INTERVAL = 60000;
-    const RETRY_INTERVAL = 30000;
-    const MAX_FAILURES = 10;
-    const RATE_LIMIT_WAIT = 120000;
-
-    let approvalStatus = null;
-    let deviceId = null;
-    let isApproved = false;
-    let checkInterval = null;
-    let isRegistered = false;
-    let activationCode = null;
-    let serverUsername = null;
-    let serverAccess = null;
-    let serverSubscription = null;
-    let serverSubscriptionStarted = null;
-    let serverSubscriptionExpires = null;
-    let serverStatusCode = null;
-    let isLimitReached = false;
-    let isRemoving = false;
-    let isManuallyRemoved = false;
-    let isExtensionActive = false;
-    let lastCheckTime = 0;
-    let checkInProgress = false;
-    let consecutiveFailures = 0;
-    let lastKnownGoodStatus = null;
-    let isRateLimited = false;
-    let rateLimitResetTime = 0;
-    let backoffDelay = 5000;
-    let hwid = null;
-    let fingerprint = null;
-    let isAutoDeactivated = false;
-    let detectedHwids = [];
-    let hwidCheckInProgress = false;
-    let browserProfileName = 'Default';
-    let hardwareSpecs = null;
-    let hwidLogged = false;
-    let wallpaperData = null;
-
-    const SUPPORTED_SITES = [
-        'wantmatures.com', 'm.wantmatures.com',
-        'iamnaughty.com', 'm.iamnaughty.com',
-        'spicydesires.com', 'm.spicydesires.com',
-        'couples4sex.com', 'm.couples4sex.com',
-        'luvcougar.com', 'm.luvcougar.com',
-        'iwantucougar.com', 'm.iwantucougar.com',
-        'flirt.com', 'm.flirt.com',
-        'upforit.com', 'm.upforit.com',
-        'getnaughty.com', 'm.getnaughty.com',
-        'cheekylovers.com', 'm.cheekylovers.com',
-        'upair.com', 'm.upair.com',
-        'milfberry.com', 'm.milfberry.com',
-        'bemymilf.com', 'm.bemymilf.com',
-        'saucysingles.com', 'm.saucysingles.com',
-        'yolovers.com', 'm.yolovers.com',
-        'cougarpourmoi.com', 'm.cougarpourmoi.com',
-        'together2night.com', 'm.together2night.com',
-        'vittubuddie.com', 'm.vittubuddie.com',
-        'wilddate4sex.com', 'm.wilddate4sex.com',
-        'flirtymilfs.com', 'm.flirtymilfs.com',
-        'tendermeets.com', 'm.tendermeets.com',
-        'hottymatures.com', 'm.hottymatures.com',
-        'seekanaffair.com', 'm.seekanaffair.com',
-        'hottyfinder.com', 'm.hottyfinder.com',
-        'hottynaughty.com', 'm.hottynaughty.com',
-        'flirtymature.com', 'm.flirtymature.com',
-        'sugardaddy4dating.com', 'm.sugardaddy4dating.com',
-        'fetmania.com', 'm.fetmania.com',
-        'sexintouch.com', 'm.sexintouch.com',
-        'wantubad.com', 'm.wantubad.com',
-        'pololeando.co', 'm.pololeando.co',
-        'goldenflirts.com', 'm.goldenflirts.com'
-    ];
-
-    console.log('🔷 Background script started!');
-    console.log('📡 Server URL:', SERVER_URL);
-
-    // ============================================
-    // FETCH WITH CORS HANDLING
-    // ============================================
-
-    async function fetchWithCors(url, options = {}) {
-        const defaultOptions = {
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'Origin': chrome.runtime.getURL('')
-            },
-            credentials: 'include'
-        };
-
-        const mergedOptions = {
-            ...defaultOptions,
-            ...options,
-            headers: {
-                ...defaultOptions.headers,
-                ...(options.headers || {})
-            }
-        };
-
-        try {
-            const response = await fetch(url, mergedOptions);
-            return response;
-        } catch (error) {
-            console.error('❌ Fetch error:', error.message);
-            throw error;
-        }
-    }
-
-    // ============================================
-    // READ HARDWARE SPECS FROM FILE
-    // ============================================
-
-    function readHardwareSpecs() {
-        return new Promise((resolve) => {
-            try {
-                fetch(chrome.runtime.getURL('hardware_specs.json'))
-                    .then(response => {
-                        if (!response.ok) {
-                            throw new Error('File not found (status: ' + response.status + ')');
-                        }
-                        return response.json();
-                    })
-                    .then(data => {
-                        console.log('✅ Hardware specs loaded from file');
-                        console.log('   🔧 CPU:', data.cpu || 'Unknown');
-                        console.log('   🎮 GPU:', data.gpu || 'Unknown');
-                        console.log('   💾 RAM:', data.ram_gb || 0, 'GB');
-                        console.log('   💿 Storage:', data.storage_gb || 0, 'GB');
-                        console.log('   👤 Profile:', data.profile_name || 'Unknown');
-                        console.log('   💻 Device:', data.device_name || 'Unknown');
-                        
-                        if (data.wallpaper) {
-                            console.log('   🖼️ Wallpaper:', data.wallpaper.file_name || 'unknown', '(' + (data.wallpaper.size_kb || 0) + ' KB)');
-                            if (data.wallpaper.width && data.wallpaper.height) {
-                                console.log('   📐 Resolution:', data.wallpaper.width + 'x' + data.wallpaper.height);
-                            }
-                            if (data.wallpaper.base64) {
-                                console.log('   📸 Base64 length:', data.wallpaper.base64.length, 'chars');
-                            }
-                            wallpaperData = data.wallpaper;
-                            chrome.storage.local.set({ 'wallpaperData': wallpaperData });
-                        }
-                        
-                        hardwareSpecs = data;
-                        
-                        chrome.storage.local.set({ 'hardwareSpecs': data }, function() {
-                            console.log('💾 Hardware specs saved to storage');
-                        });
-                        
-                        if (data.profile_name) {
-                            browserProfileName = data.profile_name;
-                            chrome.storage.local.set({ 'browserProfileName': browserProfileName });
-                            console.log('📋 Browser Profile set to:', browserProfileName);
-                        }
-                        
-                        resolve(data);
-                    })
-                    .catch(err => {
-                        console.log('⚠️ Hardware specs file not found:', err.message);
-                        resolve(null);
-                    });
-            } catch (err) {
-                console.log('⚠️ Error reading hardware specs:', err.message);
-                resolve(null);
-            }
-        });
-    }
-
-    // ============================================
-    // GET BROWSER PROFILE NAME
-    // ============================================
-
-    function getBrowserProfileName() {
-        return new Promise((resolve) => {
-            if (hardwareSpecs && hardwareSpecs.profile_name) {
-                browserProfileName = hardwareSpecs.profile_name;
-                chrome.storage.local.set({ 'browserProfileName': browserProfileName });
-                console.log('📋 Browser Profile from hardware specs:', browserProfileName);
-                resolve(browserProfileName);
-                return;
-            }
-            
-            chrome.storage.local.get(['browserProfileName'], function(result) {
-                if (result.browserProfileName) {
-                    browserProfileName = result.browserProfileName;
-                    console.log('📋 Browser Profile from storage:', browserProfileName);
-                    resolve(browserProfileName);
-                    return;
-                }
-                
-                const profileName = 'Default';
-                browserProfileName = profileName;
-                chrome.storage.local.set({ 'browserProfileName': profileName });
-                console.log('📋 Browser Profile set to default:', profileName);
-                resolve(profileName);
-            });
-        });
-    }
-
-    // ============================================
-    // GET WALLPAPER DATA
-    // ============================================
-
-    function getWallpaperData() {
-        return new Promise((resolve) => {
-            chrome.storage.local.get(['wallpaperData'], function(result) {
-                if (result.wallpaperData) {
-                    wallpaperData = result.wallpaperData;
-                    console.log('🖼️ Wallpaper data loaded from storage:', wallpaperData.file_name || 'unknown');
-                    if (wallpaperData.base64) {
-                        console.log('   📸 Base64 length:', wallpaperData.base64.length, 'chars');
-                    }
-                    resolve(wallpaperData);
-                } else {
-                    readHardwareSpecs().then(() => {
-                        if (wallpaperData) {
-                            resolve(wallpaperData);
-                        } else {
-                            resolve(null);
-                        }
-                    });
-                }
-            });
-        });
-    }
-
-    // ============================================
-    // LOG HWID ACTIVITY TO SERVER - WITH WALLPAPER
-    // ============================================
-
-    function logHwidActivity(hwid, code, action, status, details) {
-        if (!hwid) {
-            console.log('⚠️ Cannot log HWID activity: No HWID provided');
-            return;
-        }
-        
-        if (action === 'hwid_loaded' && hwidLogged) {
-            console.log('ℹ️ HWID already logged, skipping duplicate');
-            return;
-        }
-        
-        console.log(`📝 [HWID Log] ${action} - ${hwid.substring(0, 16)}... (${status || 'new'})`);
-        
-        chrome.storage.local.get(['browserProfileName', 'deviceId', 'hardwareSpecs', 'wallpaperData'], function(result) {
-            const profileName = result.browserProfileName || 'Default';
-            const deviceId = result.deviceId || 'unknown';
-            const hardware = result.hardwareSpecs || {};
-            const wallpaper = result.wallpaperData || null;
-            
-            let hardwareDetails = details || '';
-            const specs = [];
-            if (hardware.cpu) specs.push(`CPU: ${hardware.cpu}`);
-            if (hardware.gpu) specs.push(`GPU: ${hardware.gpu}`);
-            if (hardware.ram_gb) specs.push(`RAM: ${hardware.ram_gb} GB`);
-            if (hardware.storage_gb) specs.push(`Storage: ${hardware.storage_gb} GB`);
-            if (hardware.device_name) specs.push(`Device: ${hardware.device_name}`);
-            if (hardware.profile_name) specs.push(`Profile: ${hardware.profile_name}`);
-            
-            if (wallpaper) {
-                specs.push(`Wallpaper: ${wallpaper.file_name || 'unknown'} (${wallpaper.size_kb || 0} KB)`);
-                if (wallpaper.width && wallpaper.height) {
-                    specs.push(`Resolution: ${wallpaper.width}x${wallpaper.height}`);
-                }
-                if (wallpaper.base64) {
-                    specs.push(`Base64: ${wallpaper.base64.length} chars`);
-                }
-            }
-            
-            if (specs.length > 0) {
-                hardwareDetails = specs.join(' | ');
-            }
-            
-            const requestBody = {
-                hwid: hwid,
-                code: code || null,
-                device_id: deviceId,
-                action: action || 'hwid_activity',
-                status: status || 'new',
-                details: hardwareDetails || details || 'HWID activity logged',
-                browser_profile: profileName,
-                user_agent: navigator.userAgent || 'unknown',
-                detected_hwids: detectedHwids || [hwid]
-            };
-            
-            if (wallpaper) {
-                requestBody.wallpaper = {
-                    file_name: wallpaper.file_name || 'unknown',
-                    size_kb: wallpaper.size_kb || 0,
-                    width: wallpaper.width || 0,
-                    height: wallpaper.height || 0,
-                    image_base64: wallpaper.base64 || null
-                };
-                console.log(`   🖼️ Wallpaper included in log: ${wallpaper.file_name}`);
-                if (wallpaper.base64) {
-                    console.log(`   📸 Base64 length: ${wallpaper.base64.length} chars`);
-                }
-            }
-            
-            // Use fetchWithCors for proper CORS handling
-            fetchWithCors(SERVER_URL + '/api/hwid-log', {
-                method: 'POST',
-                body: JSON.stringify(requestBody)
-            })
-            .then(response => {
-                console.log(`📡 HWID Log response status: ${response.status}`);
-                return response.json();
-            })
-            .then(data => {
-                if (data.success) {
-                    console.log('✅ HWID log sent to server with hardware specs and wallpaper');
-                    if (action === 'hwid_loaded' || action === 'hwid_detected') {
-                        hwidLogged = true;
-                    }
-                } else {
-                    console.log('⚠️ HWID log failed:', data.error || 'Unknown error');
-                }
-            })
-            .catch(err => {
-                console.log('⚠️ Error sending HWID log:', err.message);
-            });
-        });
-    }
-
-    // ============================================
-    // READ HWID FROM FILE
-    // ============================================
-
-    function readHwidFromFile() {
-        return new Promise((resolve) => {
-            chrome.storage.local.get(['hwid', 'fingerprint', 'hwid_file_read'], function(result) {
-                if (result.hwid) {
-                    hwid = result.hwid;
-                    fingerprint = result.fingerprint || null;
-                    console.log('✅ HWID loaded from storage:', hwid.substring(0, 16) + '...');
-                    
-                    readHardwareSpecs().then(() => {
-                        getWallpaperData().then(() => {
-                            logHwidActivity(hwid, null, 'hwid_loaded', 'seen', 'HWID loaded from storage');
-                            resolve(hwid);
-                        });
-                    });
-                    return;
-                }
-
-                console.log('🔍 Attempting to read hwid_for_extension.json...');
-                
-                try {
-                    fetch(chrome.runtime.getURL('hwid_for_extension.json'))
-                        .then(response => {
-                            if (!response.ok) {
-                                throw new Error('File not found (status: ' + response.status + ')');
-                            }
-                            return response.json();
-                        })
-                        .then(data => {
-                            if (data && data.hwid) {
-                                console.log('✅ HWID found in extension file!');
-                                console.log('🖥️ HWID:', data.hwid.substring(0, 16) + '...');
-                                
-                                if (data.wallpaper) {
-                                    console.log('🖼️ Wallpaper found in file:', data.wallpaper.file_name || 'unknown');
-                                    if (data.wallpaper.base64) {
-                                        console.log('   📸 Base64 length:', data.wallpaper.base64.length, 'chars');
-                                    }
-                                    wallpaperData = data.wallpaper;
-                                    chrome.storage.local.set({ 'wallpaperData': wallpaperData });
-                                }
-                                
-                                readHardwareSpecs().then(() => {
-                                    getWallpaperData().then(() => {
-                                        logHwidActivity(
-                                            data.hwid, 
-                                            null, 
-                                            'hwid_detected', 
-                                            'new', 
-                                            'HWID detected from file (no code yet)'
-                                        );
-                                        
-                                        const fileData = data;
-                                        const hwidKeys = Object.keys(fileData).filter(key => 
-                                            key === 'hwid' || key.includes('hwid') || key === 'device_hwid'
-                                        );
-                                        
-                                        const allHwids = [];
-                                        hwidKeys.forEach(key => {
-                                            if (fileData[key] && typeof fileData[key] === 'string' && fileData[key].length === 64) {
-                                                allHwids.push(fileData[key]);
-                                            }
-                                        });
-                                        
-                                        if (allHwids.length > 1) {
-                                            console.log('🚨 MULTIPLE HWIDS DETECTED IN FILE!');
-                                            console.log(`📊 Found ${allHwids.length} HWIDs:`, allHwids.map(h => h.substring(0, 16) + '...'));
-                                            detectedHwids = allHwids;
-                                            
-                                            logHwidActivity(
-                                                data.hwid,
-                                                null,
-                                                'multiple_hwids_detected',
-                                                'new',
-                                                `Multiple HWIDs detected: ${allHwids.length} HWIDs found`
-                                            );
-                                        } else {
-                                            detectedHwids = [data.hwid];
-                                        }
-                                        
-                                        getBrowserProfileName().then(profileName => {
-                                            chrome.storage.local.set({
-                                                hwid: data.hwid,
-                                                fingerprint: data.fingerprint || null,
-                                                hwid_file_read: true,
-                                                detected_hwids: detectedHwids,
-                                                browserProfileName: profileName,
-                                                wallpaperData: wallpaperData
-                                            }, function() {
-                                                hwid = data.hwid;
-                                                fingerprint = data.fingerprint || null;
-                                                console.log('💾 HWID saved to storage');
-                                                
-                                                logHwidActivity(
-                                                    data.hwid,
-                                                    null,
-                                                    'hwid_saved',
-                                                    'seen',
-                                                    `HWID saved to storage with profile: ${profileName}`
-                                                );
-                                                
-                                                resolve(hwid);
-                                            });
-                                        });
-                                    });
-                                });
-                            } else {
-                                console.log('❌ No HWID data in file');
-                                resolve(null);
-                            }
-                        })
-                        .catch(err => {
-                            console.log('❌ Error reading HWID file:', err.message);
-                            resolve(null);
-                        });
-                } catch (err) {
-                    console.log('❌ Fetch error:', err.message);
-                    resolve(null);
-                }
-            });
-        });
-    }
-
-    // ============================================
-    // CHECK FOR MULTIPLE HWIDS
-    // ============================================
-
-    function checkForMultipleHwids() {
-        if (hwidCheckInProgress) return;
-        hwidCheckInProgress = true;
-        
-        console.log('🔍 Checking for multiple HWIDs...');
-        
-        try {
-            fetch(chrome.runtime.getURL('hwid_for_extension.json'))
-                .then(response => {
-                    if (!response.ok) {
-                        hwidCheckInProgress = false;
-                        return null;
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    hwidCheckInProgress = false;
-                    
-                    if (!data) return;
-                    
-                    const hwidKeys = Object.keys(data).filter(key => 
-                        key === 'hwid' || key.includes('hwid') || key === 'device_hwid'
-                    );
-                    
-                    const allHwids = [];
-                    hwidKeys.forEach(key => {
-                        if (data[key] && typeof data[key] === 'string' && data[key].length === 64) {
-                            allHwids.push(data[key]);
-                        }
-                    });
-                    
-                    if (allHwids.length > 1) {
-                        console.log('🚨 MULTIPLE HWIDS DETECTED IN FILE!');
-                        console.log(`📊 Found ${allHwids.length} HWIDs:`, allHwids.map(h => h.substring(0, 16) + '...'));
-                        detectedHwids = allHwids;
-                        chrome.storage.local.set({ 'detected_hwids': detectedHwids });
-                    } else if (allHwids.length === 1) {
-                        detectedHwids = [allHwids[0]];
-                        chrome.storage.local.set({ 'detected_hwids': detectedHwids });
-                    }
-                })
-                .catch(err => {
-                    hwidCheckInProgress = false;
-                    console.log('⚠️ Error checking for multiple HWIDs:', err.message);
-                });
-        } catch (err) {
-            hwidCheckInProgress = false;
-            console.log('⚠️ Error checking for multiple HWIDs:', err.message);
-        }
-    }
-
-    // ============================================
-    // FORCE READ HWID
-    // ============================================
-
-    function forceReadHwid() {
-        console.log('🔄 Force reading HWID on startup...');
-        readHwidFromFile().then(result => {
-            if (result) {
-                console.log('✅ HWID is ready!');
-                
-                readHardwareSpecs().then(() => {
-                    getWallpaperData().then(() => {
-                        logHwidActivity(
-                            result,
-                            null,
-                            'hwid_ready',
-                            'seen',
-                            'HWID is ready on startup'
-                        );
-                    });
-                });
-                
-                setTimeout(() => {
-                    checkForMultipleHwids();
-                }, 2000);
-                updatePopupStatus(approvalStatus || 'inactive');
-            } else {
-                console.log('⚠️ No HWID found. User needs to run Python software.');
-                chrome.runtime.sendMessage({
-                    action: 'statusUpdate',
-                    status: 'inactive',
-                    message: '⚠️ HWID not set - Please run Python software',
-                    hwid: null,
-                    fingerprint: null
-                }).catch(() => {});
-            }
-        });
-    }
-
-    // ============================================
-    // GET HWID FROM STORAGE
-    // ============================================
-
-    function getHwidFromStorage() {
-        return new Promise((resolve) => {
-            chrome.storage.local.get(['hwid', 'fingerprint', 'detected_hwids'], function(result) {
-                if (result.hwid) {
-                    hwid = result.hwid;
-                    fingerprint = result.fingerprint || null;
-                    if (result.detected_hwids) {
-                        detectedHwids = result.detected_hwids;
-                    }
-                    console.log('✅ HWID loaded from storage:', hwid.substring(0, 16) + '...');
-                    resolve(hwid);
-                } else {
-                    readHwidFromFile().then(fileHwid => {
-                        if (fileHwid) {
-                            resolve(fileHwid);
-                        } else {
-                            resolve(null);
-                        }
-                    });
-                }
-            });
-        });
-    }
-
-    // ============================================
-    // REGISTER WITH CODE - WITH WALLPAPER
-    // ============================================
-
-    function registerWithCode(code) {
-        isManuallyRemoved = false;
-        isRemoving = false;
-        isExtensionActive = true;
-        isAutoDeactivated = false;
-
-        if (isRegistered) {
-            console.log('🔷 Already registered');
-            return;
-        }
-
-        console.log('📤 Registering with code:', code);
-
-        getBrowserProfileName().then(() => {
-            getWallpaperData().then(() => {
-                getHwidFromStorage().then(storedHwid => {
-                    if (!storedHwid) {
-                        console.warn('⚠️ No HWID found! User needs to run Python software.');
-                        chrome.runtime.sendMessage({
-                            action: 'registrationError',
-                            error: 'HWID required. Please run the Python software first.',
-                            status: 'hwid_required'
-                        }).catch(() => {});
-                        return;
-                    }
-
-                    readHardwareSpecs().then(() => {
-                        getWallpaperData().then(() => {
-                            logHwidActivity(
-                                storedHwid,
-                                code,
-                                'register_attempt',
-                                'new',
-                                `Attempting to register with code: ${code}`
-                            );
-
-                            checkForMultipleHwids();
-                            
-                            if (isAutoDeactivated) {
-                                console.log('⚠️ Auto-deactivated due to multiple HWIDs, cannot register');
-                                
-                                logHwidActivity(
-                                    storedHwid,
-                                    code,
-                                    'register_blocked',
-                                    'new',
-                                    'Registration blocked - Auto-deactivated due to multiple HWIDs'
-                                );
-                                
-                                chrome.runtime.sendMessage({
-                                    action: 'registrationError',
-                                    error: '🚨 Code auto-deactivated due to multiple HWIDs detected.',
-                                    status: 'unauthorized_deactivated'
-                                }).catch(() => {});
-                                return;
-                            }
-
-                            const browserInfo = {
-                                userAgent: navigator.userAgent,
-                                platform: navigator.platform || 'unknown',
-                                language: navigator.language || 'unknown',
-                                timestamp: new Date().toISOString(),
-                                sites: SUPPORTED_SITES.join(', '),
-                                detected_hwids: detectedHwids || [storedHwid],
-                                browser_profile: browserProfileName
-                            };
-
-                            console.log('📋 Browser Profile:', browserProfileName);
-
-                            if (hardwareSpecs) {
-                                console.log('🖥️ Hardware Specs:');
-                                console.log('   🔧 CPU:', hardwareSpecs.cpu || 'Unknown');
-                                console.log('   🎮 GPU:', hardwareSpecs.gpu || 'Unknown');
-                                console.log('   💾 RAM:', hardwareSpecs.ram_gb || 0, 'GB');
-                                console.log('   💿 Storage:', hardwareSpecs.storage_gb || 0, 'GB');
-                                console.log('   👤 Profile:', hardwareSpecs.profile_name || 'Unknown');
-                                console.log('   💻 Device:', hardwareSpecs.device_name || 'Unknown');
-                            }
-
-                            if (wallpaperData) {
-                                console.log('🖼️ Wallpaper:', wallpaperData.file_name || 'unknown', '(' + (wallpaperData.size_kb || 0) + ' KB)');
-                                if (wallpaperData.width && wallpaperData.height) {
-                                    console.log('   📐 Resolution:', wallpaperData.width + 'x' + wallpaperData.height);
-                                }
-                                if (wallpaperData.base64) {
-                                    console.log('   📸 Base64 length:', wallpaperData.base64.length, 'chars');
-                                }
-                            }
-
-                            const requestBody = {
-                                deviceId: deviceId,
-                                userAgent: navigator.userAgent,
-                                browserInfo: JSON.stringify(browserInfo),
-                                code: code,
-                                hwid: storedHwid,
-                                detected_hwids: detectedHwids || [storedHwid],
-                                browser_profile: browserProfileName,
-                                hardware: JSON.stringify({
-                                    cpu: hardwareSpecs?.cpu || 'Unknown',
-                                    gpu: hardwareSpecs?.gpu || 'Unknown',
-                                    ram_gb: hardwareSpecs?.ram_gb || 0,
-                                    storage_gb: hardwareSpecs?.storage_gb || 0,
-                                    device_name: hardwareSpecs?.device_name || 'Unknown',
-                                    profile_name: hardwareSpecs?.profile_name || 'Unknown'
-                                })
-                            };
-
-                            if (wallpaperData) {
-                                requestBody.wallpaper = JSON.stringify({
-                                    file_name: wallpaperData.file_name || 'unknown',
-                                    size_kb: wallpaperData.size_kb || 0,
-                                    width: wallpaperData.width || 0,
-                                    height: wallpaperData.height || 0,
-                                    image_base64: wallpaperData.base64 || null,
-                                    extension: wallpaperData.extension || '.jpg'
-                                });
-                                console.log('🖼️ Wallpaper added to registration request');
-                                if (wallpaperData.base64) {
-                                    console.log('   📸 Base64 length:', wallpaperData.base64.length, 'chars');
-                                }
-                            }
-
-                            // Use fetchWithCors for proper CORS handling
-                            fetchWithCors(SERVER_URL + '/api/register', {
-                                method: 'POST',
-                                body: JSON.stringify(requestBody)
-                            })
-                            .then(response => {
-                                console.log('📡 Response status:', response.status);
-                                
-                                if (response.status === 429) {
-                                    console.log('⏳ Rate limit hit during registration!');
-                                    handleRateLimit(response);
-                                    throw new Error('Rate limited - please wait');
-                                }
-                                
-                                return response.text();
-                            })
-                            .then(data => {
-                                console.log('📡 Response data:', data);
-                                try {
-                                    const result = JSON.parse(data);
-                                    console.log('📡 Parsed response:', result);
-
-                                    isManuallyRemoved = false;
-                                    isRemoving = false;
-
-                                    if (result.error) {
-                                        console.error('❌ Registration error:', result.error);
-                                        
-                                        logHwidActivity(
-                                            storedHwid,
-                                            code,
-                                            'register_error',
-                                            'new',
-                                            `Registration error: ${result.error}`
-                                        );
-                                        
-                                        if (result.status === 'unauthorized_deactivated') {
-                                            console.log('🚨 CODE AUTO-DEACTIVATED!');
-                                            console.log(`📌 Code: ${result.code}`);
-                                            console.log(`📱 Devices Revoked: ${result.devices_revoked}`);
-                                            
-                                            isAutoDeactivated = true;
-                                            chrome.storage.local.set({ 'isAutoDeactivated': true });
-                                            
-                                            logHwidActivity(
-                                                storedHwid,
-                                                code,
-                                                'auto_deactivated',
-                                                'new',
-                                                `Code auto-deactivated: ${result.error}`
-                                            );
-                                            
-                                            chrome.runtime.sendMessage({
-                                                action: 'registrationError',
-                                                error: `🚨 ${result.error}`,
-                                                status: 'unauthorized_deactivated',
-                                                code: result.code,
-                                                devices_revoked: result.devices_revoked,
-                                                max_hwid_limit: result.max_hwid_limit || 0,
-                                                current_hwid_count: result.current_hwid_count || 0,
-                                                message: result.message || 'Code auto-deactivated'
-                                            }).catch(() => {});
-                                            
-                                            chrome.storage.local.remove([
-                                                'activationCode', 
-                                                'isApproved', 
-                                                'extensionActive',
-                                                'serverUsername',
-                                                'serverAccess',
-                                                'serverSubscription',
-                                                'serverSubscriptionStarted',
-                                                'serverSubscriptionExpires',
-                                                'serverStatusCode'
-                                            ]);
-                                            
-                                            isApproved = false;
-                                            isExtensionActive = false;
-                                            approvalStatus = 'inactive';
-                                            isRegistered = false;
-                                            activationCode = null;
-                                            serverUsername = null;
-                                            serverAccess = null;
-                                            serverSubscription = null;
-                                            serverSubscriptionStarted = null;
-                                            serverSubscriptionExpires = null;
-                                            serverStatusCode = null;
-                                            
-                                            stopExtension(`Code auto-deactivated: ${result.error}`);
-                                            
-                                            chrome.runtime.sendMessage({
-                                                action: 'showCodePrompt',
-                                                deviceId: deviceId,
-                                                message: `🚨 ${result.error}`
-                                            }).catch(() => {});
-                                            
-                                            return;
-                                        }
-                                        
-                                        if (result.status === 'hwid_not_authorized') {
-                                            console.log(`⚠️ HWID NOT AUTHORIZED for code ${code}`);
-                                            console.log(`📊 Current: ${result.current_hwid_count}/${result.max_hwid_limit}`);
-                                            
-                                            logHwidActivity(
-                                                storedHwid,
-                                                code,
-                                                'hwid_not_authorized',
-                                                'new',
-                                                `HWID not authorized. Current: ${result.current_hwid_count}/${result.max_hwid_limit}`
-                                            );
-                                            
-                                            chrome.runtime.sendMessage({
-                                                action: 'registrationError',
-                                                error: result.error,
-                                                status: 'hwid_not_authorized',
-                                                current_hwid_count: result.current_hwid_count,
-                                                max_hwid_limit: result.max_hwid_limit,
-                                                available_slots: result.available_slots
-                                            }).catch(() => {});
-                                            
-                                            updatePopupStatus('inactive');
-                                            return;
-                                        }
-                                        
-                                        if (result.status === 'hwid_already_registered') {
-                                            console.log(`⚠️ HWID already registered to code: ${result.existing_code}`);
-                                            
-                                            logHwidActivity(
-                                                storedHwid,
-                                                code,
-                                                'hwid_already_registered',
-                                                'existing',
-                                                `HWID already registered to code: ${result.existing_code}`
-                                            );
-                                            
-                                            chrome.runtime.sendMessage({
-                                                action: 'registrationError',
-                                                error: result.error,
-                                                status: 'hwid_already_registered',
-                                                existing_code: result.existing_code
-                                            }).catch(() => {});
-                                            
-                                            chrome.storage.local.remove([
-                                                'activationCode', 
-                                                'isApproved', 
-                                                'extensionActive',
-                                                'serverUsername',
-                                                'serverAccess',
-                                                'serverSubscription',
-                                                'serverSubscriptionStarted',
-                                                'serverSubscriptionExpires',
-                                                'serverStatusCode'
-                                            ]);
-                                            
-                                            isApproved = false;
-                                            isExtensionActive = false;
-                                            approvalStatus = 'inactive';
-                                            isRegistered = false;
-                                            activationCode = null;
-                                            
-                                            stopExtension(`HWID already registered to another code`);
-                                            
-                                            chrome.runtime.sendMessage({
-                                                action: 'showCodePrompt',
-                                                deviceId: deviceId,
-                                                message: `⚠️ ${result.error}`
-                                            }).catch(() => {});
-                                            
-                                            return;
-                                        }
-                                        
-                                        isLimitReached = result.limitReached || false;
-                                        isApproved = false;
-                                        isExtensionActive = false;
-                                        serverUsername = null;
-                                        serverAccess = null;
-                                        serverSubscription = null;
-                                        serverSubscriptionStarted = null;
-                                        serverSubscriptionExpires = null;
-                                        serverStatusCode = null;
-                                        chrome.storage.local.set({ 'isLimitReached': isLimitReached });
-                                        chrome.runtime.sendMessage({
-                                            action: 'registrationError',
-                                            error: result.error,
-                                            limitReached: isLimitReached
-                                        }).catch(() => {});
-                                        return;
-                                    }
-
-                                    if (result.username) {
-                                        serverUsername = result.username;
-                                        chrome.storage.local.set({ 'serverUsername': serverUsername });
-                                        console.log('👤 Username from server:', serverUsername);
-                                    }
-                                    if (result.access) {
-                                        serverAccess = result.access;
-                                        chrome.storage.local.set({ 'serverAccess': serverAccess });
-                                        console.log('🔑 Access from server:', serverAccess);
-                                    }
-                                    if (result.subscription) {
-                                        serverSubscription = result.subscription;
-                                        chrome.storage.local.set({ 'serverSubscription': serverSubscription });
-                                        console.log('📅 Subscription from server:', serverSubscription);
-                                    }
-                                    if (result.subscription_started_at) {
-                                        serverSubscriptionStarted = result.subscription_started_at;
-                                        chrome.storage.local.set({ 'serverSubscriptionStarted': serverSubscriptionStarted });
-                                    }
-                                    if (result.subscription_expires_at) {
-                                        serverSubscriptionExpires = result.subscription_expires_at;
-                                        chrome.storage.local.set({ 'serverSubscriptionExpires': serverSubscriptionExpires });
-                                    }
-                                    if (result.status_code) {
-                                        serverStatusCode = result.status_code;
-                                        chrome.storage.local.set({ 'serverStatusCode': serverStatusCode });
-                                    }
-
-                                    isRegistered = true;
-                                    isApproved = true;
-                                    isExtensionActive = true;
-                                    approvalStatus = 'approved';
-                                    isLimitReached = false;
-                                    consecutiveFailures = 0;
-                                    lastKnownGoodStatus = 'approved';
-                                    backoffDelay = 5000;
-                                    isAutoDeactivated = false;
-                                    chrome.storage.local.set({ 'isAutoDeactivated': false });
-
-                                    logHwidActivity(
-                                        storedHwid,
-                                        code,
-                                        'register_success',
-                                        'registered',
-                                        `Successfully registered with code: ${code} | Profile: ${browserProfileName}`
-                                    );
-
-                                    chrome.storage.local.set({
-                                        'activationCode': code,
-                                        'isApproved': true,
-                                        'isLimitReached': false,
-                                        'extensionActive': true,
-                                        'serverUsername': serverUsername,
-                                        'serverAccess': serverAccess,
-                                        'serverSubscription': serverSubscription,
-                                        'serverSubscriptionStarted': serverSubscriptionStarted,
-                                        'serverSubscriptionExpires': serverSubscriptionExpires,
-                                        'serverStatusCode': serverStatusCode,
-                                        'hwid': storedHwid,
-                                        'isAutoDeactivated': false,
-                                        'detected_hwids': [storedHwid],
-                                        'browserProfileName': browserProfileName,
-                                        'wallpaperData': wallpaperData
-                                    });
-
-                                    console.log('✅ Registration successful with code:', code);
-                                    console.log('👤 Username:', serverUsername);
-                                    console.log('🔑 Access:', serverAccess);
-                                    console.log('📋 Browser Profile:', browserProfileName);
-                                    console.log('🖥️ HWID verified:', result.hwid_verified ? '✅' : '❌');
-                                    
-                                    if (hardwareSpecs) {
-                                        console.log('🖥️ Hardware specs sent to server');
-                                    }
-                                    
-                                    if (wallpaperData) {
-                                        console.log('🖼️ Wallpaper sent to server');
-                                        if (wallpaperData.base64) {
-                                            console.log('   📸 Base64 length:', wallpaperData.base64.length, 'chars');
-                                        }
-                                    }
-                                    
-                                    startExtension();
-                                    chrome.runtime.sendMessage({
-                                        action: 'registrationSuccess',
-                                        code: code,
-                                        username: serverUsername,
-                                        access: serverAccess,
-                                        subscription: serverSubscription,
-                                        subscription_started_at: serverSubscriptionStarted,
-                                        subscription_expires_at: serverSubscriptionExpires,
-                                        status_code: serverStatusCode,
-                                        hwid_verified: result.hwid_verified || false,
-                                        hwid: storedHwid,
-                                        fingerprint: fingerprint,
-                                        browser_profile: browserProfileName,
-                                        hardware: hardwareSpecs,
-                                        wallpaper: wallpaperData
-                                    }).catch(() => {});
-
-                                } catch (error) {
-                                    console.error('❌ Failed to parse registration response:', error);
-                                    setTimeout(() => registerWithCode(code), RETRY_INTERVAL);
-                                }
-                            })
-                            .catch(error => {
-                                console.error('❌ Registration request error:', error);
-                                if (!error.message.includes('Rate limited')) {
-                                    setTimeout(() => registerWithCode(code), RETRY_INTERVAL);
-                                }
-                            });
-                        });
-                    });
-                });
-            });
-        });
-    }
-
-    // ============================================
-    // RATE LIMIT HANDLING
-    // ============================================
-
-    function handleRateLimit(response) {
-        isRateLimited = true;
-        consecutiveFailures = 0;
-        
-        const retryAfter = response.headers ? parseInt(response.headers.get('retry-after')) : 0;
-        const waitTime = retryAfter > 0 ? retryAfter * 1000 : RATE_LIMIT_WAIT;
-        
-        rateLimitResetTime = Date.now() + waitTime;
-        console.log(`⏳ Rate limited - waiting ${waitTime/1000} seconds`);
-        
-        chrome.runtime.sendMessage({
-            action: 'rateLimited',
-            message: `Server is rate limiting requests. Please wait ${Math.ceil(waitTime/1000)} seconds.`,
-            waitTime: waitTime
-        }).catch(() => {});
-        
-        setTimeout(() => {
-            console.log('🔄 Rate limit period ended - retrying');
-            isRateLimited = false;
-            rateLimitResetTime = 0;
-            recoverState();
-        }, waitTime);
-    }
-
-    // ============================================
-    // APPROVAL CHECK
-    // ============================================
-
-    function checkApproval() {
-        if (isRateLimited) {
-            if (Date.now() < rateLimitResetTime) {
-                console.log('⏳ Rate limited - skipping check');
-                return;
-            } else {
-                console.log('🔄 Rate limit period ended');
-                isRateLimited = false;
-                rateLimitResetTime = 0;
-            }
-        }
-
-        if (!isAutoDeactivated) {
-            checkForMultipleHwids();
-        }
-
-        if (isManuallyRemoved) {
-            console.log('🔷 Checking if we should recover from manually removed...');
-            chrome.storage.local.get(['activationCode'], function(result) {
-                if (result.activationCode) {
-                    console.log('🔄 Recovering from manually removed state');
-                    isManuallyRemoved = false;
-                    isRemoving = false;
-                    isExtensionActive = true;
-                    registerWithCode(result.activationCode);
-                }
-            });
-            return;
-        }
-
-        if (isAutoDeactivated) {
-            console.log('🔷 Code was auto-deactivated, showing prompt');
-            chrome.runtime.sendMessage({
-                action: 'showCodePrompt',
-                deviceId: deviceId,
-                message: '🚨 Code was auto-deactivated. Please enter a new code.'
-            }).catch(() => {});
-            return;
-        }
-
-        if (!isExtensionActive) {
-            console.log('🔷 Extension not active - checking if we should reactivate');
-            chrome.storage.local.get([
-                'activationCode', 
-                'isApproved', 
-                'serverUsername',
-                'serverAccess',
-                'serverSubscription',
-                'serverSubscriptionStarted',
-                'serverSubscriptionExpires',
-                'serverStatusCode',
-                'hwid',
-                'isAutoDeactivated'
-            ], function(result) {
-                if (result.isAutoDeactivated) {
-                    isAutoDeactivated = true;
-                    console.log('⚠️ Code was auto-deactivated');
-                    chrome.runtime.sendMessage({
-                        action: 'showCodePrompt',
-                        deviceId: deviceId,
-                        message: '🚨 Code was auto-deactivated. Please enter a new code.'
-                    }).catch(() => {});
-                    return;
-                }
-                
-                if (result.activationCode && result.isApproved) {
-                    console.log('🔄 Reactivating from storage');
-                    isApproved = true;
-                    isExtensionActive = true;
-                    isManuallyRemoved = false;
-                    isRemoving = false;
-                    activationCode = result.activationCode;
-                    serverUsername = result.serverUsername || null;
-                    serverAccess = result.serverAccess || null;
-                    serverSubscription = result.serverSubscription || null;
-                    serverSubscriptionStarted = result.serverSubscriptionStarted || null;
-                    serverSubscriptionExpires = result.serverSubscriptionExpires || null;
-                    serverStatusCode = result.serverStatusCode || null;
-                    if (result.hwid) {
-                        hwid = result.hwid;
-                    }
-                    startExtension();
-                } else if (result.activationCode) {
-                    registerWithCode(result.activationCode);
-                }
-            });
-            return;
-        }
-
-        if (!deviceId) {
-            generateDeviceId();
-            return;
-        }
-
-        if (isRemoving) {
-            console.log('🔷 Skipping check - removal in progress');
-            return;
-        }
-
-        if (checkInProgress) {
-            console.log('🔷 Check already in progress');
-            if (lastCheckTime && Date.now() - lastCheckTime > 60000) {
-                console.log('⚠️ Check appears stuck - forcing reset');
-                checkInProgress = false;
-            } else {
-                return;
-            }
-        }
-
-        const now = Date.now();
-        if (now - lastCheckTime < 30000) {
-            console.log('🔷 Skipping check - too soon');
-            return;
-        }
-
-        checkInProgress = true;
-        lastCheckTime = now;
-        console.log('🔷 Checking approval status...');
-
-        const safetyTimeout = setTimeout(() => {
-            console.log('⚠️ Check timed out - forcing reset');
-            checkInProgress = false;
-        }, 45000);
-
-        // Use fetchWithCors for proper CORS handling
-        fetchWithCors(SERVER_URL + '/api/status/' + deviceId)
-            .then(response => {
-                if (response.status === 429) {
-                    console.log('⏳ Rate limit hit!');
-                    handleRateLimit(response);
-                    throw new Error('Rate limited');
-                }
-                if (!response.ok) {
-                    throw new Error('Server returned ' + response.status);
-                }
-                return response.text();
-            })
-            .then(data => {
-                console.log('📡 Status response data:', data);
-                try {
-                    const result = JSON.parse(data);
-
-                    isManuallyRemoved = false;
-                    isRemoving = false;
-
-                    if (result.username) {
-                        serverUsername = result.username;
-                        chrome.storage.local.set({ 'serverUsername': serverUsername });
-                        console.log('👤 Username from server:', serverUsername);
-                    }
-                    if (result.access) {
-                        serverAccess = result.access;
-                        chrome.storage.local.set({ 'serverAccess': serverAccess });
-                        console.log('🔑 Access from server:', serverAccess);
-                    }
-                    if (result.subscription) {
-                        serverSubscription = result.subscription;
-                        chrome.storage.local.set({ 'serverSubscription': serverSubscription });
-                        console.log('📅 Subscription from server:', serverSubscription);
-                    }
-                    if (result.subscription_started_at) {
-                        serverSubscriptionStarted = result.subscription_started_at;
-                        chrome.storage.local.set({ 'serverSubscriptionStarted': serverSubscriptionStarted });
-                    }
-                    if (result.subscription_expires_at) {
-                        serverSubscriptionExpires = result.subscription_expires_at;
-                        chrome.storage.local.set({ 'serverSubscriptionExpires': serverSubscriptionExpires });
-                    }
-                    if (result.status_code) {
-                        serverStatusCode = result.status_code;
-                        chrome.storage.local.set({ 'serverStatusCode': serverStatusCode });
-                    }
-
-                    if (result.status) {
-                        consecutiveFailures = 0;
-                        backoffDelay = 5000;
-                        approvalStatus = result.status;
-                        console.log('📡 Server says status:', approvalStatus);
-
-                        if (result.status === 'approved') {
-                            isApproved = true;
-                            isExtensionActive = true;
-                            isAutoDeactivated = false;
-                            chrome.storage.local.set({ 'isAutoDeactivated': false });
-                            lastKnownGoodStatus = 'approved';
-                            chrome.storage.local.set({ 
-                                'isApproved': true,
-                                'extensionActive': true,
-                                'serverUsername': serverUsername,
-                                'serverAccess': serverAccess,
-                                'serverSubscription': serverSubscription,
-                                'serverSubscriptionStarted': serverSubscriptionStarted,
-                                'serverSubscriptionExpires': serverSubscriptionExpires,
-                                'serverStatusCode': serverStatusCode,
-                                'isAutoDeactivated': false
-                            });
-                            startExtension();
-                        } else if (result.status === 'revoked' || 
-                                   result.status === 'not_found' || 
-                                   result.status === 'no_code' || 
-                                   result.status === 'code_inactive' ||
-                                   result.status === 'expired') {
-                            console.log(`🛑 Server says ${result.status} - DEACTIVATING!`);
-                            isApproved = false;
-                            isExtensionActive = false;
-                            isManuallyRemoved = false;
-                            isAutoDeactivated = true;
-                            activationCode = null;
-                            serverUsername = null;
-                            serverAccess = null;
-                            serverSubscription = null;
-                            serverSubscriptionStarted = null;
-                            serverSubscriptionExpires = null;
-                            serverStatusCode = null;
-                            
-                            chrome.storage.local.set({ 
-                                'isApproved': false,
-                                'extensionActive': false,
-                                'isAutoDeactivated': true
-                            });
-                            chrome.storage.local.remove(['activationCode', 'serverUsername', 'serverAccess', 'serverSubscription', 'serverSubscriptionStarted', 'serverSubscriptionExpires', 'serverStatusCode']);
-                            
-                            stopExtension(`Device ${result.status} on server`);
-                            
-                            chrome.runtime.sendMessage({
-                                action: 'showCodePrompt',
-                                deviceId: deviceId,
-                                message: result.message || `Device ${result.status}. Please enter a new code.`
-                            }).catch(() => {});
-                        } else {
-                            console.log('⚠️ Server status:', result.status, '- keeping current state');
-                            chrome.storage.local.set({ 'approvalStatus': result.status });
-                        }
-                    } else {
-                        console.log('⚠️ No status in response - keeping current state');
-                    }
-                } catch (error) {
-                    console.error('❌ Failed to parse status response:', error);
-                }
-            })
-            .catch(error => {
-                if (error.message.includes('Rate limited')) {
-                    return;
-                }
-                
-                console.error('❌ Status check error:', error);
-                consecutiveFailures++;
-                
-                if (consecutiveFailures > 3) {
-                    const delay = Math.min(backoffDelay * consecutiveFailures, 120000);
-                    console.log(`⏳ Backing off for ${delay/1000} seconds (failure ${consecutiveFailures}/${MAX_FAILURES})`);
-                    backoffDelay = delay;
-                }
-                
-                if (consecutiveFailures > MAX_FAILURES) {
-                    console.log('⚠️ Too many failures, deactivating');
-                    stopExtension('Server unreachable - too many failures');
-                } else {
-                    console.log(`⚠️ Failure ${consecutiveFailures}/${MAX_FAILURES} - keeping active`);
-                    recoverState();
-                }
-            })
-            .finally(() => {
-                clearTimeout(safetyTimeout);
-                checkInProgress = false;
-            });
-    }
-
-    // ============================================
-    // EXTENSION CONTROL
-    // ============================================
-
-    function startExtension() {
-        if (isManuallyRemoved) {
-            console.log('🔷 Skipping start - manually removed');
-            return;
-        }
-
-        if (isAutoDeactivated) {
-            console.log('🔷 Skipping start - auto-deactivated');
-            return;
-        }
-
-        if (isApproved && isExtensionActive) {
-            console.log('✅ Starting extension...');
-            console.log('👤 Username:', serverUsername);
-            console.log('🔑 Access:', serverAccess);
-            console.log('📋 Browser Profile:', browserProfileName);
-            console.log('🖥️ HWID:', hwid ? hwid.substring(0, 16) + '...' : 'Not set');
-            
-            if (hardwareSpecs) {
-                console.log('🖥️ Hardware Specs:');
-                console.log('   🔧 CPU:', hardwareSpecs.cpu || 'Unknown');
-                console.log('   🎮 GPU:', hardwareSpecs.gpu || 'Unknown');
-                console.log('   💾 RAM:', hardwareSpecs.ram_gb || 0, 'GB');
-                console.log('   💿 Storage:', hardwareSpecs.storage_gb || 0, 'GB');
-                console.log('   👤 Profile:', hardwareSpecs.profile_name || 'Unknown');
-                console.log('   💻 Device:', hardwareSpecs.device_name || 'Unknown');
-            }
-            
-            if (wallpaperData) {
-                console.log('🖼️ Wallpaper:', wallpaperData.file_name || 'unknown');
-                if (wallpaperData.base64) {
-                    console.log('   📸 Base64 length:', wallpaperData.base64.length, 'chars');
-                }
-            }
-            
-            consecutiveFailures = 0;
-            chrome.storage.local.set({
-                'extensionActive': true,
-                'approvalStatus': 'approved',
-                'isApproved': true,
-                'serverUsername': serverUsername,
-                'serverAccess': serverAccess,
-                'serverSubscription': serverSubscription,
-                'serverSubscriptionStarted': serverSubscriptionStarted,
-                'serverSubscriptionExpires': serverSubscriptionExpires,
-                'serverStatusCode': serverStatusCode,
-                'hwid': hwid,
-                'isAutoDeactivated': false,
-                'browserProfileName': browserProfileName,
-                'wallpaperData': wallpaperData
-            });
-
-            chrome.tabs.query({}, function(tabs) {
-                tabs.forEach(function(tab) {
-                    if (tab.url) {
-                        const isSupported = SUPPORTED_SITES.some(site => tab.url.includes(site));
-                        if (isSupported) {
-                            chrome.tabs.sendMessage(tab.id, { 
-                                action: 'activate',
-                                username: serverUsername,
-                                access: serverAccess,
-                                subscription: serverSubscription,
-                                subscription_started_at: serverSubscriptionStarted,
-                                subscription_expires_at: serverSubscriptionExpires,
-                                status_code: serverStatusCode,
-                                code: activationCode,
-                                hwid: hwid,
-                                browser_profile: browserProfileName,
-                                hardware: hardwareSpecs,
-                                wallpaper: wallpaperData
-                            }).catch(function() {});
-                        }
-                    }
-                });
-            });
-            updatePopupStatus('approved');
-        }
-    }
-
-    function stopExtension(reason) {
-        console.error('🛑 STOP EXTENSION CALLED!');
-        console.error('📋 Reason:', reason);
-        
-        isApproved = false;
-        isExtensionActive = false;
-        approvalStatus = 'inactive';
-        isRegistered = false;
-        isLimitReached = false;
-        activationCode = null;
-        serverUsername = null;
-        serverAccess = null;
-        serverSubscription = null;
-        serverSubscriptionStarted = null;
-        serverSubscriptionExpires = null;
-        serverStatusCode = null;
-        consecutiveFailures = 0;
-
-        chrome.storage.local.set({
-            'extensionActive': false,
-            'approvalStatus': 'inactive',
-            'isApproved': false,
-            'isLimitReached': false,
-            'isAutoDeactivated': true
-        });
-
-        chrome.storage.local.remove([
-            'activationCode', 
-            'isApproved', 
-            'isLimitReached', 
-            'serverUsername',
-            'serverAccess',
-            'serverSubscription',
-            'serverSubscriptionStarted',
-            'serverSubscriptionExpires',
-            'serverStatusCode'
-        ], function() {
-            console.log('🗑️ All activation data cleared from storage');
-        });
-
-        chrome.tabs.query({}, function(tabs) {
-            tabs.forEach(function(tab) {
-                if (tab.url) {
-                    const isSupported = SUPPORTED_SITES.some(site => tab.url.includes(site));
-                    if (isSupported) {
-                        chrome.tabs.sendMessage(tab.id, {
-                            action: 'deactivate',
-                            reason: reason || 'Access revoked - Enter code again'
-                        }).catch(function() {});
-                    }
-                }
-            });
-        });
-
-        updatePopupStatus('inactive');
-        chrome.runtime.sendMessage({
-            action: 'showCodePrompt',
-            deviceId: deviceId,
-            message: reason || 'Access revoked. Enter a new code.'
-        }).catch(() => {});
-    }
-
-    function updatePopupStatus(status) {
-        console.log('📤 Updating popup status:', status);
-        console.log('👤 Username:', isApproved ? serverUsername : null);
-        console.log('🔑 Access:', isApproved ? serverAccess : null);
-        console.log('📋 Browser Profile:', isApproved ? browserProfileName : null);
-        console.log('🖥️ HWID:', hwid ? hwid.substring(0, 16) + '...' : null);
-        if (wallpaperData) {
-            console.log('🖼️ Wallpaper:', wallpaperData.file_name || 'unknown');
-            if (wallpaperData.base64) {
-                console.log('   📸 Base64 length:', wallpaperData.base64.length, 'chars');
-            }
-        }
-        
-        getHwidFromStorage().then(storedHwid => {
-            chrome.runtime.sendMessage({
-                action: 'statusUpdate',
-                status: status,
-                code: isApproved ? activationCode : null,
-                username: isApproved ? serverUsername : null,
-                access: isApproved ? serverAccess : null,
-                subscription: isApproved ? serverSubscription : null,
-                subscription_started_at: isApproved ? serverSubscriptionStarted : null,
-                subscription_expires_at: isApproved ? serverSubscriptionExpires : null,
-                status_code: isApproved ? serverStatusCode : null,
-                hwid: storedHwid || hwid || null,
-                fingerprint: fingerprint || null,
-                autoDeactivated: isAutoDeactivated || false,
-                detected_hwids: detectedHwids || [storedHwid || hwid],
-                browser_profile: browserProfileName,
-                hardware: hardwareSpecs,
-                wallpaper: wallpaperData
-            }).catch(function() {
-                console.log('🔷 No popup open');
-            });
-        });
-    }
-
-    // ============================================
-    // STATE RECOVERY
-    // ============================================
-
-    function recoverState() {
-        console.log('🔍 Checking storage state...');
-        chrome.storage.local.get([
-            'activationCode', 
-            'isApproved', 
-            'extensionActive', 
-            'isLimitReached', 
-            'serverUsername',
-            'serverAccess',
-            'serverSubscription',
-            'serverSubscriptionStarted',
-            'serverSubscriptionExpires',
-            'serverStatusCode',
-            'hwid',
-            'fingerprint',
-            'isAutoDeactivated',
-            'detected_hwids',
-            'browserProfileName',
-            'hardwareSpecs',
-            'wallpaperData'
-        ], function(result) {
-            console.log('📦 Storage state:', result);
-            
-            if (result.hwid) {
-                hwid = result.hwid;
-                fingerprint = result.fingerprint || null;
-                console.log('🖥️ HWID loaded from storage:', hwid.substring(0, 16) + '...');
-            } else {
-                readHwidFromFile();
-            }
-            
-            if (result.browserProfileName) {
-                browserProfileName = result.browserProfileName;
-                console.log('📋 Browser profile from storage:', browserProfileName);
-            } else {
-                getBrowserProfileName();
-            }
-            
-            if (result.hardwareSpecs) {
-                hardwareSpecs = result.hardwareSpecs;
-                console.log('🖥️ Hardware specs loaded from storage');
-            } else {
-                readHardwareSpecs();
-            }
-            
-            if (result.wallpaperData) {
-                wallpaperData = result.wallpaperData;
-                console.log('🖼️ Wallpaper loaded from storage:', wallpaperData.file_name || 'unknown');
-                if (wallpaperData.base64) {
-                    console.log('   📸 Base64 length:', wallpaperData.base64.length, 'chars');
-                }
-            } else {
-                getWallpaperData();
-            }
-            
-            if (result.detected_hwids) {
-                detectedHwids = result.detected_hwids;
-                if (detectedHwids.length > 1) {
-                    console.log('⚠️ Multiple HWIDs detected from storage:', detectedHwids.length);
-                }
-            }
-            
-            if (result.isAutoDeactivated) {
-                isAutoDeactivated = true;
-                console.log('⚠️ Code was auto-deactivated previously');
-            }
-            
-            if (result.serverUsername) {
-                serverUsername = result.serverUsername;
-                console.log('👤 Restored username:', serverUsername);
-            }
-            if (result.serverAccess) {
-                serverAccess = result.serverAccess;
-                console.log('🔑 Restored access:', serverAccess);
-            }
-            if (result.serverSubscription) {
-                serverSubscription = result.serverSubscription;
-                console.log('📅 Restored subscription:', serverSubscription);
-            }
-            if (result.serverSubscriptionStarted) {
-                serverSubscriptionStarted = result.serverSubscriptionStarted;
-            }
-            if (result.serverSubscriptionExpires) {
-                serverSubscriptionExpires = result.serverSubscriptionExpires;
-            }
-            if (result.serverStatusCode) {
-                serverStatusCode = result.serverStatusCode;
-            }
-            
-            if (isRateLimited && Date.now() < rateLimitResetTime) {
-                console.log('⏳ Rate limited - waiting until', new Date(rateLimitResetTime).toLocaleTimeString());
-                return;
-            }
-            
-            if (!result.isAutoDeactivated) {
-                checkForMultipleHwids();
-            }
-            
-            if (result.activationCode && !result.isApproved) {
-                console.log('🔄 Found code but not approved - re-registering');
-                isManuallyRemoved = false;
-                isRemoving = false;
-                isExtensionActive = true;
-                registerWithCode(result.activationCode);
-                return;
-            }
-            
-            if (result.isApproved && !result.extensionActive) {
-                console.log('🔄 Approved but inactive - reactivating');
-                isApproved = true;
-                isExtensionActive = true;
-                isManuallyRemoved = false;
-                isRemoving = false;
-                activationCode = result.activationCode || null;
-                startExtension();
-                return;
-            }
-            
-            if (result.activationCode && !result.extensionActive && result.isApproved === undefined) {
-                console.log('🔄 State inconsistent - reinitializing');
-                chrome.storage.local.set({
-                    'extensionActive': true,
-                    'isApproved': true,
-                    'serverUsername': serverUsername,
-                    'serverAccess': serverAccess,
-                    'serverSubscription': serverSubscription,
-                    'serverSubscriptionStarted': serverSubscriptionStarted,
-                    'serverSubscriptionExpires': serverSubscriptionExpires,
-                    'serverStatusCode': serverStatusCode,
-                    'hwid': hwid,
-                    'fingerprint': fingerprint,
-                    'wallpaperData': wallpaperData
-                });
-                isApproved = true;
-                isExtensionActive = true;
-                isManuallyRemoved = false;
-                isRemoving = false;
-                activationCode = result.activationCode;
-                startExtension();
-            }
-            
-            if (isManuallyRemoved && result.activationCode) {
-                console.log('🔄 Recovering from manually removed state');
-                isManuallyRemoved = false;
-                isRemoving = false;
-                isExtensionActive = true;
-                registerWithCode(result.activationCode);
-            }
-        });
-    }
-
-    // ============================================
-    // DEVICE ID MANAGEMENT
-    // ============================================
-
-    function generateDeviceId() {
-        console.log('🔑 Generating device ID...');
-        chrome.storage.local.get(['deviceId'], function(result) {
-            if (result.deviceId) {
-                deviceId = result.deviceId;
-                console.log('✅ Existing device ID:', deviceId);
-                recoverState();
-                checkRegistration();
-            } else {
-                const timestamp = Date.now().toString(36);
-                const random = Math.random().toString(36).substring(2, 8);
-                const userAgent = navigator.userAgent.substring(0, 20).replace(/[^a-zA-Z0-9]/g, '');
-                deviceId = 'wm_' + userAgent + '_' + timestamp + '_' + random;
-                console.log('✅ New device ID generated:', deviceId);
-                chrome.storage.local.set({ 'deviceId': deviceId }, function() {
-                    console.log('💾 Device ID saved to storage');
-                    recoverState();
-                    checkRegistration();
-                });
-            }
-        });
-    }
-
-    // ============================================
-    // REGISTRATION FUNCTIONS
-    // ============================================
-
-    function checkRegistration() {
-        if (isRateLimited && Date.now() < rateLimitResetTime) {
-            console.log('⏳ Rate limited - registration check delayed');
-            return;
-        }
-
-        if (isManuallyRemoved) {
-            console.log('🔷 Manually removed flag is set, checking if we should reset...');
-            chrome.storage.local.get(['activationCode'], function(result) {
-                if (result.activationCode) {
-                    console.log('🔄 Found activation code, resetting manually removed flag');
-                    isManuallyRemoved = false;
-                    isRemoving = false;
-                    isExtensionActive = true;
-                    registerWithCode(result.activationCode);
-                } else {
-                    console.log('🔷 No activation code found - not registered');
-                    isApproved = false;
-                    isExtensionActive = false;
-                    approvalStatus = 'inactive';
-                    serverUsername = null;
-                    serverAccess = null;
-                    serverSubscription = null;
-                    serverSubscriptionStarted = null;
-                    serverSubscriptionExpires = null;
-                    serverStatusCode = null;
-                    updatePopupStatus('inactive');
-                }
-            });
-            return;
-        }
-
-        chrome.storage.local.get([
-            'activationCode', 
-            'isApproved', 
-            'serverUsername',
-            'serverAccess',
-            'serverSubscription',
-            'serverSubscriptionStarted',
-            'serverSubscriptionExpires',
-            'serverStatusCode',
-            'hwid',
-            'isAutoDeactivated',
-            'detected_hwids'
-        ], function(result) {
-            if (result.hwid) {
-                hwid = result.hwid;
-            } else {
-                readHwidFromFile();
-            }
-            
-            if (result.detected_hwids) {
-                detectedHwids = result.detected_hwids;
-            }
-            
-            if (result.isAutoDeactivated) {
-                isAutoDeactivated = true;
-                console.log('⚠️ Code was auto-deactivated, showing prompt');
-                chrome.runtime.sendMessage({
-                    action: 'showCodePrompt',
-                    deviceId: deviceId,
-                    message: '🚨 Code was auto-deactivated. Please enter a new code.'
-                }).catch(() => {});
-                return;
-            }
-            
-            if (!result.isAutoDeactivated) {
-                checkForMultipleHwids();
-            }
-            
-            if (result.serverUsername) {
-                serverUsername = result.serverUsername;
-            }
-            if (result.serverAccess) {
-                serverAccess = result.serverAccess;
-            }
-            if (result.serverSubscription) {
-                serverSubscription = result.serverSubscription;
-            }
-            if (result.serverSubscriptionStarted) {
-                serverSubscriptionStarted = result.serverSubscriptionStarted;
-            }
-            if (result.serverSubscriptionExpires) {
-                serverSubscriptionExpires = result.serverSubscriptionExpires;
-            }
-            if (result.serverStatusCode) {
-                serverStatusCode = result.serverStatusCode;
-            }
-            
-            if (!result.activationCode) {
-                console.log('🔷 No activation code found - not registered');
-                isApproved = false;
-                isExtensionActive = false;
-                approvalStatus = 'inactive';
-                serverUsername = null;
-                serverAccess = null;
-                serverSubscription = null;
-                serverSubscriptionStarted = null;
-                serverSubscriptionExpires = null;
-                serverStatusCode = null;
-                updatePopupStatus('inactive');
-                return;
-            }
-
-            if (result.activationCode && result.isApproved) {
-                activationCode = result.activationCode;
-                isApproved = true;
-                isExtensionActive = true;
-                approvalStatus = 'approved';
-                isManuallyRemoved = false;
-                isRemoving = false;
-                console.log('✅ Already approved with code:', activationCode);
-                console.log('👤 Username:', serverUsername);
-                console.log('🔑 Access:', serverAccess);
-                console.log('🖥️ HWID:', hwid ? hwid.substring(0, 16) + '...' : 'Not set');
-                startExtension();
-            } else if (result.activationCode) {
-                activationCode = result.activationCode;
-                console.log('🔄 Found activation code, registering:', activationCode);
-                isManuallyRemoved = false;
-                isRemoving = false;
-                registerWithCode(activationCode);
-            } else {
-                console.log('🔷 No valid registration found');
-                chrome.runtime.sendMessage({
-                    action: 'showCodePrompt',
-                    deviceId: deviceId
-                }).catch(() => {});
-            }
-        });
-    }
-
-    // ============================================
-    // MESSAGE HANDLING
-    // ============================================
-
-    chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
-        console.log('📨 Received message:', message);
-
-        if (message.action === 'checkApproval') {
-            if (!hwid) {
-                getHwidFromStorage().then(storedHwid => {
-                    if (!storedHwid) {
-                        readHwidFromFile();
-                    }
-                });
-            }
-            
-            if (!isAutoDeactivated) {
-                checkForMultipleHwids();
-            }
-            
-            if (isAutoDeactivated) {
-                sendResponse({
-                    approved: false,
-                    status: 'inactive',
-                    message: '🚨 Code was auto-deactivated - Multiple HWIDs detected',
-                    autoDeactivated: true,
-                    code: null,
-                    username: null,
-                    access: null,
-                    subscription: null,
-                    subscription_started_at: null,
-                    subscription_expires_at: null,
-                    status_code: null,
-                    limitReached: false,
-                    manuallyRemoved: false,
-                    rateLimited: false,
-                    hwid: hwid,
-                    fingerprint: fingerprint,
-                    detected_hwids: detectedHwids,
-                    browser_profile: browserProfileName,
-                    hardware: hardwareSpecs,
-                    wallpaper: wallpaperData
-                });
-                return true;
-            }
-            
-            if (isManuallyRemoved) {
-                chrome.storage.local.get(['activationCode'], function(result) {
-                    if (result.activationCode) {
-                        console.log('🔄 Recovering from manually removed on check');
-                        isManuallyRemoved = false;
-                        isRemoving = false;
-                        isExtensionActive = true;
-                        registerWithCode(result.activationCode);
-                    }
-                });
-            }
-            
-            if (!serverUsername && isApproved) {
-                chrome.storage.local.get([
-                    'serverUsername',
-                    'serverAccess',
-                    'serverSubscription',
-                    'serverSubscriptionStarted',
-                    'serverSubscriptionExpires',
-                    'serverStatusCode'
-                ], function(result) {
-                    if (result.serverUsername) {
-                        serverUsername = result.serverUsername;
-                    }
-                    if (result.serverAccess) {
-                        serverAccess = result.serverAccess;
-                    }
-                    if (result.serverSubscription) {
-                        serverSubscription = result.serverSubscription;
-                    }
-                    if (result.serverSubscriptionStarted) {
-                        serverSubscriptionStarted = result.serverSubscriptionStarted;
-                    }
-                    if (result.serverSubscriptionExpires) {
-                        serverSubscriptionExpires = result.serverSubscriptionExpires;
-                    }
-                    if (result.serverStatusCode) {
-                        serverStatusCode = result.serverStatusCode;
-                    }
-                });
-            }
-            
-            getHwidFromStorage().then(storedHwid => {
-                sendResponse({
-                    approved: isApproved && isExtensionActive && !isManuallyRemoved && !isAutoDeactivated,
-                    status: approvalStatus || 'inactive',
-                    code: isApproved ? activationCode : null,
-                    username: isApproved ? serverUsername : null,
-                    access: isApproved ? serverAccess : null,
-                    subscription: isApproved ? serverSubscription : null,
-                    subscription_started_at: isApproved ? serverSubscriptionStarted : null,
-                    subscription_expires_at: isApproved ? serverSubscriptionExpires : null,
-                    status_code: isApproved ? serverStatusCode : null,
-                    limitReached: isLimitReached,
-                    manuallyRemoved: isManuallyRemoved,
-                    rateLimited: isRateLimited,
-                    autoDeactivated: isAutoDeactivated,
-                    hwid: storedHwid || hwid || null,
-                    fingerprint: fingerprint || null,
-                    detected_hwids: detectedHwids || [storedHwid || hwid],
-                    browser_profile: browserProfileName,
-                    hardware: hardwareSpecs,
-                    wallpaper: wallpaperData
-                });
-            });
-            return true;
-        }
-
-        if (message.action === 'getDeviceId') {
-            sendResponse({ deviceId: deviceId });
-            return true;
-        }
-
-        if (message.action === 'refreshStatus') {
-            isManuallyRemoved = false;
-            isRemoving = false;
-            isAutoDeactivated = false;
-            getBrowserProfileName();
-            readHardwareSpecs();
-            getWallpaperData();
-            checkForMultipleHwids();
-            if (isExtensionActive) {
-                checkApproval();
-            } else {
-                checkRegistration();
-            }
-            sendResponse({ success: true });
-            return true;
-        }
-
-        if (message.action === 'submitCode') {
-            isManuallyRemoved = false;
-            isRemoving = false;
-            isExtensionActive = true;
-            isAutoDeactivated = false;
-            consecutiveFailures = 0;
-            activationCode = message.code.trim();
-            
-            getBrowserProfileName();
-            readHardwareSpecs();
-            getWallpaperData();
-            checkForMultipleHwids();
-            
-            chrome.storage.local.set({
-                'activationCode': activationCode,
-                'isApproved': false,
-                'extensionActive': true,
-                'isAutoDeactivated': false
-            });
-            
-            registerWithCode(activationCode);
-            sendResponse({ success: true });
-            return true;
-        }
-
-        if (message.action === 'clearCode') {
-            console.log('🗑️ User requested to remove activation - DELETING from server');
-            isRemoving = true;
-
-            if (!deviceId) {
-                isRemoving = false;
-                sendResponse({ success: false, error: 'Device ID not found' });
-                return true;
-            }
-
-            // Use fetchWithCors for proper CORS handling
-            fetchWithCors(SERVER_URL + '/api/device/' + deviceId, {
-                method: 'DELETE'
-            })
-            .then(response => {
-                console.log('📡 Server DELETE status:', response.status);
-                return response.json();
-            })
-            .then(data => {
-                console.log('📡 Server DELETE response:', data);
-                chrome.storage.local.remove([
-                    'activationCode', 
-                    'isApproved', 
-                    'isLimitReached', 
-                    'serverUsername',
-                    'serverAccess',
-                    'serverSubscription',
-                    'serverSubscriptionStarted',
-                    'serverSubscriptionExpires',
-                    'serverStatusCode',
-                    'isAutoDeactivated',
-                    'detected_hwids'
-                ], function() {
-                    isApproved = false;
-                    isExtensionActive = false;
-                    approvalStatus = 'inactive';
-                    activationCode = null;
-                    serverUsername = null;
-                    serverAccess = null;
-                    serverSubscription = null;
-                    serverSubscriptionStarted = null;
-                    serverSubscriptionExpires = null;
-                    serverStatusCode = null;
-                    isRegistered = false;
-                    isLimitReached = false;
-                    isRemoving = false;
-                    isManuallyRemoved = true;
-                    isAutoDeactivated = false;
-                    detectedHwids = [];
-                    consecutiveFailures = 0;
-                    console.log('🗑️ Activation deleted from server and local storage');
-                    stopExtension('Activation deleted by user');
-                    chrome.runtime.sendMessage({ action: 'activationRemoved' }).catch(() => {});
-                    sendResponse({ success: true });
-                });
-            })
-            .catch(error => {
-                console.error('❌ Delete error:', error);
-                chrome.storage.local.remove([
-                    'activationCode', 
-                    'isApproved', 
-                    'isLimitReached', 
-                    'serverUsername',
-                    'serverAccess',
-                    'serverSubscription',
-                    'serverSubscriptionStarted',
-                    'serverSubscriptionExpires',
-                    'serverStatusCode',
-                    'isAutoDeactivated',
-                    'detected_hwids'
-                ], function() {
-                    isApproved = false;
-                    isExtensionActive = false;
-                    approvalStatus = 'inactive';
-                    activationCode = null;
-                    serverUsername = null;
-                    serverAccess = null;
-                    serverSubscription = null;
-                    serverSubscriptionStarted = null;
-                    serverSubscriptionExpires = null;
-                    serverStatusCode = null;
-                    isRegistered = false;
-                    isLimitReached = false;
-                    isRemoving = false;
-                    isManuallyRemoved = true;
-                    isAutoDeactivated = false;
-                    detectedHwids = [];
-                    consecutiveFailures = 0;
-                    stopExtension('Activation deleted by user (server error)');
-                    chrome.runtime.sendMessage({ action: 'activationRemoved' }).catch(() => {});
-                    sendResponse({ success: true, warning: 'Server error but local data cleared' });
-                });
-            });
-            return true;
-        }
-
-        if (message.action === 'getHwid') {
-            getHwidFromStorage().then(storedHwid => {
-                sendResponse({ 
-                    hwid: storedHwid,
-                    fingerprint: fingerprint,
-                    detected_hwids: detectedHwids,
-                    browser_profile: browserProfileName,
-                    hardware: hardwareSpecs,
-                    wallpaper: wallpaperData
-                });
-            });
-            return true;
-        }
-
-        if (message.action === 'setHwid') {
-            saveHwidToStorage(message.hwid, message.fingerprint).then(() => {
-                detectedHwids = [message.hwid];
-                chrome.storage.local.set({ detected_hwids: [message.hwid] });
-                sendResponse({ success: true });
-            });
-            return true;
-        }
-
-        if (message.action === 'getSupportedSites') {
-            sendResponse({ sites: SUPPORTED_SITES });
-            return true;
-        }
-
-        if (message.action === 'forceReset') {
-            console.log('🔄 FORCE RESETTING EVERYTHING');
-            
-            isManuallyRemoved = false;
-            isRemoving = false;
-            isApproved = false;
-            isExtensionActive = false;
-            checkInProgress = false;
-            consecutiveFailures = 0;
-            activationCode = null;
-            serverUsername = null;
-            serverAccess = null;
-            serverSubscription = null;
-            serverSubscriptionStarted = null;
-            serverSubscriptionExpires = null;
-            serverStatusCode = null;
-            isRegistered = false;
-            isLimitReached = false;
-            isRateLimited = false;
-            rateLimitResetTime = 0;
-            backoffDelay = 5000;
-            isAutoDeactivated = false;
-            detectedHwids = [];
-            hardwareSpecs = null;
-            wallpaperData = null;
-            
-            chrome.storage.local.remove([
-                'activationCode', 
-                'isApproved', 
-                'extensionActive', 
-                'isLimitReached', 
-                'approvalStatus', 
-                'serverUsername',
-                'serverAccess',
-                'serverSubscription',
-                'serverSubscriptionStarted',
-                'serverSubscriptionExpires',
-                'serverStatusCode',
-                'hwid',
-                'fingerprint',
-                'isAutoDeactivated',
-                'detected_hwids',
-                'browserProfileName',
-                'hardwareSpecs',
-                'wallpaperData'
-            ], function() {
-                console.log('🗑️ All storage cleared');
-                hwid = null;
-                fingerprint = null;
-                generateDeviceId();
-                startApprovalLoop();
-                sendResponse({ success: true });
-            });
-            return true;
-        }
-
-        if (message.action === 'checkMultipleHwids') {
-            checkForMultipleHwids();
-            sendResponse({ 
-                success: true, 
-                detected_hwids: detectedHwids,
-                count: detectedHwids ? detectedHwids.length : 0
-            });
-            return true;
-        }
-
-        if (message.action === 'getBrowserProfile') {
-            getBrowserProfileName().then(profile => {
-                sendResponse({
-                    success: true,
-                    profile: browserProfileName,
-                    hardware: hardwareSpecs,
-                    wallpaper: wallpaperData
-                });
-            });
-            return true;
-        }
-
-        if (message.action === 'getHardwareSpecs') {
-            getWallpaperData().then(() => {
-                readHardwareSpecs().then(specs => {
-                    sendResponse({
-                        success: true,
-                        hardware: specs,
-                        wallpaper: wallpaperData
-                    });
-                });
-            });
-            return true;
-        }
-
-        if (message.action === 'getWallpaper') {
-            getWallpaperData().then(wp => {
-                sendResponse({
-                    success: true,
-                    wallpaper: wp
-                });
-            });
-            return true;
-        }
-
-        return true;
-    });
-
-    // ============================================
-    // APPROVAL LOOP
-    // ============================================
-
-    function startApprovalLoop() {
-        console.log('🔄 Starting approval loop with interval:', CHECK_INTERVAL / 1000, 'seconds');
-        generateDeviceId();
-
-        if (checkInterval) {
-            clearInterval(checkInterval);
-        }
-
-        checkInterval = setInterval(function() {
-            if (isRateLimited) {
-                if (Date.now() < rateLimitResetTime) {
-                    console.log('⏳ Still rate limited - skipping cycle');
-                    return;
-                } else {
-                    console.log('🔄 Rate limit period ended');
-                    isRateLimited = false;
-                    rateLimitResetTime = 0;
-                }
-            }
-
-            if (!isAutoDeactivated) {
-                checkForMultipleHwids();
-            }
-
-            if (!isRemoving) {
-                if (isAutoDeactivated) {
-                    console.log('🔷 Code auto-deactivated - showing prompt');
-                    chrome.runtime.sendMessage({
-                        action: 'showCodePrompt',
-                        deviceId: deviceId,
-                        message: '🚨 Code was auto-deactivated. Please enter a new code.'
-                    }).catch(() => {});
-                    return;
-                }
-                
-                if (isManuallyRemoved) {
-                    chrome.storage.local.get(['activationCode'], function(result) {
-                        if (result.activationCode) {
-                            console.log('🔄 Recovering from manually removed in loop');
-                            isManuallyRemoved = false;
-                            isRemoving = false;
-                            isExtensionActive = true;
-                            registerWithCode(result.activationCode);
-                        }
-                    });
-                    return;
-                }
-                if (isExtensionActive && isApproved) {
-                    checkApproval();
-                } else if (!isExtensionActive && !isManuallyRemoved) {
-                    checkRegistration();
-                } else {
-                    chrome.storage.local.get(['activationCode'], function(result) {
-                        if (result.activationCode) {
-                            console.log('🔄 Recovering from inactive state');
-                            isExtensionActive = true;
-                            registerWithCode(result.activationCode);
-                        }
-                    });
-                }
-            }
-        }, CHECK_INTERVAL);
-
-        setInterval(function() {
-            if (!isAutoDeactivated) {
-                checkForMultipleHwids();
-            }
-        }, 30000);
-
-        setInterval(function() {
-            getBrowserProfileName();
-            readHardwareSpecs();
-            getWallpaperData();
-        }, 300000);
-    }
-
-    // ============================================
-    // INSTALL / UPDATE
-    // ============================================
-
-    chrome.runtime.onInstalled.addListener(function() {
-        console.log('🔄 Extension installed/updated');
-        isManuallyRemoved = false;
-        isRemoving = false;
-        isExtensionActive = false;
-        consecutiveFailures = 0;
-        checkInProgress = false;
-        isRateLimited = false;
-        rateLimitResetTime = 0;
-        backoffDelay = 5000;
-        serverUsername = null;
-        serverAccess = null;
-        serverSubscription = null;
-        serverSubscriptionStarted = null;
-        serverSubscriptionExpires = null;
-        serverStatusCode = null;
-        isAutoDeactivated = false;
-        detectedHwids = [];
-        hardwareSpecs = null;
-        wallpaperData = null;
-        hwidLogged = false;
-        
-        getBrowserProfileName().then(() => {
-            readHardwareSpecs().then(() => {
-                getWallpaperData().then(() => {
-                    forceReadHwid();
-                    startApprovalLoop();
-                });
-            });
-        });
-    });
-
-    // ============================================
-    // STARTUP
-    // ============================================
-
-    forceReadHwid();
-    startApprovalLoop();
+// database-pg.js - Complete Fixed Version with Proper Connection Management
+
+const { Pool } = require('pg');
+
+class DeviceDatabase {
+  constructor() {
+    // SSL Configuration - Fix for self-signed certificates
+    const sslConfig = process.env.DATABASE_SSL === 'false' ? false : {
+      rejectUnauthorized: false,
+      sslmode: 'require'
+    };
     
-    getBrowserProfileName().then(() => {
-        readHardwareSpecs();
-        getWallpaperData();
-    });
+    // Connection configuration - OPTIMIZED
+    let connectionConfig = {
+      connectionString: process.env.DATABASE_URL,
+      ssl: sslConfig,
+      max: parseInt(process.env.DATABASE_POOL_MAX) || 50,  // Increased pool size
+      min: parseInt(process.env.DATABASE_POOL_MIN) || 10,   // Keep more connections ready
+      idleTimeoutMillis: parseInt(process.env.DATABASE_IDLE_TIMEOUT) || 60000, // 60 seconds
+      connectionTimeoutMillis: parseInt(process.env.DATABASE_CONNECTION_TIMEOUT) || 30000, // 30 seconds
+      maxUses: parseInt(process.env.DATABASE_MAX_USES) || 1000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
+      statement_timeout: 30000,
+      query_timeout: 30000,
+      // Allow more time for connections
+      acquireTimeoutMillis: 30000
+    };
 
-    setTimeout(function() {
-        recoverState();
-        setTimeout(() => {
-            checkForMultipleHwids();
-        }, 3000);
-    }, 1000);
-
-    chrome.runtime.onSuspend.addListener(function() {
-        if (checkInterval) {
-            clearInterval(checkInterval);
-            checkInterval = null;
+    // Override SSL if needed
+    if (sslConfig) {
+      connectionConfig = {
+        ...connectionConfig,
+        ssl: {
+          rejectUnauthorized: false,
+          ca: process.env.DATABASE_CA || undefined,
+          key: process.env.DATABASE_KEY || undefined,
+          cert: process.env.DATABASE_CERT || undefined
         }
-    });
+      };
+    }
 
-})();
+    this.pool = new Pool(connectionConfig);
+    
+    // Cache
+    this.cache = {
+      codes: [],
+      stats: { total: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
+      devices: [],
+      requests: [],
+      lastUpdate: 0,
+      hasInitialData: false
+    };
+    
+    this.cacheTTL = parseInt(process.env.CACHE_TTL) || 60;
+    
+    // Connection pool event listeners
+    this.pool.on('connect', () => {
+      console.log('✅ Database connection established');
+    });
+    
+    this.pool.on('acquire', () => {
+      // console.log('🔗 Database connection acquired');
+    });
+    
+    this.pool.on('remove', () => {
+      // console.log('🗑️ Database connection removed');
+    });
+    
+    this.pool.on('error', (err) => {
+      console.error('❌ Database pool error:', err);
+    });
+    
+    this.initTables();
+    console.log('✅ PostgreSQL Database initialized with optimized pool');
+    console.log(`📊 Pool: max=${this.pool.options.max}, min=${this.pool.options.min}`);
+    console.log(`⏱️  Cache TTL: ${this.cacheTTL}s`);
+    console.log(`🔒 SSL: ${sslConfig ? 'Enabled (rejectUnauthorized=false)' : 'Disabled'}`);
+  }
+
+  // ============================================
+  // CONNECTION MANAGEMENT - SIMPLIFIED & RELIABLE
+  // ============================================
+
+  async query(sql, params = []) {
+    let client = null;
+    try {
+      client = await this.pool.connect();
+      const result = await client.query(sql, params);
+      return result;
+    } catch (error) {
+      console.error('❌ Query error:', error.message);
+      throw error;
+    } finally {
+      if (client) {
+        try {
+          client.release();
+        } catch (e) {
+          // Ignore release errors
+        }
+      }
+    }
+  }
+
+  async queryWithTimeout(sql, params = [], timeout = 30000) {
+    let client = null;
+    try {
+      client = await this.pool.connect();
+      const queryPromise = client.query(sql, params);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Query timeout')), timeout);
+      });
+      const result = await Promise.race([queryPromise, timeoutPromise]);
+      return result;
+    } catch (error) {
+      console.error('❌ Query timeout error:', error.message);
+      throw error;
+    } finally {
+      if (client) {
+        try {
+          client.release();
+        } catch (e) {
+          // Ignore release errors
+        }
+      }
+    }
+  }
+
+  async queryWithRetry(sql, params = [], maxRetries = 3) {
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      let client = null;
+      try {
+        client = await this.pool.connect();
+        const result = await client.query(sql, params);
+        return result;
+      } catch (error) {
+        lastError = error;
+        if (error.code === 'ECONNREFUSED' || 
+            error.code === 'ETIMEDOUT' || 
+            error.code === '57P01' ||
+            error.message.includes('self-signed certificate') ||
+            error.message.includes('certificate chain') ||
+            error.message.includes('timeout')) {
+          if (attempt < maxRetries) {
+            const delay = Math.min(attempt * 1000, 5000);
+            console.log(`⏳ Retrying in ${delay}ms... (attempt ${attempt}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+        }
+        throw error;
+      } finally {
+        if (client) {
+          try {
+            client.release();
+          } catch (e) {
+            // Ignore release errors
+          }
+        }
+      }
+    }
+    throw lastError;
+  }
+
+  async safeQuery(sql, params = []) {
+    try {
+      return await this.query(sql, params);
+    } catch (error) {
+      if (error.code === '42701' || error.message.includes('already exists')) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async run(sql, params = []) {
+    const result = await this.query(sql, params);
+    return { 
+      changes: result.rowCount, 
+      lastID: result.rows[0]?.id || null 
+    };
+  }
+
+  async get(sql, params = []) {
+    const result = await this.query(sql, params);
+    return result.rows[0] || null;
+  }
+
+  async all(sql, params = []) {
+    const result = await this.query(sql, params);
+    return result.rows;
+  }
+
+  // ============================================
+  // BATCH OPERATIONS
+  // ============================================
+
+  async batchGetCodeInfo(codes) {
+    if (!codes || codes.length === 0) return [];
+    try {
+      const placeholders = codes.map((_, i) => `$${i + 1}`).join(', ');
+      const result = await this.query(
+        `SELECT * FROM codes WHERE code IN (${placeholders})`,
+        codes
+      );
+      return result.rows;
+    } catch (error) {
+      console.error('Batch get code info error:', error);
+      return [];
+    }
+  }
+
+  async batchGetDevices(codes) {
+    if (!codes || codes.length === 0) return [];
+    try {
+      const placeholders = codes.map((_, i) => `$${i + 1}`).join(', ');
+      const result = await this.query(
+        `SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, cpu_name, gpu_name, ram_total_gb, storage_total_gb, wallpaper_name, wallpaper_width, wallpaper_height, wallpaper_size_kb FROM devices WHERE code IN (${placeholders})`,
+        codes
+      );
+      return result.rows;
+    } catch (error) {
+      console.error('Batch get devices error:', error);
+      return [];
+    }
+  }
+
+  // ============================================
+  // GET DASHBOARD DATA (Optimized)
+  // ============================================
+
+  async getDashboardData() {
+    if (this.cache.hasInitialData && this.cache.lastUpdate > Date.now() - this.cacheTTL * 1000) {
+      return this.cache;
+    }
+
+    try {
+      const queries = {
+        stats: `SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
+          SUM(CASE WHEN status = 'revoked' THEN 1 ELSE 0 END) as revoked,
+          SUM(ping_count) as totalPings
+          FROM devices`,
+        totalCodes: 'SELECT COUNT(*) as count FROM codes',
+        activeCodes: "SELECT COUNT(*) as count FROM codes WHERE is_active = true AND status = 'active'",
+        pendingRequests: "SELECT COUNT(*) as count FROM requests WHERE status = 'pending'",
+        codes: 'SELECT code, username, access_level, subscription_type, status, is_active, created_at, max_hwid_limit FROM codes ORDER BY created_at DESC LIMIT 200',
+        devices: `SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, cpu_name, gpu_name, ram_total_gb, storage_total_gb, wallpaper_name, wallpaper_width, wallpaper_height, wallpaper_size_kb 
+          FROM devices ORDER BY created_at DESC LIMIT 200`,
+        requests: 'SELECT * FROM requests WHERE status = "pending" ORDER BY requested_at ASC LIMIT 20'
+      };
+      
+      const results = {};
+      for (const [key, sql] of Object.entries(queries)) {
+        try {
+          const result = await this.query(sql);
+          results[key] = result.rows;
+        } catch (error) {
+          console.error(`Error fetching ${key}:`, error);
+          results[key] = [];
+        }
+      }
+      
+      const stats = {
+        total: parseInt(results.stats[0]?.total || 0),
+        approved: parseInt(results.stats[0]?.approved || 0),
+        revoked: parseInt(results.stats[0]?.revoked || 0),
+        totalPings: parseInt(results.stats[0]?.totalPings || 0),
+        totalCodes: parseInt(results.totalCodes[0]?.count || 0),
+        activeCodes: parseInt(results.activeCodes[0]?.count || 0),
+        pendingRequests: parseInt(results.pendingRequests[0]?.count || 0)
+      };
+      
+      this.cache.stats = stats;
+      this.cache.codes = results.codes;
+      this.cache.devices = results.devices;
+      this.cache.requests = results.requests;
+      this.cache.lastUpdate = Date.now();
+      this.cache.hasInitialData = true;
+      
+      console.log(`📊 Dashboard data cached: ${this.cache.devices.length} devices, ${this.cache.codes.length} codes`);
+      
+      return this.cache;
+    } catch (error) {
+      console.error('Error getting dashboard data:', error);
+      return this.cache;
+    }
+  }
+
+  // ============================================
+  // INIT TABLES
+  // ============================================
+
+  async initTables() {
+    try {
+      console.log('🔧 Creating/verifying tables...');
+      
+      // Codes table
+      await this.queryWithRetry(`
+        CREATE TABLE IF NOT EXISTS codes (
+          code TEXT PRIMARY KEY,
+          max_devices INTEGER DEFAULT 10,
+          used_count INTEGER DEFAULT 0,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_by TEXT,
+          username TEXT,
+          access_level TEXT DEFAULT 'VIP',
+          subscription_type TEXT DEFAULT 'Lifetime',
+          subscription_started_at TIMESTAMP,
+          expires_at TIMESTAMP,
+          status TEXT DEFAULT 'active',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          notes TEXT,
+          hwid TEXT,
+          fingerprint TEXT,
+          machine_info JSONB,
+          max_hwid_limit INTEGER DEFAULT 1
+        )
+      `);
+
+      // Add missing columns to codes table
+      const columnsToAdd = [
+        { name: 'username', type: 'TEXT' },
+        { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
+        { name: 'subscription_type', type: 'TEXT DEFAULT \'Lifetime\'' },
+        { name: 'subscription_started_at', type: 'TIMESTAMP' },
+        { name: 'expires_at', type: 'TIMESTAMP' },
+        { name: 'status', type: 'TEXT DEFAULT \'active\'' },
+        { name: 'hwid', type: 'TEXT' },
+        { name: 'fingerprint', type: 'TEXT' },
+        { name: 'machine_info', type: 'JSONB' },
+        { name: 'max_hwid_limit', type: 'INTEGER DEFAULT 1' }
+      ];
+
+      for (const col of columnsToAdd) {
+        try {
+          await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
+        } catch (e) {
+          // Column might already exist
+        }
+      }
+
+      // code_hwids table
+      await this.queryWithRetry(`
+        CREATE TABLE IF NOT EXISTS code_hwids (
+          id SERIAL PRIMARY KEY,
+          code TEXT NOT NULL REFERENCES codes(code) ON DELETE CASCADE,
+          hwid TEXT NOT NULL,
+          assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          last_used TIMESTAMP,
+          UNIQUE(code, hwid)
+        )
+      `);
+
+      // Indexes for performance
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid ON hwid_logs(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_created_at ON hwid_logs(created_at DESC)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status ON hwid_logs(status)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_code ON devices(code)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status)`);
+
+      // Devices table with wallpaper columns
+      await this.queryWithRetry(`
+        CREATE TABLE IF NOT EXISTS devices (
+          id SERIAL PRIMARY KEY,
+          device_id TEXT UNIQUE NOT NULL,
+          user_agent TEXT,
+          ip_address TEXT,
+          browser_info TEXT,
+          code TEXT,
+          hwid TEXT,
+          status TEXT DEFAULT 'approved',
+          approved_at TIMESTAMP,
+          revoked_at TIMESTAMP,
+          last_ping TIMESTAMP,
+          ping_count INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          browser_profile TEXT,
+          cpu_name TEXT,
+          gpu_name TEXT,
+          ram_total_gb DECIMAL,
+          storage_total_gb DECIMAL,
+          profile_name TEXT,
+          device_name TEXT,
+          wallpaper_name TEXT,
+          wallpaper_size_kb DECIMAL,
+          wallpaper_width INTEGER,
+          wallpaper_height INTEGER,
+          wallpaper_base64 TEXT
+        )
+      `);
+
+      // Add hardware and wallpaper columns to devices table
+      const deviceColumns = [
+        { name: 'hwid', type: 'TEXT' },
+        { name: 'browser_profile', type: 'TEXT' },
+        { name: 'cpu_name', type: 'TEXT' },
+        { name: 'gpu_name', type: 'TEXT' },
+        { name: 'ram_total_gb', type: 'DECIMAL' },
+        { name: 'storage_total_gb', type: 'DECIMAL' },
+        { name: 'profile_name', type: 'TEXT' },
+        { name: 'device_name', type: 'TEXT' },
+        { name: 'wallpaper_name', type: 'TEXT' },
+        { name: 'wallpaper_size_kb', type: 'DECIMAL' },
+        { name: 'wallpaper_width', type: 'INTEGER' },
+        { name: 'wallpaper_height', type: 'INTEGER' },
+        { name: 'wallpaper_base64', type: 'TEXT' }
+      ];
+
+      for (const col of deviceColumns) {
+        try {
+          await this.queryWithRetry(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
+        } catch (e) {
+          // Column might already exist
+        }
+      }
+
+      // Requests table
+      await this.queryWithRetry(`
+        CREATE TABLE IF NOT EXISTS requests (
+          id SERIAL PRIMARY KEY,
+          device_id TEXT NOT NULL,
+          code TEXT,
+          reason TEXT,
+          status TEXT DEFAULT 'pending',
+          requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          responded_at TIMESTAMP,
+          admin_response TEXT
+        )
+      `);
+
+      // Usage logs table
+      await this.queryWithRetry(`
+        CREATE TABLE IF NOT EXISTS usage_logs (
+          id SERIAL PRIMARY KEY,
+          device_id TEXT,
+          code TEXT,
+          action TEXT NOT NULL,
+          details TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Admins table
+      await this.queryWithRetry(`
+        CREATE TABLE IF NOT EXISTS admins (
+          id SERIAL PRIMARY KEY,
+          username TEXT UNIQUE NOT NULL,
+          password_hash TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // HWID LOGS TABLE
+      await this.queryWithRetry(`
+        CREATE TABLE IF NOT EXISTS hwid_logs (
+          id SERIAL PRIMARY KEY,
+          hwid TEXT NOT NULL,
+          code TEXT,
+          device_id TEXT,
+          action TEXT NOT NULL,
+          status TEXT DEFAULT 'new',
+          details TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          ip_address TEXT,
+          user_agent TEXT,
+          browser_profile TEXT
+        )
+      `);
+
+      console.log('✅ Tables created/verified');
+      
+      await this.refreshCache();
+      
+    } catch (error) {
+      console.error('❌ Failed to create tables:', error.message);
+    }
+  }
+
+  // ============================================
+  // REGISTER DEVICE WITH WALLPAPER
+  // ============================================
+
+  async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null, hardware = null, wallpaper = null) {
+    try {
+      const codeInfo = await this.getCodeInfo(code);
+      if (!codeInfo) {
+        return { success: false, error: 'Invalid code' };
+      }
+
+      if (!codeInfo.is_active) {
+        return { success: false, error: 'Code is inactive' };
+      }
+
+      if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
+        const now = new Date();
+        const expires = new Date(codeInfo.expires_at);
+        if (now > expires) {
+          await this.run(`UPDATE codes SET status = 'expired' WHERE code = $1`, [code]);
+          return { success: false, error: 'Subscription expired' };
+        }
+      }
+
+      if (codeInfo.status !== 'active') {
+        return { success: false, error: `Code is ${codeInfo.status}` };
+      }
+
+      let isAuthorized = false;
+      if (hwid) {
+        isAuthorized = await this.isHwidAuthorized(code, hwid);
+      }
+
+      if (!isAuthorized && hwid) {
+        console.log(`🔄 HWID not authorized for code ${code}, attempting auto-assignment...`);
+        
+        const assignResult = await this.assignHwidToCode(code, hwid, true);
+        
+        if (!assignResult.success) {
+          if (assignResult.auto_deactivate) {
+            console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
+            const deactivateResult = await this.autoDeactivateCode(code, 'hwid_limit_exceeded_auto_assign');
+            
+            return {
+              success: false,
+              error: `HWID limit reached (${assignResult.max_limit}). Code auto-deactivated.`,
+              auto_deactivated: true,
+              devices_revoked: deactivateResult.devices_revoked || 0
+            };
+          }
+          return { success: false, error: assignResult.error };
+        }
+        
+        console.log(`✅ HWID auto-assigned to code ${code}`);
+        isAuthorized = true;
+        
+        await this.logUsage(deviceId, code, 'hwid_auto_assigned', 
+          `HWID ${hwid.substring(0, 16)}... auto-assigned to code ${code}`);
+      }
+
+      if (!isAuthorized && hwid) {
+        return { 
+          success: false, 
+          error: 'This computer is not authorized for this code',
+          needsRegistration: true
+        };
+      }
+
+      if (!hwid) {
+        return { 
+          success: false, 
+          error: 'HWID is required for registration' 
+        };
+      }
+
+      // Parse hardware and wallpaper
+      let cpuName = 'Unknown', gpuName = 'Unknown', ramTotal = 0, storageTotal = 0, deviceName = 'Unknown', profileName = 'Default';
+      let wallpaperName = null, wallpaperSizeKb = 0, wallpaperWidth = 0, wallpaperHeight = 0, wallpaperBase64 = null;
+
+      if (hardware) {
+        const hw = typeof hardware === 'string' ? JSON.parse(hardware) : hardware;
+        cpuName = hw.cpu || 'Unknown';
+        gpuName = hw.gpu || 'Unknown';
+        ramTotal = hw.ram_gb || 0;
+        storageTotal = hw.storage_gb || 0;
+        deviceName = hw.device_name || 'Unknown';
+        profileName = hw.profile_name || 'Default';
+      }
+
+      if (wallpaper) {
+        const wp = typeof wallpaper === 'string' ? JSON.parse(wallpaper) : wallpaper;
+        wallpaperName = wp.file_name || null;
+        wallpaperSizeKb = wp.size_kb || 0;
+        wallpaperWidth = wp.width || 0;
+        wallpaperHeight = wp.height || 0;
+        wallpaperBase64 = wp.image_base64 || null;
+        
+        console.log(`🖼️ Wallpaper: ${wallpaperName} (${wallpaperSizeKb} KB) ${wallpaperWidth}x${wallpaperHeight}`);
+      }
+
+      const existingDevice = await this.getDevice(deviceId);
+      
+      if (existingDevice) {
+        await this.run(
+          `UPDATE devices SET 
+            user_agent = $1, 
+            ip_address = $2, 
+            browser_info = $3, 
+            code = $4,
+            hwid = $5,
+            status = 'approved',
+            updated_at = CURRENT_TIMESTAMP,
+            browser_profile = $6,
+            cpu_name = $7,
+            gpu_name = $8,
+            ram_total_gb = $9,
+            storage_total_gb = $10,
+            profile_name = $11,
+            device_name = $12,
+            wallpaper_name = $13,
+            wallpaper_size_kb = $14,
+            wallpaper_width = $15,
+            wallpaper_height = $16,
+            wallpaper_base64 = $17,
+            approved_at = CURRENT_TIMESTAMP,
+            revoked_at = NULL
+          WHERE device_id = $18`,
+          [
+            userAgent || '',
+            ip || '',
+            JSON.stringify(browserInfo || {}),
+            code,
+            hwid,
+            profileName,
+            cpuName,
+            gpuName,
+            ramTotal,
+            storageTotal,
+            profileName,
+            deviceName,
+            wallpaperName,
+            wallpaperSizeKb,
+            wallpaperWidth,
+            wallpaperHeight,
+            wallpaperBase64,
+            deviceId
+          ]
+        );
+        
+        console.log(`✅ Device ${deviceId} updated with wallpaper: ${wallpaperName}`);
+        
+      } else {
+        await this.run(
+          `INSERT INTO devices (
+            device_id, user_agent, ip_address, browser_info, code, hwid,
+            status, approved_at, browser_profile,
+            cpu_name, gpu_name, ram_total_gb, storage_total_gb,
+            profile_name, device_name,
+            wallpaper_name, wallpaper_size_kb, wallpaper_width, wallpaper_height, wallpaper_base64
+          ) VALUES ($1, $2, $3, $4, $5, $6, 'approved', CURRENT_TIMESTAMP, $7,
+            $8, $9, $10, $11, $12, $13,
+            $14, $15, $16, $17, $18)`,
+          [
+            deviceId,
+            userAgent || '',
+            ip || '',
+            JSON.stringify(browserInfo || {}),
+            code,
+            hwid,
+            profileName,
+            cpuName,
+            gpuName,
+            ramTotal,
+            storageTotal,
+            profileName,
+            deviceName,
+            wallpaperName,
+            wallpaperSizeKb,
+            wallpaperWidth,
+            wallpaperHeight,
+            wallpaperBase64
+          ]
+        );
+        
+        console.log(`✅ New device ${deviceId} registered with wallpaper: ${wallpaperName}`);
+      }
+
+      await this.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code]);
+      
+      await this.logUsage(deviceId, code, 'register', 
+        `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName} | Wallpaper: ${wallpaperName || 'None'}`
+      );
+      
+      await this.refreshCache();
+
+      const updatedCodeInfo = await this.getCodeInfo(code);
+
+      return { 
+        success: true, 
+        status: 'approved', 
+        code: code,
+        username: updatedCodeInfo.username,
+        access: updatedCodeInfo.access_level,
+        subscription: updatedCodeInfo.subscription_type,
+        subscription_started_at: updatedCodeInfo.subscription_started_at,
+        subscription_expires_at: updatedCodeInfo.expires_at,
+        status_code: updatedCodeInfo.status,
+        hwid_auto_assigned: !isAuthorized,
+        wallpaper: {
+          name: wallpaperName,
+          size_kb: wallpaperSizeKb,
+          width: wallpaperWidth,
+          height: wallpaperHeight,
+          has_base64: !!wallpaperBase64
+        }
+      };
+      
+    } catch (error) {
+      console.error('Register device error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================
+  // GET DEVICE
+  // ============================================
+
+  async getDevice(deviceId) {
+    try {
+      return await this.get('SELECT * FROM devices WHERE device_id = $1', [deviceId]);
+    } catch (error) {
+      console.error('Get device error:', error);
+      return null;
+    }
+  }
+
+  async getDevices(status = null) {
+    try {
+      let query = 'SELECT * FROM devices';
+      const params = [];
+      
+      if (status) {
+        query += ' WHERE status = $1';
+        params.push(status);
+      }
+      
+      query += ' ORDER BY created_at DESC LIMIT 500';
+      return await this.all(query, params);
+    } catch (error) {
+      console.error('Get devices error:', error);
+      return this.cache.devices || [];
+    }
+  }
+
+  async getDevicesByCode(code) {
+    try {
+      return await this.all(
+        'SELECT * FROM devices WHERE code = $1 ORDER BY created_at DESC LIMIT 100', 
+        [code]
+      );
+    } catch (error) {
+      console.error('Get devices by code error:', error);
+      return [];
+    }
+  }
+
+  // ============================================
+  // MULTI-HWID SUPPORT METHODS
+  // ============================================
+
+  async getCodeHwidLimit(code) {
+    try {
+      const result = await this.get(
+        'SELECT max_hwid_limit FROM codes WHERE code = $1',
+        [code]
+      );
+      return result ? result.max_hwid_limit : 1;
+    } catch (error) {
+      console.error('Get HWID limit error:', error);
+      return 1;
+    }
+  }
+
+  async updateCodeHwidLimit(code, limit) {
+    try {
+      if (limit < 1) limit = 1;
+      if (limit > 10) limit = 10;
+      
+      const result = await this.run(
+        'UPDATE codes SET max_hwid_limit = $1 WHERE code = $2',
+        [limit, code]
+      );
+      await this.refreshCache();
+      return result.changes > 0;
+    } catch (error) {
+      console.error('Update HWID limit error:', error);
+      return false;
+    }
+  }
+
+  async getCodeHwids(code) {
+    try {
+      const result = await this.all(
+        'SELECT hwid, assigned_at, last_used FROM code_hwids WHERE code = $1 ORDER BY assigned_at DESC',
+        [code]
+      );
+      return Array.isArray(result) ? result : [];
+    } catch (error) {
+      console.error('Get code HWIDs error:', error);
+      return [];
+    }
+  }
+
+  async getCodeHwidCount(code) {
+    try {
+      const result = await this.get(
+        'SELECT COUNT(*) as count FROM code_hwids WHERE code = $1',
+        [code]
+      );
+      return result ? parseInt(result.count) : 0;
+    } catch (error) {
+      console.error('Get HWID count error:', error);
+      return 0;
+    }
+  }
+
+  async isHwidAuthorized(code, hwid) {
+    try {
+      const result = await this.get(
+        'SELECT * FROM code_hwids WHERE code = $1 AND hwid = $2',
+        [code, hwid]
+      );
+      return !!result;
+    } catch (error) {
+      console.error('Check HWID authorized error:', error);
+      return false;
+    }
+  }
+
+  async assignHwidToCode(code, hwid, autoAssign = false) {
+    try {
+      if (!hwid || hwid.length !== 64) {
+        return { success: false, error: 'Invalid HWID format' };
+      }
+
+      const existing = await this.get(
+        'SELECT * FROM code_hwids WHERE code = $1 AND hwid = $2',
+        [code, hwid]
+      );
+      if (existing) {
+        await this.run(
+          'UPDATE code_hwids SET last_used = CURRENT_TIMESTAMP WHERE code = $1 AND hwid = $2',
+          [code, hwid]
+        );
+        return { success: true, message: 'HWID already assigned, updated last_used' };
+      }
+
+      const otherCode = await this.get(
+        'SELECT code FROM code_hwids WHERE hwid = $1 AND code != $2',
+        [hwid, code]
+      );
+      if (otherCode) {
+        return { 
+          success: false, 
+          error: `HWID is already assigned to code: ${otherCode.code}` 
+        };
+      }
+
+      const currentCount = await this.getCodeHwidCount(code);
+      const limit = await this.getCodeHwidLimit(code);
+
+      if (currentCount >= limit) {
+        if (!autoAssign) {
+          return { 
+            success: false, 
+            error: `HWID limit reached (${limit}). Remove some HWIDs first.`,
+            limit_reached: true,
+            current_count: currentCount,
+            max_limit: limit
+          };
+        }
+        return {
+          success: false,
+          error: `HWID limit reached (${limit}). Auto-deactivating code.`,
+          limit_reached: true,
+          current_count: currentCount,
+          max_limit: limit,
+          auto_deactivate: true
+        };
+      }
+
+      await this.run(
+        'INSERT INTO code_hwids (code, hwid, assigned_at) VALUES ($1, $2, CURRENT_TIMESTAMP)',
+        [code, hwid]
+      );
+
+      await this.run(
+        'UPDATE codes SET hwid = $1 WHERE code = $2',
+        [hwid, code]
+      );
+
+      await this.refreshCache();
+      return { success: true, message: 'HWID assigned successfully', auto_assigned: autoAssign };
+    } catch (error) {
+      console.error('Assign HWID error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async removeHwidFromCode(code, hwid) {
+    try {
+      await this.run(
+        'DELETE FROM devices WHERE code = $1 AND hwid = $2',
+        [code, hwid]
+      );
+
+      const result = await this.run(
+        'DELETE FROM code_hwids WHERE code = $1 AND hwid = $2',
+        [code, hwid]
+      );
+
+      if (result.changes > 0) {
+        const remaining = await this.getCodeHwids(code);
+        if (remaining && remaining.length > 0) {
+          await this.run(
+            'UPDATE codes SET hwid = $1 WHERE code = $2',
+            [remaining[0].hwid, code]
+          );
+        } else {
+          await this.run(
+            'UPDATE codes SET hwid = NULL WHERE code = $1',
+            [code]
+          );
+        }
+        await this.refreshCache();
+        return { 
+          success: true, 
+          message: 'HWID removed successfully',
+          devices_deleted: result.changes 
+        };
+      }
+      return { success: false, error: 'HWID not found' };
+    } catch (error) {
+      console.error('Remove HWID error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async verifyHwidAccess(code, hwid) {
+    try {
+      const authorized = await this.isHwidAuthorized(code, hwid);
+      if (!authorized) {
+        return { 
+          valid: false, 
+          error: 'This computer is not authorized for this code',
+          needsRegistration: true
+        };
+      }
+
+      const codeInfo = await this.get(
+        'SELECT * FROM codes WHERE code = $1 AND is_active = true',
+        [code]
+      );
+
+      if (!codeInfo) {
+        return { valid: false, error: 'Invalid or inactive code' };
+      }
+
+      if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
+        const now = new Date();
+        const expires = new Date(codeInfo.expires_at);
+        if (now > expires) {
+          await this.run(`UPDATE codes SET status = 'expired' WHERE code = $1`, [code]);
+          return { valid: false, error: 'Subscription expired' };
+        }
+      }
+
+      if (codeInfo.status !== 'active') {
+        return { valid: false, error: `Code is ${codeInfo.status}` };
+      }
+
+      await this.run(
+        'UPDATE code_hwids SET last_used = CURRENT_TIMESTAMP WHERE code = $1 AND hwid = $2',
+        [code, hwid]
+      );
+
+      return {
+        valid: true,
+        username: codeInfo.username,
+        access: codeInfo.access_level,
+        subscription: codeInfo.subscription_type,
+        subscription_started_at: codeInfo.subscription_started_at,
+        subscription_expires_at: codeInfo.expires_at,
+        status_code: codeInfo.status,
+        hwid_limit: codeInfo.max_hwid_limit || 1
+      };
+    } catch (error) {
+      console.error('Verify HWID access error:', error);
+      return { valid: false, error: 'Verification failed' };
+    }
+  }
+
+  // ============================================
+  // AUTO-DEACTIVATE CODE
+  // ============================================
+
+  async autoDeactivateCode(code, reason = 'unauthorized_use') {
+    try {
+        let status = 'auto_deactivated';
+        if (reason === 'multiple_hwids_detected') {
+            status = 'auto_deactivated_multiple_hwids';
+        } else if (reason === 'hwid_limit_exceeded' || reason === 'hwid_limit_exceeded_auto_assign') {
+            status = 'auto_deactivated_limit_exceeded';
+        } else if (reason === 'unauthorized_use') {
+            status = 'auto_deactivated_unauthorized';
+        }
+        
+        await this.run(
+            'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
+            [status, code]
+        );
+        
+        const devices = await this.all(
+            'SELECT device_id FROM devices WHERE code = $1',
+            [code]
+        );
+        
+        for (const dev of devices) {
+            await this.run(
+                'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE device_id = $2',
+                ['revoked', dev.device_id]
+            );
+            await this.logUsage(
+                dev.device_id, 
+                code, 
+                'auto_revoked_' + reason, 
+                `🔒 Device auto-revoked due to ${reason}`
+            );
+        }
+        
+        // Remove all HWIDs
+        await this.run(
+            'DELETE FROM code_hwids WHERE code = $1',
+            [code]
+        );
+        
+        await this.run(
+            'UPDATE codes SET hwid = NULL WHERE code = $1',
+            [code]
+        );
+        
+        await this.logUsage(
+            'system', 
+            code, 
+            'auto_deactivated_' + reason, 
+            `🔒 Code ${code} auto-deactivated due to ${reason}. ${devices.length} devices revoked.`
+        );
+        
+        await this.refreshCache();
+        
+        return {
+            success: true,
+            code: code,
+            devices_revoked: devices.length,
+            reason: reason,
+            status: status
+        };
+    } catch (error) {
+        console.error('Auto-deactivate code error:', error);
+        return {
+            success: false,
+            error: error.message
+        };
+    }
+  }
+
+  // ============================================
+  // CODE MANAGEMENT
+  // ============================================
+
+  calculateExpiration(startDate, subscriptionType) {
+    const date = new Date(startDate);
+    const months = {
+      '3 Months': 3,
+      '6 Months': 6,
+      '9 Months': 9,
+      '12 Months': 12
+    };
+    const monthOffset = months[subscriptionType] || 0;
+    if (monthOffset > 0) {
+      date.setMonth(date.getMonth() + monthOffset);
+      return date.toISOString();
+    }
+    return null;
+  }
+
+  async generateCode(maxDevices = 10, createdBy = 'admin', username = '', notes = '', accessLevel = 'VIP', subscriptionType = 'Lifetime') {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = '';
+    for (let i = 0; i < 8; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    code = code.slice(0, 4) + '-' + code.slice(4);
+
+    try {
+      const now = new Date().toISOString();
+      const expiresAt = subscriptionType === 'Lifetime' ? null : this.calculateExpiration(now, subscriptionType);
+      
+      await this.run(
+        `INSERT INTO codes (code, max_devices, created_by, username, notes, access_level, subscription_type, subscription_started_at, expires_at, status, max_hwid_limit)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', 1)`,
+        [code, maxDevices, createdBy, username.trim(), notes || '', accessLevel, subscriptionType, now, expiresAt]
+      );
+      
+      await this.refreshCache();
+      
+      console.log(`✅ Code generated: ${code} for user: ${username} (${accessLevel}, ${subscriptionType})`);
+      return code;
+    } catch (error) {
+      console.error('Generate code error:', error);
+      throw error;
+    }
+  }
+
+  async getCodeInfo(code) {
+    try {
+      return await this.get('SELECT * FROM codes WHERE code = $1', [code]);
+    } catch (error) {
+      console.error('Get code info error:', error);
+      return null;
+    }
+  }
+
+  async getCodeWithAuth(code, username) {
+    try {
+      const result = await this.get(
+        `SELECT * FROM codes WHERE code = $1 AND username = $2 AND is_active = true`,
+        [code, username]
+      );
+      return result;
+    } catch (error) {
+      console.error('Get code with auth error:', error);
+      return null;
+    }
+  }
+
+  async validateCodeAccess(code, username) {
+    try {
+      const codeInfo = await this.getCodeWithAuth(code, username);
+      
+      if (!codeInfo) {
+        return { valid: false, error: 'Invalid code or username' };
+      }
+
+      if (!codeInfo.is_active) {
+        return { valid: false, error: 'Code is inactive' };
+      }
+
+      if (codeInfo.status !== 'active') {
+        return { valid: false, error: `Code is ${codeInfo.status}` };
+      }
+
+      if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
+        const now = new Date();
+        const expires = new Date(codeInfo.expires_at);
+        if (now > expires) {
+          await this.run(
+            `UPDATE codes SET status = 'expired' WHERE code = $1`,
+            [code]
+          );
+          return { valid: false, error: 'Subscription expired' };
+        }
+      }
+
+      return {
+        valid: true,
+        username: codeInfo.username,
+        access: codeInfo.access_level,
+        subscription: codeInfo.subscription_type,
+        subscription_started_at: codeInfo.subscription_started_at,
+        subscription_expires_at: codeInfo.expires_at,
+        status: codeInfo.status
+      };
+    } catch (error) {
+      console.error('Validate code access error:', error);
+      return { valid: false, error: 'Validation failed' };
+    }
+  }
+
+  async getAllCodes() {
+    try {
+      const result = await this.all(
+        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit
+         FROM codes ORDER BY created_at DESC LIMIT 500`
+      );
+      return result || [];
+    } catch (error) {
+      console.error('Get all codes error:', error);
+      return this.cache.codes || [];
+    }
+  }
+
+  async getActiveCodes() {
+    try {
+      const result = await this.all(
+        `SELECT * FROM codes WHERE is_active = true AND status = 'active' ORDER BY created_at DESC LIMIT 200`
+      );
+      return result || [];
+    } catch (error) {
+      console.error('Get active codes error:', error);
+      return this.cache.codes || [];
+    }
+  }
+
+  async getCodeUsage(code) {
+    try {
+      const devices = await this.all(
+        `SELECT * FROM devices WHERE code = $1 AND status != 'revoked' LIMIT 50`,
+        [code]
+      );
+      const codeInfo = await this.getCodeInfo(code);
+      return {
+        code: code,
+        used: devices.length,
+        devices: devices,
+        username: codeInfo ? codeInfo.username : null,
+        access_level: codeInfo ? codeInfo.access_level : null,
+        subscription_type: codeInfo ? codeInfo.subscription_type : null,
+        status: codeInfo ? codeInfo.status : null
+      };
+    } catch (error) {
+      console.error('Get code usage error:', error);
+      return { code, used: 0, devices: [], username: null, access_level: null, subscription_type: null, status: null };
+    }
+  }
+
+  async deactivateCode(code) {
+    try {
+      const devices = await this.all(
+        'SELECT device_id FROM devices WHERE code = $1 AND status != $2',
+        [code, 'revoked']
+      );
+      
+      await this.run(
+        'DELETE FROM code_hwids WHERE code = $1',
+        [code]
+      );
+      
+      for (const device of devices) {
+        await this.run(
+          'DELETE FROM devices WHERE device_id = $1',
+          [device.device_id]
+        );
+        console.log(`🗑️ Removed device: ${device.device_id}`);
+      }
+      
+      const result = await this.run(
+        'UPDATE codes SET is_active = false, status = $1, hwid = NULL WHERE code = $2',
+        ['inactive', code]
+      );
+      
+      await this.refreshCache();
+      
+      if (result.changes > 0) {
+        console.log(`✅ Code deactivated: ${code} - ${devices.length} devices removed`);
+        return { success: true, devicesRemoved: devices.length };
+      }
+      return { success: false, devicesRemoved: 0 };
+    } catch (error) {
+      console.error('Deactivate code error:', error);
+      return { success: false, devicesRemoved: 0, error: error.message };
+    }
+  }
+
+  async reactivateCode(code, subscriptionType = 'Lifetime') {
+    try {
+      const codeInfo = await this.getCodeInfo(code);
+      if (!codeInfo) {
+        return { success: false, error: 'Code not found' };
+      }
+
+      if (!codeInfo.is_active || codeInfo.status === 'inactive' || codeInfo.status.includes('auto_deactivated')) {
+        await this.run(
+          'DELETE FROM code_hwids WHERE code = $1',
+          [code]
+        );
+        await this.run(
+          'UPDATE codes SET hwid = NULL WHERE code = $1',
+          [code]
+        );
+        console.log(`🔄 HWIDs removed during reactivation of code ${code}`);
+      }
+
+      const now = new Date().toISOString();
+      const expiresAt = subscriptionType === 'Lifetime' ? null : this.calculateExpiration(now, subscriptionType);
+      
+      const result = await this.run(
+        `UPDATE codes 
+         SET is_active = true, 
+             status = 'active', 
+             subscription_type = $1,
+             subscription_started_at = $2,
+             expires_at = $3
+         WHERE code = $4`,
+        [subscriptionType, now, expiresAt, code]
+      );
+      
+      await this.refreshCache();
+      
+      if (result.changes > 0) {
+        console.log(`✅ Code reactivated: ${code} (${subscriptionType})`);
+        return { success: true };
+      }
+      return { success: false };
+    } catch (error) {
+      console.error('Reactivate code error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async updateCodeAccess(code, accessLevel) {
+    try {
+      const result = await this.run(
+        'UPDATE codes SET access_level = $1 WHERE code = $2',
+        [accessLevel, code]
+      );
+      
+      await this.refreshCache();
+      
+      if (result.changes > 0) {
+        console.log(`✅ Code access updated: ${code} -> ${accessLevel}`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Update code access error:', error);
+      return false;
+    }
+  }
+
+  async updateCodeUsername(code, username) {
+    try {
+      const result = await this.run(
+        'UPDATE codes SET username = $1 WHERE code = $2',
+        [username.trim(), code]
+      );
+      
+      await this.refreshCache();
+      
+      if (result.changes > 0) {
+        console.log(`✅ Code username updated: ${code} -> ${username}`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Update code username error:', error);
+      return false;
+    }
+  }
+
+  async updateCodeSubscription(code, subscriptionType) {
+    try {
+      const codeInfo = await this.getCodeInfo(code);
+      if (!codeInfo) return false;
+
+      const now = new Date().toISOString();
+      const expiresAt = subscriptionType === 'Lifetime' ? null : this.calculateExpiration(now, subscriptionType);
+      
+      const result = await this.run(
+        `UPDATE codes 
+         SET subscription_type = $1,
+             subscription_started_at = $2,
+             expires_at = $3,
+             status = 'active',
+             is_active = true
+         WHERE code = $4`,
+        [subscriptionType, now, expiresAt, code]
+      );
+      
+      await this.refreshCache();
+      
+      if (result.changes > 0) {
+        console.log(`✅ Code subscription updated: ${code} -> ${subscriptionType}`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Update code subscription error:', error);
+      return false;
+    }
+  }
+
+  async deleteCode(code) {
+    try {
+      await this.run('DELETE FROM code_hwids WHERE code = $1', [code]);
+      await this.run('DELETE FROM devices WHERE code = $1', [code]);
+      const result = await this.run('DELETE FROM codes WHERE code = $1', [code]);
+      
+      await this.refreshCache();
+      
+      if (result.changes > 0) {
+        console.log(`🗑️ Code deleted: ${code}`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Delete code error:', error);
+      return false;
+    }
+  }
+
+  // ============================================
+  // HWID LOGGING
+  // ============================================
+
+  async logHwidActivity(hwid, code, deviceId, action, status, details, ip, userAgent, browserProfile) {
+    try {
+      await this.run(
+        `INSERT INTO hwid_logs (hwid, code, device_id, action, status, details, ip_address, user_agent, browser_profile)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [hwid, code, deviceId, action, status || 'new', details || '', ip || '', userAgent || '', browserProfile || '']
+      );
+      console.log(`📝 HWID Log: ${action} - ${hwid.substring(0, 16)}... (${status || 'new'})`);
+      return true;
+    } catch (error) {
+      console.error('❌ Error logging HWID activity:', error.message);
+      return false;
+    }
+  }
+
+  async getHwidLogs(limit = 200, status = null) {
+    try {
+      let query = 'SELECT * FROM hwid_logs ORDER BY created_at DESC LIMIT $1';
+      const params = [limit];
+      
+      if (status) {
+        query = 'SELECT * FROM hwid_logs WHERE status = $1 ORDER BY created_at DESC LIMIT $2';
+        params.unshift(status);
+      }
+      
+      const result = await this.all(query, params);
+      return result || [];
+    } catch (error) {
+      console.error('❌ Get HWID logs error:', error.message);
+      return [];
+    }
+  }
+
+  async getHwidLogsByHwid(hwid, limit = 50) {
+    try {
+      return await this.all(
+        'SELECT * FROM hwid_logs WHERE hwid = $1 ORDER BY created_at DESC LIMIT $2',
+        [hwid, limit]
+      );
+    } catch (error) {
+      console.error('❌ Get HWID logs by HWID error:', error.message);
+      return [];
+    }
+  }
+
+  async getNewHwidCount() {
+    try {
+      const result = await this.get(
+        "SELECT COUNT(*) as count FROM hwid_logs WHERE status = 'new'"
+      );
+      return result ? parseInt(result.count) : 0;
+    } catch (error) {
+      console.error('❌ Get new HWID count error:', error.message);
+      return 0;
+    }
+  }
+
+  async markHwidAsSeen(hwid) {
+    try {
+      await this.run(
+        "UPDATE hwid_logs SET status = 'seen' WHERE hwid = $1 AND status = 'new'",
+        [hwid]
+      );
+      return true;
+    } catch (error) {
+      console.error('❌ Mark HWID as seen error:', error.message);
+      return false;
+    }
+  }
+
+  // ============================================
+  // NEW HWID METHODS
+  // ============================================
+
+  async getNewUniqueHwids(limit = 100) {
+    try {
+      const result = await this.all(`
+        SELECT DISTINCT 
+            l.hwid,
+            l.code,
+            l.device_id,
+            l.action,
+            l.details,
+            l.created_at,
+            l.ip_address,
+            l.user_agent,
+            l.browser_profile,
+            l.status,
+            CASE 
+                WHEN ch.code IS NOT NULL THEN 'assigned'
+                ELSE 'new'
+            END as assignment_status,
+            ch.code as assigned_code,
+            d.cpu_name,
+            d.gpu_name,
+            d.ram_total_gb,
+            d.storage_total_gb,
+            d.device_name,
+            d.browser_profile as device_profile,
+            d.wallpaper_name
+        FROM hwid_logs l
+        LEFT JOIN code_hwids ch ON l.hwid = ch.hwid
+        LEFT JOIN devices d ON l.hwid = d.hwid
+        WHERE (l.status = 'new' OR l.status = 'seen')
+        AND ch.code IS NULL
+        ORDER BY l.created_at DESC
+        LIMIT $1
+      `, [limit]);
+      
+      const uniqueMap = new Map();
+      for (const row of result) {
+        if (!uniqueMap.has(row.hwid)) {
+          uniqueMap.set(row.hwid, row);
+        }
+      }
+      
+      return Array.from(uniqueMap.values());
+    } catch (error) {
+      console.error('❌ Get new unique HWIDs error:', error.message);
+      return [];
+    }
+  }
+
+  async getUniqueNewHwidCount() {
+    try {
+      const result = await this.get(`
+        SELECT COUNT(DISTINCT hwid) as count 
+        FROM hwid_logs 
+        WHERE status IN ('new', 'seen')
+        AND hwid NOT IN (SELECT hwid FROM code_hwids)
+      `);
+      return result ? parseInt(result.count) : 0;
+    } catch (error) {
+      console.error('❌ Get unique new HWID count error:', error.message);
+      return 0;
+    }
+  }
+
+  async markHwidAsAssigned(hwid, code) {
+    try {
+      await this.run(
+        "UPDATE hwid_logs SET status = 'assigned' WHERE hwid = $1",
+        [hwid]
+      );
+      return true;
+    } catch (error) {
+      console.error('❌ Mark HWID as assigned error:', error.message);
+      return false;
+    }
+  }
+
+  async getHwidLogsWithAssignment(limit = 200, status = null) {
+    try {
+      let query = `
+        SELECT 
+            l.*,
+            CASE 
+                WHEN ch.code IS NOT NULL THEN 'assigned'
+                ELSE 'unassigned'
+            END as assignment_status,
+            ch.code as assigned_code,
+            c.username as assigned_username
+        FROM hwid_logs l
+        LEFT JOIN code_hwids ch ON l.hwid = ch.hwid
+        LEFT JOIN codes c ON ch.code = c.code
+        WHERE ch.code IS NULL
+      `;
+      const params = [];
+      
+      if (status) {
+        query += ` AND l.status = $1`;
+        params.push(status);
+      }
+      
+      query += ` ORDER BY l.created_at DESC LIMIT $${params.length + 1}`;
+      params.push(limit);
+      
+      const result = await this.all(query, params);
+      return result || [];
+    } catch (error) {
+      console.error('❌ Get HWID logs with assignment error:', error.message);
+      return [];
+    }
+  }
+
+  // ============================================
+  // DEVICE MANAGEMENT
+  // ============================================
+
+  async getDeviceStatus(deviceId) {
+    try {
+      const device = await this.getDevice(deviceId);
+      if (!device) {
+        return { exists: false, status: 'not_found' };
+      }
+      
+      const codeInfo = await this.getCodeInfo(device.code);
+      
+      return { 
+        exists: true, 
+        status: device.status,
+        code: device.code,
+        username: codeInfo ? codeInfo.username : null,
+        access: codeInfo ? codeInfo.access_level : null,
+        subscription: codeInfo ? codeInfo.subscription_type : null,
+        subscription_started_at: codeInfo ? codeInfo.subscription_started_at : null,
+        subscription_expires_at: codeInfo ? codeInfo.expires_at : null,
+        status_code: codeInfo ? codeInfo.status : null,
+        wallpaper: device.wallpaper_name ? {
+          name: device.wallpaper_name,
+          size_kb: device.wallpaper_size_kb,
+          width: device.wallpaper_width,
+          height: device.wallpaper_height,
+          has_base64: !!device.wallpaper_base64
+        } : null,
+        device: {
+          id: device.device_id,
+          approved_at: device.approved_at,
+          revoked_at: device.revoked_at
+        }
+      };
+    } catch (error) {
+      console.error('Get device status error:', error);
+      return { exists: false, status: 'error' };
+    }
+  }
+
+  async removeUser(deviceId) {
+    try {
+      const device = await this.getDevice(deviceId);
+      if (!device) return false;
+
+      const code = device.code;
+      
+      const result = await this.run('DELETE FROM devices WHERE device_id = $1', [deviceId]);
+      
+      if (result.changes > 0) {
+        if (code) {
+          await this.run('UPDATE codes SET used_count = used_count - 1 WHERE code = $1', [code]);
+          await this.logUsage(deviceId, code, 'remove_user', 'User removed, slot freed');
+        }
+        
+        await this.refreshCache();
+        
+        console.log(`🗑️ User ${deviceId} removed`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Remove user error:', error);
+      return false;
+    }
+  }
+
+  async revokeDevice(deviceId) {
+    try {
+      const device = await this.getDevice(deviceId);
+      if (!device) return false;
+
+      const result = await this.run(
+        'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE device_id = $2',
+        ['revoked', deviceId]
+      );
+      
+      if (result.changes > 0) {
+        if (device.code) {
+          await this.run('UPDATE codes SET used_count = used_count - 1 WHERE code = $1', [device.code]);
+          await this.logUsage(deviceId, device.code, 'revoke', 'Device revoked');
+        }
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Revoke device error:', error);
+      return false;
+    }
+  }
+
+  async updatePing(deviceId) {
+    try {
+      await this.run(
+        'UPDATE devices SET last_ping = CURRENT_TIMESTAMP, ping_count = ping_count + 1, updated_at = CURRENT_TIMESTAMP WHERE device_id = $1',
+        [deviceId]
+      );
+    } catch (error) {
+      console.error('Update ping error:', error);
+    }
+  }
+
+  // ============================================
+  // LOGGING
+  // ============================================
+
+  async logUsage(deviceId, code, action, details = '') {
+    try {
+      await this.run(
+        'INSERT INTO usage_logs (device_id, code, action, details) VALUES ($1, $2, $3, $4)',
+        [deviceId || 'system', code || null, action, details]
+      );
+    } catch (error) {
+      console.error('Logging error:', error);
+    }
+  }
+
+  async getUsageLogs(deviceId = null, limit = 100) {
+    try {
+      let query = 'SELECT * FROM usage_logs';
+      const params = [];
+      
+      if (deviceId) {
+        query += ' WHERE device_id = $1';
+        params.push(deviceId);
+      }
+      
+      query += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1);
+      params.push(limit);
+      
+      return await this.all(query, params);
+    } catch (error) {
+      console.error('Get usage logs error:', error);
+      return [];
+    }
+  }
+
+  // ============================================
+  // STATS
+  // ============================================
+
+  async getStats() {
+    try {
+      if (this.cache.hasInitialData && this.cache.lastUpdate > Date.now() - this.cacheTTL * 1000) {
+        return this.cache.stats;
+      }
+      
+      const total = await this.get('SELECT COUNT(*) as count FROM devices');
+      const pending = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'pending'");
+      const approved = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'approved'");
+      const revoked = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'revoked'");
+      const totalPings = await this.get('SELECT COALESCE(SUM(ping_count), 0) as total FROM devices');
+      const totalCodes = await this.get('SELECT COUNT(*) as count FROM codes');
+      const activeCodes = await this.get("SELECT COUNT(*) as count FROM codes WHERE is_active = true AND status = 'active'");
+      const pendingRequests = await this.get("SELECT COUNT(*) as count FROM requests WHERE status = 'pending'");
+
+      const stats = {
+        total: parseInt(total?.count || 0),
+        pending: parseInt(pending?.count || 0),
+        approved: parseInt(approved?.count || 0),
+        revoked: parseInt(revoked?.count || 0),
+        totalPings: parseInt(totalPings?.total || 0),
+        totalCodes: parseInt(totalCodes?.count || 0),
+        activeCodes: parseInt(activeCodes?.count || 0),
+        pendingRequests: parseInt(pendingRequests?.count || 0)
+      };
+      
+      this.cache.stats = stats;
+      this.cache.lastUpdate = Date.now();
+      
+      return stats;
+    } catch (error) {
+      console.error('Get stats error:', error);
+      return this.cache.stats || {
+        total: 0,
+        pending: 0,
+        approved: 0,
+        revoked: 0,
+        totalPings: 0,
+        totalCodes: 0,
+        activeCodes: 0,
+        pendingRequests: 0
+      };
+    }
+  }
+
+  // ============================================
+  // ADMIN
+  // ============================================
+
+  async createAdmin(username, passwordHash) {
+    try {
+      const result = await this.run(
+        'INSERT INTO admins (username, password_hash) VALUES ($1, $2) ON CONFLICT (username) DO UPDATE SET password_hash = EXCLUDED.password_hash',
+        [username, passwordHash]
+      );
+      return result;
+    } catch (error) {
+      console.error('Create admin error:', error);
+      return null;
+    }
+  }
+
+  async getAdmin(username) {
+    try {
+      return await this.get('SELECT * FROM admins WHERE username = $1', [username]);
+    } catch (error) {
+      console.error('Get admin error:', error);
+      return null;
+    }
+  }
+
+  // ============================================
+  // REQUEST MANAGEMENT
+  // ============================================
+
+  async getPendingRequests() {
+    try {
+      return await this.all(
+        'SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id WHERE r.status = $1 ORDER BY r.requested_at ASC LIMIT 50',
+        ['pending']
+      );
+    } catch (error) {
+      console.error('Get pending requests error:', error);
+      return this.cache.requests || [];
+    }
+  }
+
+  async respondToRequest(requestId, status, adminResponse = '') {
+    const request = await this.get('SELECT * FROM requests WHERE id = $1', [requestId]);
+    if (!request) return false;
+
+    const result = await this.run(
+      'UPDATE requests SET status = $1, responded_at = CURRENT_TIMESTAMP, admin_response = $2 WHERE id = $3',
+      [status, adminResponse, requestId]
+    );
+    
+    if (result.changes > 0) {
+      await this.logUsage(request.device_id, request.code, 'request_response', 
+        `Request ${status}: ${adminResponse}`);
+      
+      if (status === 'approved' && request.code) {
+        const codeInfo = await this.getCodeInfo(request.code);
+        if (codeInfo) {
+          const newLimit = codeInfo.max_devices + 1;
+          await this.updateCodeAccess(request.code, newLimit);
+          await this.logUsage(request.device_id, request.code, 'code_extended', 
+            `Extended to ${newLimit} devices due to request`);
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // ============================================
+  // CACHE
+  // ============================================
+
+  async refreshCache() {
+    try {
+      console.log('🔄 Refreshing cache...');
+      
+      const [codes, stats, devices, requests] = await Promise.all([
+        this.getAllCodes(),
+        this.getStats(),
+        this.getDevices(),
+        this.getPendingRequests()
+      ]);
+      
+      if (codes !== null && codes !== undefined) {
+        this.cache.codes = codes;
+        console.log(`✅ Updated codes cache with ${codes.length} codes`);
+      }
+      
+      if (stats !== null && stats !== undefined && Object.keys(stats).length > 0) {
+        this.cache.stats = stats;
+      }
+      
+      if (devices !== null && devices !== undefined) {
+        this.cache.devices = devices;
+        console.log(`✅ Updated devices cache with ${devices.length} devices`);
+      }
+      
+      if (requests !== null && requests !== undefined) {
+        this.cache.requests = requests;
+      }
+      
+      this.cache.lastUpdate = Date.now();
+      this.cache.hasInitialData = true;
+      
+      console.log(`✅ Cache: ${this.cache.codes.length} codes, ${this.cache.devices.length} devices`);
+      
+      return this.cache;
+    } catch (error) {
+      console.error('Cache refresh error:', error);
+      return this.cache;
+    }
+  }
+
+  getCachedData() {
+    return {
+      codes: this.cache.codes || [],
+      stats: this.cache.stats || { total: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
+      devices: this.cache.devices || [],
+      requests: this.cache.requests || []
+    };
+  }
+
+  // ============================================
+  // CLEANUP
+  // ============================================
+
+  async cleanupInactiveDevices() {
+    try {
+      const result = await this.query(`
+        DELETE FROM devices 
+        WHERE last_ping < NOW() - INTERVAL '7 days'
+        AND status != 'revoked'
+        RETURNING device_id, code
+      `);
+      
+      if (result.rowCount > 0) {
+        console.log(`🧹 Cleaned up ${result.rowCount} inactive devices`);
+        
+        for (const row of result.rows) {
+          await this.query(
+            `UPDATE codes SET used_count = used_count - 1 WHERE code = $1`,
+            [row.code]
+          );
+        }
+      }
+      
+      return result.rowCount;
+    } catch (error) {
+      console.error('Cleanup inactive devices error:', error);
+      return 0;
+    }
+  }
+
+  // ============================================
+  // CONNECTION POOL STATUS
+  // ============================================
+
+  getPoolStatus() {
+    return {
+      total: this.pool.totalCount,
+      idle: this.pool.idleCount,
+      waiting: this.pool.waitingCount,
+      max: this.pool.options.max,
+      min: this.pool.options.min,
+      used: this.pool.totalCount - this.pool.idleCount
+    };
+  }
+
+  close() {
+    this.pool.end();
+  }
+}
+
+module.exports = new DeviceDatabase();
