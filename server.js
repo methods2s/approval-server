@@ -1,4 +1,4 @@
-// server.js - Complete Optimized Version for 50+ Users with Supabase Pro (FIXED)
+// server.js - Complete Optimized Version with Performance Fixes
 
 require('dotenv').config();
 const express = require('express');
@@ -146,7 +146,8 @@ const limiter = rateLimit({
             '/api/hwid-logs',
             '/api/hwid-log',
             '/api/hwid-new',
-            '/api/wallpaper/'
+            '/api/wallpaper/',
+            '/api/device/'
         ];
         return skipPaths.some(path => req.path.startsWith(path));
     }
@@ -210,7 +211,8 @@ app.get('/api/health', async (req, res) => {
                 hasData: db.cache.hasInitialData,
                 lastUpdate: db.cache.lastUpdate ? new Date(db.cache.lastUpdate).toISOString() : 'never',
                 codes: db.cache.codes.length,
-                devices: db.cache.devices.length
+                devices: db.cache.devices.length,
+                ttl: db.cacheTTL
             }
         });
     } catch (error) {
@@ -239,12 +241,14 @@ app.get('/api/pool-status', isApiAuthenticated, (req, res) => {
             waiting: status.waiting || 0,
             max: status.max || 10,
             min: status.min || 3,
-            used: status.used || 0
+            used: status.used || 0,
+            utilization: status.max ? Math.round((status.used / status.max) * 100) : 0
         },
         cache: {
             codes: cached.codes?.length || 0,
             devices: cached.devices?.length || 0,
-            lastUpdate: cached.lastUpdate ? new Date(cached.lastUpdate).toISOString() : 'never'
+            lastUpdate: cached.lastUpdate ? new Date(cached.lastUpdate).toISOString() : 'never',
+            ttl: db.cacheTTL
         },
         queue: {
             active: db.activeQueries || 0,
@@ -257,7 +261,7 @@ app.get('/api/pool-status', isApiAuthenticated, (req, res) => {
 });
 
 // ============================================
-// CONNECTION STATS - NEW
+// CONNECTION STATS
 // ============================================
 
 app.get('/api/connection-stats', isApiAuthenticated, (req, res) => {
@@ -276,7 +280,8 @@ app.get('/api/connection-stats', isApiAuthenticated, (req, res) => {
         cache: {
             codes: cached.codes?.length || 0,
             devices: cached.devices?.length || 0,
-            lastUpdate: cached.lastUpdate ? new Date(cached.lastUpdate).toISOString() : 'never'
+            lastUpdate: cached.lastUpdate ? new Date(cached.lastUpdate).toISOString() : 'never',
+            ttl: db.cacheTTL
         },
         queue: {
             active: db.activeQueries || 0,
@@ -1058,12 +1063,17 @@ app.get('/api/codes', isApiAuthenticated, async (req, res) => {
     }
 });
 
+// ============================================
+// DASHBOARD DATA - OPTIMIZED
+// ============================================
+
 app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
     try {
         db.cleanupInactiveDevices().catch(err => console.error('Cleanup error:', err));
         
         const data = await db.getDashboardData();
         
+        // OPTIMIZED: Remove wallpaper_base64 from response
         const devicesWithoutWallpaper = (data.devices || []).map(device => ({
             ...device,
             wallpaper_base64: null,
@@ -1071,7 +1081,7 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
             wallpaper_size_kb: device.wallpaper_size_kb || 0,
             wallpaper_width: device.wallpaper_width || 0,
             wallpaper_height: device.wallpaper_height || 0,
-            has_wallpaper: !!device.wallpaper_base64
+            has_wallpaper: !!device.wallpaper_base64 || false
         }));
         
         res.json({
@@ -1080,7 +1090,8 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
             codes: data.codes || [],
             requests: data.requests || [],
             username: req.session.username,
-            cache_age: Math.floor((Date.now() - data.lastUpdate) / 1000)
+            cache_age: Math.floor((Date.now() - data.lastUpdate) / 1000),
+            cache_ttl: db.cacheTTL || 5
         });
     } catch (error) {
         console.error('Dashboard data error:', error);
@@ -1392,6 +1403,71 @@ app.delete('/api/device/:deviceId', async (req, res) => {
 });
 
 // ============================================
+// BATCH DEVICE UPDATE - NEW OPTIMIZED
+// ============================================
+
+app.post('/api/device/batch-update', isApiAuthenticated, async (req, res) => {
+    const { updates } = req.body;
+    
+    if (!updates || !Array.isArray(updates)) {
+        return res.status(400).json({ 
+            success: false, 
+            error: 'Updates array is required' 
+        });
+    }
+    
+    if (updates.length === 0) {
+        return res.json({ 
+            success: true, 
+            updated: 0,
+            message: 'No updates to process'
+        });
+    }
+    
+    try {
+        const result = await db.batchUpdateDevices(updates);
+        res.json(result);
+    } catch (error) {
+        console.error('Batch update error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to batch update devices'
+        });
+    }
+});
+
+// ============================================
+// GET HARDWARE SPECS - NEW OPTIMIZED
+// ============================================
+
+app.get('/api/device/:deviceId/hardware', isApiAuthenticated, async (req, res) => {
+    const { deviceId } = req.params;
+    
+    try {
+        const specs = await db.getHardwareSpecs(deviceId);
+        
+        if (specs) {
+            res.json({
+                success: true,
+                hardware: specs
+            });
+        } else {
+            res.json({
+                success: false,
+                hardware: null,
+                message: 'Hardware specs not found'
+            });
+        }
+    } catch (error) {
+        console.error('Get hardware specs error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to get hardware specs'
+        });
+    }
+});
+
+// ============================================
 // HWID MANAGER
 // ============================================
 
@@ -1554,24 +1630,32 @@ app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) =>
 });
 
 // ============================================
-// HWID LOGS ENDPOINTS
+// HWID LOGS - OPTIMIZED WITH PAGINATION
 // ============================================
 
 app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
     try {
-        const limit = Math.min(parseInt(req.query.limit) || 200, 500);
+        const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+        const page = parseInt(req.query.page) || 1;
+        const offset = (page - 1) * limit;
         const status = req.query.status || null;
         
-        console.log(`📊 Fetching HWID logs - Limit: ${limit}, Status: ${status}`);
+        console.log(`📊 Fetching HWID logs - Page: ${page}, Limit: ${limit}, Status: ${status}`);
         
-        const logs = await db.getHwidLogsWithAssignment(limit, status);
-        const newCount = await db.getUniqueNewHwidCount();
+        const [logs, total, newCount] = await Promise.all([
+            db.getHwidLogsWithAssignment(limit, status, offset),
+            db.getHwidLogsCount(status),
+            db.getUniqueNewHwidCount()
+        ]);
         
         res.json({
             success: true,
             logs: logs || [],
-            new_count: newCount || 0,
-            total: logs ? logs.length : 0
+            total: total || 0,
+            page: page,
+            limit: limit,
+            total_pages: Math.ceil((total || 0) / limit),
+            new_count: newCount || 0
         });
     } catch (error) {
         console.error('❌ Get HWID logs error:', error);
@@ -1579,8 +1663,11 @@ app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
             success: false, 
             error: 'Failed to get HWID logs: ' + error.message,
             logs: [],
+            total: 0,
             new_count: 0,
-            total: 0
+            page: 1,
+            limit: 50,
+            total_pages: 0
         });
     }
 });
@@ -1644,18 +1731,27 @@ app.get('/api/hwid-logs/new-count', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// NEW HWID DETECTION
+// NEW HWID DETECTION - OPTIMIZED
 // ============================================
 
 app.get('/api/hwid-new', isApiAuthenticated, async (req, res) => {
     try {
-        const limit = Math.min(parseInt(req.query.limit) || 100, 500);
-        const newHwids = await db.getNewUniqueHwids(limit);
+        const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+        const page = parseInt(req.query.page) || 1;
+        const offset = (page - 1) * limit;
+        
+        const [hwids, total] = await Promise.all([
+            db.getNewUniqueHwids(limit, offset),
+            db.getUniqueNewHwidCount()
+        ]);
         
         res.json({
             success: true,
-            hwids: newHwids || [],
-            total: newHwids ? newHwids.length : 0
+            hwids: hwids || [],
+            total: total || 0,
+            page: page,
+            limit: limit,
+            total_pages: Math.ceil((total || 0) / limit)
         });
     } catch (error) {
         console.error('❌ Get new HWIDs error:', error);
@@ -1663,7 +1759,10 @@ app.get('/api/hwid-new', isApiAuthenticated, async (req, res) => {
             success: false, 
             error: 'Failed to get new HWIDs: ' + error.message,
             hwids: [],
-            total: 0
+            total: 0,
+            page: 1,
+            limit: 50,
+            total_pages: 0
         });
     }
 });
@@ -2078,7 +2177,8 @@ app.get('/api/metrics', isApiAuthenticated, async (req, res) => {
             codes: cached.codes?.length || 0,
             devices: cached.devices?.length || 0,
             lastUpdate: cached.lastUpdate ? new Date(cached.lastUpdate).toISOString() : 'never',
-            hasData: cached.hasInitialData
+            hasData: cached.hasInitialData,
+            ttl: db.cacheTTL
         },
         uptime: process.uptime(),
         timestamp: new Date().toISOString()
@@ -2146,6 +2246,14 @@ createDefaultAdmin().then(() => {
         console.log('✅ CORS: Chrome Extensions allowed');
         console.log('✅ Supabase Pro Plan Optimized');
         console.log(`✅ Rate Limits: Register=${registerLimiter.max}/min, API=${apiLimiter.max}/min`);
+        console.log('='.repeat(60));
+        console.log('⚡ OPTIMIZATIONS ENABLED:');
+        console.log('   ✅ Cache TTL: 5 seconds');
+        console.log('   ✅ Dashboard Limit: 50 items');
+        console.log('   ✅ HWID Logs: Pagination (50/page)');
+        console.log('   ✅ Parallel Queries');
+        console.log('   ✅ Batch Updates');
+        console.log('   ✅ Hardware Specs Cache');
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');
