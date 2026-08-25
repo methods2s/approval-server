@@ -1,4 +1,4 @@
-// server.js - Complete Optimized Version for Supabase Pro Plan
+// server.js - Complete Optimized Version for 50+ Users with Supabase Pro
 
 require('dotenv').config();
 const express = require('express');
@@ -126,12 +126,12 @@ app.use((req, res, next) => {
 });
 
 // ============================================
-// RATE LIMIT - INCREASED FOR MANY USERS
+// RATE LIMIT - INCREASED FOR 50+ USERS
 // ============================================
 
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: parseInt(process.env.GENERAL_RATE_LIMIT_MAX) || 1000,
+    max: parseInt(process.env.GENERAL_RATE_LIMIT_MAX) || 500,
     message: { 
         error: 'Too many requests, please try again later.',
         retryAfter: 15 * 60
@@ -156,14 +156,14 @@ app.use('/api/', limiter);
 
 const registerLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: parseInt(process.env.REGISTER_RATE_LIMIT_MAX) || 50,
+    max: parseInt(process.env.REGISTER_RATE_LIMIT_MAX) || 10,
     message: { error: 'Too many registration attempts. Please wait.' }
 });
 app.use('/api/register', registerLimiter);
 
 const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: parseInt(process.env.API_RATE_LIMIT_MAX) || 200,
+    max: parseInt(process.env.API_RATE_LIMIT_MAX) || 100,
     message: { error: 'Too many API requests. Please wait.' }
 });
 app.use('/api/codes', apiLimiter);
@@ -237,8 +237,8 @@ app.get('/api/pool-status', isApiAuthenticated, (req, res) => {
             total: status.total || 0,
             idle: status.idle || 0,
             waiting: status.waiting || 0,
-            max: status.max || 30,
-            min: status.min || 10,
+            max: status.max || 10,
+            min: status.min || 3,
             used: status.used || 0
         },
         cache: {
@@ -249,9 +249,40 @@ app.get('/api/pool-status', isApiAuthenticated, (req, res) => {
         queue: {
             active: db.activeQueries || 0,
             queued: db.queryQueue?.length || 0,
-            maxConcurrent: db.maxConcurrentQueries || 20
+            maxConcurrent: db.maxConcurrentQueries || 8
         },
         uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+    });
+});
+
+// ============================================
+// CONNECTION STATS - NEW
+// ============================================
+
+app.get('/api/connection-stats', isApiAuthenticated, (req, res) => {
+    const poolStatus = db.getPoolStatus();
+    const cached = db.getCachedData();
+    
+    res.json({
+        database: {
+            total: poolStatus.total || 0,
+            idle: poolStatus.idle || 0,
+            waiting: poolStatus.waiting || 0,
+            max: poolStatus.max || 10,
+            used: poolStatus.used || 0,
+            utilization: poolStatus.max ? Math.round((poolStatus.used / poolStatus.max) * 100) : 0
+        },
+        cache: {
+            codes: cached.codes?.length || 0,
+            devices: cached.devices?.length || 0,
+            lastUpdate: cached.lastUpdate ? new Date(cached.lastUpdate).toISOString() : 'never'
+        },
+        queue: {
+            active: db.activeQueries || 0,
+            queued: db.queryQueue?.length || 0,
+            maxConcurrent: db.maxConcurrentQueries || 8
+        },
         timestamp: new Date().toISOString()
     });
 });
@@ -2106,10 +2137,11 @@ createDefaultAdmin().then(() => {
         console.log(`💚 Health: http://localhost:${PORT}/api/health`);
         console.log(`📈 Metrics: http://localhost:${PORT}/api/metrics`);
         console.log(`📊 Pool Status: http://localhost:${PORT}/api/pool-status`);
+        console.log(`📊 Connection Stats: http://localhost:${PORT}/api/connection-stats`);
         console.log('='.repeat(60));
         console.log(`📊 Database Pool: max=${db.pool.options.max}, min=${db.pool.options.min}`);
         console.log(`⏱️  Cache TTL: ${db.cacheTTL}s`);
-        console.log(`📈 Max Concurrent Queries: ${db.maxConcurrentQueries || 20}`);
+        console.log(`📈 Max Concurrent Queries: ${db.maxConcurrentQueries || 8}`);
         console.log('='.repeat(60));
         console.log('✅ CORS: Chrome Extensions allowed');
         console.log('✅ Supabase Pro Plan Optimized');
