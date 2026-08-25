@@ -1,4 +1,4 @@
-// database-pg.js - COMPLETE WITH ALL METHODS
+// database-pg.js - COMPLETE WITH SSL FIX FOR RENDER
 
 const { Pool } = require('pg');
 
@@ -109,18 +109,36 @@ class ConnectionQueue {
 }
 
 // ============================================
-// MAIN DATABASE CLASS
+// MAIN DATABASE CLASS - FIXED SSL FOR RENDER
 // ============================================
 class DeviceDatabase {
   constructor() {
     const connectionString = process.env.DATABASE_URL;
+    const isProduction = process.env.NODE_ENV === 'production';
+    const isSupabase = connectionString && connectionString.includes('supabase');
     
     console.log('📡 Connecting to database...');
+    console.log(`🔗 Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
     console.log(`🔗 Connection string: ${connectionString ? connectionString.substring(0, 50) + '...' : 'Not set'}`);
+    
+    // ============================================
+    // SSL CONFIGURATION - Works for both local and Render
+    // ============================================
+    let sslConfig;
+    
+    if (isProduction) {
+      // Production (Render) - Need SSL with rejectUnauthorized false
+      sslConfig = {
+        rejectUnauthorized: false
+      };
+    } else {
+      // Local development - Disable SSL
+      sslConfig = false;
+    }
     
     this.pool = new Pool({
       connectionString: connectionString,
-      ssl: false,
+      ssl: sslConfig,
       max: parseInt(process.env.DB_POOL_MAX) || 10,
       min: parseInt(process.env.DB_POOL_MIN) || 2,
       idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT) || 60000,
@@ -141,6 +159,7 @@ class DeviceDatabase {
       idle_in_transaction_session_timeout: 120000
     });
     
+    // Pool event handlers
     this.pool.on('error', (err) => {
       console.error('❌ Database pool error:', err);
     });
@@ -153,27 +172,40 @@ class DeviceDatabase {
       console.log('🔌 Database connection removed from pool');
     });
     
+    // Initialize components
     this.queryCache = new QueryCache(30000);
     this.connectionQueue = new ConnectionQueue();
     
+    // Memory cache
     this.cache = {
       codes: [],
-      stats: { total: 0, pending: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
+      stats: { 
+        total: 0, 
+        pending: 0,
+        approved: 0, 
+        revoked: 0, 
+        totalPings: 0, 
+        totalCodes: 0, 
+        activeCodes: 0, 
+        pendingRequests: 0 
+      },
       devices: [],
       requests: [],
       lastUpdate: 0,
       hasInitialData: false
     };
     
+    // Initialize database
     this.initDatabase();
     this.startPoolMonitoring();
     
     console.log('✅ PostgreSQL Database initialized');
     console.log(`📊 Connection Pool: max=${this.pool.options.max}, min=${this.pool.options.min}`);
+    console.log(`🔒 SSL: ${this.pool.options.ssl ? 'Enabled' : 'Disabled'}`);
   }
 
   // ============================================
-  // POOL MONITORING - FIXED
+  // POOL MONITORING
   // ============================================
 
   getPoolStats() {
@@ -243,11 +275,13 @@ class DeviceDatabase {
       console.log('✅ Database initialization complete!');
     } catch (error) {
       console.error('❌ Database initialization failed:', error.message);
+      console.log('💡 Please check your DATABASE_URL in .env file');
+      console.log('💡 Make sure your IP is allowed in Supabase dashboard');
     }
   }
 
   // ============================================
-  // TEST CONNECTION
+  // TEST CONNECTION WITH RETRY
   // ============================================
 
   async testConnection(retries = 5) {
@@ -262,8 +296,8 @@ class DeviceDatabase {
       } catch (error) {
         console.error(`❌ Connection attempt ${attempt} failed:`, error.message);
         if (attempt < retries) {
-          const delay = Math.min(5000 * attempt, 30000);
-          console.log(`⏳ Waiting ${delay/1000}s before retry...`);
+          const delay = Math.min(5000 * Math.pow(2, attempt - 1), 30000);
+          console.log(`⏳ Retrying in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         } else {
           throw error;
@@ -273,7 +307,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // QUERY METHODS
+  // QUERY METHODS WITH RETRY AND TIMEOUT
   // ============================================
 
   async query(sql, params = [], retries = 5) {
@@ -391,6 +425,7 @@ class DeviceDatabase {
         )
       `);
 
+      // Add missing columns to codes table
       const columnsToAdd = [
         { name: 'username', type: 'TEXT' },
         { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
@@ -454,6 +489,7 @@ class DeviceDatabase {
         )
       `);
 
+      // Add hardware and wallpaper columns
       const deviceColumns = [
         { name: 'hwid', type: 'TEXT' },
         { name: 'browser_profile', type: 'TEXT' },
@@ -618,7 +654,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // REGISTER DEVICE
+  // REGISTER DEVICE WITH WALLPAPER
   // ============================================
 
   async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null, hardware = null, wallpaper = null) {
@@ -692,6 +728,7 @@ class DeviceDatabase {
         };
       }
 
+      // Parse hardware and wallpaper
       let cpuName = 'Unknown', gpuName = 'Unknown', ramTotal = 0, storageTotal = 0, deviceName = 'Unknown', profileName = 'Default';
       let wallpaperName = null, wallpaperSizeKb = 0, wallpaperWidth = 0, wallpaperHeight = 0, wallpaperBase64 = null;
 
@@ -809,6 +846,7 @@ class DeviceDatabase {
         `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName} | Wallpaper: ${wallpaperName || 'None'}`
       );
       
+      // Clear cache
       this.queryCache.clearPrefix(`device_${deviceId}`);
       this.queryCache.clearPrefix(`code_${code}`);
       
@@ -2075,9 +2113,17 @@ class DeviceDatabase {
     }
   }
 
+  // ============================================
+  // QUEUE STATS
+  // ============================================
+
   getQueueStats() {
     return this.connectionQueue.getStats();
   }
+
+  // ============================================
+  // CLOSE CONNECTION
+  // ============================================
 
   close() {
     this.pool.end();
