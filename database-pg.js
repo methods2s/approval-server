@@ -1,33 +1,34 @@
-// database-pg.js - Complete Fixed Version with Proper Connection Management
+// database-pg.js - Optimized for Supabase Pro Plan
 
 const { Pool } = require('pg');
 
 class DeviceDatabase {
   constructor() {
-    // SSL Configuration - Fix for self-signed certificates
+    // SSL Configuration
     const sslConfig = process.env.DATABASE_SSL === 'false' ? false : {
       rejectUnauthorized: false,
       sslmode: 'require'
     };
     
-    // Connection configuration - OPTIMIZED
+    // Pro Plan Optimized Connection
     let connectionConfig = {
       connectionString: process.env.DATABASE_URL,
       ssl: sslConfig,
-      max: parseInt(process.env.DATABASE_POOL_MAX) || 50,  // Increased pool size
-      min: parseInt(process.env.DATABASE_POOL_MIN) || 10,   // Keep more connections ready
-      idleTimeoutMillis: parseInt(process.env.DATABASE_IDLE_TIMEOUT) || 60000, // 60 seconds
-      connectionTimeoutMillis: parseInt(process.env.DATABASE_CONNECTION_TIMEOUT) || 30000, // 30 seconds
+      // Pro plan can handle more connections
+      max: parseInt(process.env.DATABASE_POOL_MAX) || 30,
+      min: parseInt(process.env.DATABASE_POOL_MIN) || 10,
+      idleTimeoutMillis: parseInt(process.env.DATABASE_IDLE_TIMEOUT) || 60000,
+      connectionTimeoutMillis: parseInt(process.env.DATABASE_CONNECTION_TIMEOUT) || 15000,
       maxUses: parseInt(process.env.DATABASE_MAX_USES) || 1000,
       keepAlive: true,
       keepAliveInitialDelayMillis: 10000,
       statement_timeout: 30000,
       query_timeout: 30000,
-      // Allow more time for connections
-      acquireTimeoutMillis: 30000
+      acquireTimeoutMillis: 15000,
+      // Allow more connections to queue
+      connectionTimeoutMillis: 15000
     };
 
-    // Override SSL if needed
     if (sslConfig) {
       connectionConfig = {
         ...connectionConfig,
@@ -52,9 +53,14 @@ class DeviceDatabase {
       hasInitialData: false
     };
     
-    this.cacheTTL = parseInt(process.env.CACHE_TTL) || 60;
+    this.cacheTTL = parseInt(process.env.CACHE_TTL) || 30; // Reduced to 30s for fresh data
     
-    // Connection pool event listeners
+    // Query queue for limiting concurrent queries
+    this.queryQueue = [];
+    this.activeQueries = 0;
+    this.maxConcurrentQueries = parseInt(process.env.MAX_CONCURRENT_QUERIES) || 20;
+    
+    // Pool event listeners
     this.pool.on('connect', () => {
       console.log('✅ Database connection established');
     });
@@ -72,20 +78,65 @@ class DeviceDatabase {
     });
     
     this.initTables();
-    console.log('✅ PostgreSQL Database initialized with optimized pool');
+    console.log('✅ PostgreSQL Database initialized with Pro Plan optimization');
     console.log(`📊 Pool: max=${this.pool.options.max}, min=${this.pool.options.min}`);
     console.log(`⏱️  Cache TTL: ${this.cacheTTL}s`);
     console.log(`🔒 SSL: ${sslConfig ? 'Enabled (rejectUnauthorized=false)' : 'Disabled'}`);
+    console.log(`📈 Max Concurrent Queries: ${this.maxConcurrentQueries}`);
   }
 
   // ============================================
-  // CONNECTION MANAGEMENT - SIMPLIFIED & RELIABLE
+  // QUEUED QUERY SYSTEM - Prevents Connection Overload
   // ============================================
+
+  async queuedQuery(sql, params = [], priority = 0) {
+    return new Promise((resolve, reject) => {
+      // Add to queue with priority
+      this.queryQueue.push({ 
+        sql, 
+        params, 
+        priority, 
+        resolve, 
+        reject,
+        timestamp: Date.now()
+      });
+      
+      // Sort by priority (higher priority first)
+      this.queryQueue.sort((a, b) => b.priority - a.priority);
+      
+      this.processQueue();
+    });
+  }
+
+  async processQueue() {
+    // Check if we can process more queries
+    if (this.activeQueries >= this.maxConcurrentQueries || this.queryQueue.length === 0) {
+      return;
+    }
+
+    // Get next query from queue
+    const task = this.queryQueue.shift();
+    this.activeQueries++;
+
+    try {
+      // Execute the query with timeout
+      const result = await this.query(task.sql, task.params);
+      task.resolve(result);
+    } catch (error) {
+      task.reject(error);
+    } finally {
+      this.activeQueries--;
+      // Process next in queue
+      this.processQueue();
+    }
+  }
 
   async query(sql, params = []) {
     let client = null;
     try {
       client = await this.pool.connect();
+      // Set statement timeout for this query
+      await client.query('SET statement_timeout = 30000');
       const result = await client.query(sql, params);
       return result;
     } catch (error) {
@@ -102,10 +153,11 @@ class DeviceDatabase {
     }
   }
 
-  async queryWithTimeout(sql, params = [], timeout = 30000) {
+  async queryWithTimeout(sql, params = [], timeout = 15000) {
     let client = null;
     try {
       client = await this.pool.connect();
+      await client.query(`SET statement_timeout = ${timeout}`);
       const queryPromise = client.query(sql, params);
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('Query timeout')), timeout);
@@ -132,6 +184,7 @@ class DeviceDatabase {
       let client = null;
       try {
         client = await this.pool.connect();
+        await client.query('SET statement_timeout = 30000');
         const result = await client.query(sql, params);
         return result;
       } catch (error) {
@@ -139,11 +192,12 @@ class DeviceDatabase {
         if (error.code === 'ECONNREFUSED' || 
             error.code === 'ETIMEDOUT' || 
             error.code === '57P01' ||
+            error.code === '53300' ||
             error.message.includes('self-signed certificate') ||
             error.message.includes('certificate chain') ||
             error.message.includes('timeout')) {
           if (attempt < maxRetries) {
-            const delay = Math.min(attempt * 1000, 5000);
+            const delay = Math.min(attempt * 500, 2000);
             console.log(`⏳ Retrying in ${delay}ms... (attempt ${attempt}/${maxRetries})`);
             await new Promise(resolve => setTimeout(resolve, delay));
             continue;
@@ -193,36 +247,41 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // BATCH OPERATIONS
+  // HIGH PRIORITY METHODS (Use queued queries)
   // ============================================
 
-  async batchGetCodeInfo(codes) {
-    if (!codes || codes.length === 0) return [];
+  async getCodeInfo(code) {
     try {
-      const placeholders = codes.map((_, i) => `$${i + 1}`).join(', ');
-      const result = await this.query(
-        `SELECT * FROM codes WHERE code IN (${placeholders})`,
-        codes
-      );
-      return result.rows;
+      // High priority (10)
+      const result = await this.queuedQuery('SELECT * FROM codes WHERE code = $1', [code], 10);
+      return result.rows[0] || null;
     } catch (error) {
-      console.error('Batch get code info error:', error);
-      return [];
+      console.error('Get code info error:', error);
+      return null;
     }
   }
 
-  async batchGetDevices(codes) {
-    if (!codes || codes.length === 0) return [];
+  async getDevice(deviceId) {
     try {
-      const placeholders = codes.map((_, i) => `$${i + 1}`).join(', ');
-      const result = await this.query(
-        `SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, cpu_name, gpu_name, ram_total_gb, storage_total_gb, wallpaper_name, wallpaper_width, wallpaper_height, wallpaper_size_kb FROM devices WHERE code IN (${placeholders})`,
-        codes
-      );
-      return result.rows;
+      const result = await this.queuedQuery('SELECT * FROM devices WHERE device_id = $1', [deviceId], 8);
+      return result.rows[0] || null;
     } catch (error) {
-      console.error('Batch get devices error:', error);
-      return [];
+      console.error('Get device error:', error);
+      return null;
+    }
+  }
+
+  async isHwidAuthorized(code, hwid) {
+    try {
+      const result = await this.queuedQuery(
+        'SELECT * FROM code_hwids WHERE code = $1 AND hwid = $2',
+        [code, hwid],
+        9
+      );
+      return !!result.rows[0];
+    } catch (error) {
+      console.error('Check HWID authorized error:', error);
+      return false;
     }
   }
 
@@ -320,7 +379,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Add missing columns to codes table
+      // Add missing columns
       const columnsToAdd = [
         { name: 'username', type: 'TEXT' },
         { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
@@ -354,7 +413,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Indexes for performance
+      // Indexes - Optimized for Pro Plan
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
@@ -365,8 +424,9 @@ class DeviceDatabase {
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status ON hwid_logs(status)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_code ON devices(code)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_last_ping ON devices(last_ping)`);
 
-      // Devices table with wallpaper columns
+      // Devices table
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -398,7 +458,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Add hardware and wallpaper columns to devices table
+      // Add columns
       const deviceColumns = [
         { name: 'hwid', type: 'TEXT' },
         { name: 'browser_profile', type: 'TEXT' },
@@ -423,7 +483,7 @@ class DeviceDatabase {
         }
       }
 
-      // Requests table
+      // Other tables
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS requests (
           id SERIAL PRIMARY KEY,
@@ -437,7 +497,6 @@ class DeviceDatabase {
         )
       `);
 
-      // Usage logs table
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS usage_logs (
           id SERIAL PRIMARY KEY,
@@ -449,7 +508,6 @@ class DeviceDatabase {
         )
       `);
 
-      // Admins table
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS admins (
           id SERIAL PRIMARY KEY,
@@ -459,7 +517,6 @@ class DeviceDatabase {
         )
       `);
 
-      // HWID LOGS TABLE
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS hwid_logs (
           id SERIAL PRIMARY KEY,
@@ -486,12 +543,19 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // REGISTER DEVICE WITH WALLPAPER
+  // REGISTER DEVICE WITH WALLPAPER - OPTIMIZED
   // ============================================
 
   async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null, hardware = null, wallpaper = null) {
     try {
-      const codeInfo = await this.getCodeInfo(code);
+      // Use queued query for high priority
+      const codeInfoResult = await this.queuedQuery(
+        'SELECT * FROM codes WHERE code = $1', 
+        [code], 
+        10
+      );
+      const codeInfo = codeInfoResult.rows[0];
+      
       if (!codeInfo) {
         return { success: false, error: 'Invalid code' };
       }
@@ -515,7 +579,12 @@ class DeviceDatabase {
 
       let isAuthorized = false;
       if (hwid) {
-        isAuthorized = await this.isHwidAuthorized(code, hwid);
+        const authResult = await this.queuedQuery(
+          'SELECT * FROM code_hwids WHERE code = $1 AND hwid = $2',
+          [code, hwid],
+          9
+        );
+        isAuthorized = !!authResult.rows[0];
       }
 
       if (!isAuthorized && hwid) {
@@ -709,17 +778,8 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET DEVICE
+  // GET DEVICE (Using queued query)
   // ============================================
-
-  async getDevice(deviceId) {
-    try {
-      return await this.get('SELECT * FROM devices WHERE device_id = $1', [deviceId]);
-    } catch (error) {
-      console.error('Get device error:', error);
-      return null;
-    }
-  }
 
   async getDevices(status = null) {
     try {
@@ -741,10 +801,12 @@ class DeviceDatabase {
 
   async getDevicesByCode(code) {
     try {
-      return await this.all(
+      const result = await this.queuedQuery(
         'SELECT * FROM devices WHERE code = $1 ORDER BY created_at DESC LIMIT 100', 
-        [code]
+        [code],
+        7
       );
+      return result.rows || [];
     } catch (error) {
       console.error('Get devices by code error:', error);
       return [];
@@ -808,19 +870,6 @@ class DeviceDatabase {
     } catch (error) {
       console.error('Get HWID count error:', error);
       return 0;
-    }
-  }
-
-  async isHwidAuthorized(code, hwid) {
-    try {
-      const result = await this.get(
-        'SELECT * FROM code_hwids WHERE code = $1 AND hwid = $2',
-        [code, hwid]
-      );
-      return !!result;
-    } catch (error) {
-      console.error('Check HWID authorized error:', error);
-      return false;
     }
   }
 
@@ -1025,7 +1074,6 @@ class DeviceDatabase {
             );
         }
         
-        // Remove all HWIDs
         await this.run(
             'DELETE FROM code_hwids WHERE code = $1',
             [code]
@@ -1106,15 +1154,6 @@ class DeviceDatabase {
     } catch (error) {
       console.error('Generate code error:', error);
       throw error;
-    }
-  }
-
-  async getCodeInfo(code) {
-    try {
-      return await this.get('SELECT * FROM codes WHERE code = $1', [code]);
-    } catch (error) {
-      console.error('Get code info error:', error);
-      return null;
     }
   }
 

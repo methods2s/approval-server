@@ -1,4 +1,4 @@
-// server.js - Complete Optimized Version with CORS Fix for Chrome Extensions
+// server.js - Complete Optimized Version for Supabase Pro Plan
 
 require('dotenv').config();
 const express = require('express');
@@ -24,7 +24,6 @@ app.set('trust proxy', 1);
 // SECURITY & COMPRESSION
 // ============================================
 
-// Compression middleware
 app.use(compression({
   level: 6,
   threshold: 1024,
@@ -36,46 +35,33 @@ app.use(compression({
   }
 }));
 
-// Helmet for security headers
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false
 }));
 
 // ============================================
-// CORS - FIXED for Chrome Extensions
+// CORS - Chrome Extensions Allowed
 // ============================================
 
-// Configure CORS to accept Chrome Extension origins
 const corsOptions = {
   origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
-    // Allow all chrome extensions
     if (origin.startsWith('chrome-extension://')) {
       return callback(null, true);
     }
-    
-    // Allow all origins in development
     if (process.env.NODE_ENV === 'development') {
       return callback(null, true);
     }
-    
-    // Allow Render domain
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:3001',
       'https://wantmatures-approval-server.onrender.com',
       'https://*.onrender.com'
     ];
-    
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else if (origin.includes('onrender.com')) {
+    if (allowedOrigins.includes(origin) || origin.includes('onrender.com')) {
       callback(null, true);
     } else {
-      // For production, allow all (use with caution)
       callback(null, true);
     }
   },
@@ -84,19 +70,15 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin', 'Access-Control-Allow-Origin']
 };
 
-// Apply CORS middleware - BEFORE other middleware
 app.use(cors(corsOptions));
-
-// Handle preflight requests
 app.options('*', cors(corsOptions));
 
 // ============================================
-// HEADERS - ADDED Chrome Extension Support
+// HEADERS
 // ============================================
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   
-  // Set appropriate CORS header
   if (origin && origin.startsWith('chrome-extension://')) {
     res.header('Access-Control-Allow-Origin', origin);
   } else {
@@ -112,7 +94,6 @@ app.use((req, res, next) => {
   res.header('Expires', '0');
   res.header('Surrogate-Control', 'no-store');
   
-  // Handle preflight
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -180,7 +161,6 @@ const registerLimiter = rateLimit({
 });
 app.use('/api/register', registerLimiter);
 
-// API rate limiter with stricter limits
 const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
     max: 60,
@@ -242,6 +222,38 @@ app.get('/api/health', async (req, res) => {
             timestamp: new Date().toISOString()
         });
     }
+});
+
+// ============================================
+// POOL STATUS MONITORING
+// ============================================
+
+app.get('/api/pool-status', isApiAuthenticated, (req, res) => {
+    const status = db.getPoolStatus();
+    const cached = db.getCachedData();
+    
+    res.json({
+        connections: {
+            total: status.total || 0,
+            idle: status.idle || 0,
+            waiting: status.waiting || 0,
+            max: status.max || 30,
+            min: status.min || 10,
+            used: status.used || 0
+        },
+        cache: {
+            codes: cached.codes?.length || 0,
+            devices: cached.devices?.length || 0,
+            lastUpdate: cached.lastUpdate ? new Date(cached.lastUpdate).toISOString() : 'never'
+        },
+        queue: {
+            active: db.activeQueries || 0,
+            queued: db.queryQueue?.length || 0,
+            maxConcurrent: db.maxConcurrentQueries || 20
+        },
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+    });
 });
 
 // ============================================
@@ -357,7 +369,6 @@ app.get('/logout', (req, res) => {
 
 app.get('/dashboard', isAuthenticated, async (req, res) => {
     try {
-        // Cleanup inactive devices in background (don't wait)
         db.cleanupInactiveDevices().catch(err => console.error('Cleanup error:', err));
         
         const data = await db.getDashboardData();
@@ -402,7 +413,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - OPTIMIZED WITH CORS
+// REGISTER DEVICE - OPTIMIZED
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -605,7 +616,6 @@ app.post('/api/register', async (req, res) => {
             };
         }
 
-        // Log the response
         console.log('✅ Registration successful for device:', deviceId);
         res.json(responseData);
         
@@ -635,7 +645,6 @@ app.get('/api/wallpaper/:deviceId', async (req, res) => {
             return res.status(404).json({ error: 'Wallpaper not found' });
         }
         
-        // Try to compress if sharp is available
         try {
             const sharp = require('sharp');
             const imageBuffer = Buffer.from(device.wallpaper_base64, 'base64');
@@ -649,7 +658,6 @@ app.get('/api/wallpaper/:deviceId', async (req, res) => {
             res.setHeader('Cache-Control', 'public, max-age=86400');
             res.send(compressed);
         } catch (sharpError) {
-            // Fallback: return original base64
             const imageSrc = device.wallpaper_base64.startsWith('data:image') 
                 ? device.wallpaper_base64 
                 : 'data:image/jpeg;base64,' + device.wallpaper_base64;
@@ -810,7 +818,6 @@ app.get('/api/status/:deviceId', async (req, res) => {
             });
         }
 
-        // Update ping asynchronously (don't wait)
         db.updatePing(deviceId).catch(err => console.error('Ping update error:', err));
 
         res.json({
@@ -919,7 +926,6 @@ app.post('/api/auto-deactivate', async (req, res) => {
             revokedCount++;
         }
         
-        // Remove all HWIDs
         await db.run(
             'DELETE FROM code_hwids WHERE code = $1',
             [code]
@@ -1023,12 +1029,10 @@ app.get('/api/codes', isApiAuthenticated, async (req, res) => {
 
 app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
     try {
-        // Cleanup in background
         db.cleanupInactiveDevices().catch(err => console.error('Cleanup error:', err));
         
         const data = await db.getDashboardData();
         
-        // OPTIMIZED: Don't send wallpaper_base64 to reduce payload size
         const devicesWithoutWallpaper = (data.devices || []).map(device => ({
             ...device,
             wallpaper_base64: null,
@@ -1252,7 +1256,6 @@ app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
         const hwids = await db.getCodeHwids(code);
         const hwidCount = hwids.length;
         
-        // Remove all HWIDs if code was inactive
         if (!codeInfo.is_active || codeInfo.status === 'inactive' || codeInfo.status.includes('auto_deactivated')) {
             console.log(`🔄 Reactivating code ${code} - Removing ${hwidCount} HWIDs`);
             
@@ -1968,12 +1971,10 @@ async function autoDeleteOldLogs() {
     }
 }
 
-// Run auto-delete every hour
 setInterval(async () => {
     await autoDeleteOldLogs();
 }, 60 * 60 * 1000);
 
-// Also run on startup
 setTimeout(async () => {
     await autoDeleteOldLogs();
 }, 5000);
@@ -2054,6 +2055,21 @@ app.get('/api/metrics', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
+// ERROR HANDLING MIDDLEWARE
+// ============================================
+
+app.use((err, req, res, next) => {
+    if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT') {
+        console.error('Connection timeout:', err);
+        return res.status(503).json({ 
+            error: 'Service temporarily unavailable, please try again' 
+        });
+    }
+    console.error('Unhandled error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+});
+
+// ============================================
 // START SERVER
 // ============================================
 
@@ -2076,18 +2092,6 @@ async function createDefaultAdmin() {
     }
 }
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-    if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT') {
-        console.error('Connection timeout:', err);
-        return res.status(503).json({ 
-            error: 'Service temporarily unavailable, please try again' 
-        });
-    }
-    console.error('Unhandled error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-});
-
 createDefaultAdmin().then(() => {
     app.listen(PORT, () => {
         console.log('\n' + '='.repeat(60));
@@ -2101,11 +2105,14 @@ createDefaultAdmin().then(() => {
         console.log(`📊 Stats API: http://localhost:${PORT}/api/stats`);
         console.log(`💚 Health: http://localhost:${PORT}/api/health`);
         console.log(`📈 Metrics: http://localhost:${PORT}/api/metrics`);
+        console.log(`📊 Pool Status: http://localhost:${PORT}/api/pool-status`);
         console.log('='.repeat(60));
         console.log(`📊 Database Pool: max=${db.pool.options.max}, min=${db.pool.options.min}`);
         console.log(`⏱️  Cache TTL: ${db.cacheTTL}s`);
+        console.log(`📈 Max Concurrent Queries: ${db.maxConcurrentQueries || 20}`);
         console.log('='.repeat(60));
         console.log('✅ CORS: Chrome Extensions allowed');
+        console.log('✅ Supabase Pro Plan Optimized');
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');
