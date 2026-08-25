@@ -1,9 +1,9 @@
-// database-pg.js - Complete with ALL Methods
+// database-pg.js - Complete Optimized for 200+ Users with Supabase Transaction Pooler
 
 const { Pool } = require('pg');
 
 // ============================================
-// QUERY CACHE
+// QUERY CACHE FOR PERFORMANCE
 // ============================================
 class QueryCache {
   constructor(ttl = 30000) {
@@ -41,11 +41,85 @@ class QueryCache {
   }
 }
 
+// ============================================
+// CONNECTION QUEUE FOR RATE LIMITING
+// ============================================
+class ConnectionQueue {
+  constructor() {
+    this.queue = [];
+    this.processing = false;
+    this.maxQueueSize = 1000;
+    this.stats = {
+      totalProcessed: 0,
+      totalErrors: 0,
+      averageWaitTime: 0
+    };
+  }
+  
+  async add(fn) {
+    return new Promise((resolve, reject) => {
+      if (this.queue.length > this.maxQueueSize) {
+        reject(new Error('Queue is full - too many concurrent requests'));
+        return;
+      }
+      
+      const startTime = Date.now();
+      this.queue.push({ 
+        fn, 
+        resolve, 
+        reject,
+        startTime 
+      });
+      
+      this.process();
+    });
+  }
+  
+  async process() {
+    if (this.processing || this.queue.length === 0) return;
+    
+    this.processing = true;
+    const item = this.queue.shift();
+    const waitTime = Date.now() - item.startTime;
+    
+    try {
+      const result = await item.fn();
+      item.resolve(result);
+      this.stats.totalProcessed++;
+      this.stats.averageWaitTime = (this.stats.averageWaitTime + waitTime) / 2;
+    } catch (error) {
+      item.reject(error);
+      this.stats.totalErrors++;
+    } finally {
+      this.processing = false;
+      // Process next item
+      setImmediate(() => this.process());
+    }
+  }
+  
+  getStats() {
+    return {
+      queueLength: this.queue.length,
+      isProcessing: this.processing,
+      maxQueueSize: this.maxQueueSize,
+      totalProcessed: this.stats.totalProcessed,
+      totalErrors: this.stats.totalErrors,
+      averageWaitTime: Math.round(this.stats.averageWaitTime) + 'ms'
+    };
+  }
+}
+
+// ============================================
+// MAIN DATABASE CLASS
+// ============================================
 class DeviceDatabase {
   constructor() {
     const connectionString = process.env.DATABASE_URL;
     const isSupabase = connectionString && connectionString.includes('supabase');
     
+    // ============================================
+    // OPTIMIZED CONNECTION POOL FOR 200+ USERS
+    // ============================================
     this.pool = new Pool({
       connectionString: connectionString,
       ssl: isSupabase ? {
@@ -54,28 +128,32 @@ class DeviceDatabase {
       } : {
         rejectUnauthorized: false
       },
-      max: parseInt(process.env.DB_POOL_MAX) || 50,
-      min: parseInt(process.env.DB_POOL_MIN) || 10,
+      // Pool size optimized for 200+ users with Supabase Transaction Pooler
+      max: parseInt(process.env.DB_POOL_MAX) || 30,
+      min: parseInt(process.env.DB_POOL_MIN) || 5,
       idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT) || 30000,
       connectionTimeoutMillis: parseInt(process.env.DB_POOL_CONNECTION_TIMEOUT) || 30000,
       maxUses: parseInt(process.env.DB_POOL_MAX_USES) || 1000,
       allowExitOnIdle: false,
-      max_lifetime: 3600000,
+      max_lifetime: 3600000, // 1 hour
       statement_timeout: 60000,
       query_timeout: 60000,
       keepAlive: true,
       keepAliveInitialDelayMillis: 10000,
       
+      // Supabase specific optimizations
       ...(isSupabase && {
         application_name: 'wantmatures_server',
         connect_timeout: 30,
         keepalives: 1,
         keepalives_idle: 60,
         keepalives_interval: 10,
-        keepalives_count: 3
+        keepalives_count: 5,
+        idle_in_transaction_session_timeout: 60000
       })
     });
     
+    // Pool event handlers
     this.pool.on('error', (err) => {
       console.error('❌ Database pool error:', err);
     });
@@ -88,20 +166,40 @@ class DeviceDatabase {
       console.log('🔌 Database connection removed from pool');
     });
     
+    // Initialize components
     this.queryCache = new QueryCache(30000);
+    this.connectionQueue = new ConnectionQueue();
+    
+    // Memory cache
     this.cache = {
       codes: [],
-      stats: { total: 0, pending: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
+      stats: { 
+        total: 0, 
+        pending: 0,
+        approved: 0, 
+        revoked: 0, 
+        totalPings: 0, 
+        totalCodes: 0, 
+        activeCodes: 0, 
+        pendingRequests: 0 
+      },
       devices: [],
       requests: [],
       lastUpdate: 0,
       hasInitialData: false
     };
     
+    // Initialize database
     this.initDatabase();
+    
+    // Start pool monitoring
+    this.startPoolMonitoring();
     
     console.log('✅ PostgreSQL Database initialized');
     console.log(`📊 Connection Pool: max=${this.pool.options.max}, min=${this.pool.options.min}`);
+    console.log(`🔗 SSL: ${this.pool.options.ssl ? 'Enabled' : 'Disabled'}`);
+    console.log(`📡 Supabase: ${isSupabase ? 'Yes (Transaction Pooler)' : 'No'}`);
+    console.log(`📋 Connection Queue: max=${this.connectionQueue.maxQueueSize}`);
   }
 
   // ============================================
@@ -110,12 +208,19 @@ class DeviceDatabase {
   
   async initDatabase() {
     try {
+      // Test connection first
       await this.testConnection();
+      
+      // Create tables
       await this.initTables();
+      
+      // Refresh cache
       await this.refreshCache();
+      
       console.log('✅ Database initialization complete!');
     } catch (error) {
       console.error('❌ Database initialization failed:', error.message);
+      console.log('💡 Please check your DATABASE_URL in .env file');
     }
   }
 
@@ -129,6 +234,7 @@ class DeviceDatabase {
       const result = await this.query('SELECT NOW() as time, version() as version');
       console.log('✅ Database connection successful!');
       console.log(`📅 Server time: ${result.rows[0].time}`);
+      console.log(`📦 PostgreSQL: ${result.rows[0].version}`);
       return true;
     } catch (error) {
       console.error('❌ Database connection test failed:', error.message);
@@ -137,51 +243,71 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // QUERY METHODS
+  // QUERY METHODS WITH QUEUE AND RETRY
   // ============================================
 
   async query(sql, params = [], retries = 3) {
-    let client = null;
-    let lastError = null;
-    
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        client = await this.pool.connect();
-        const startTime = Date.now();
-        const result = await client.query(sql, params);
-        const duration = Date.now() - startTime;
-        
-        if (duration > 5000) {
-          console.warn(`⚠️ Slow query (${duration}ms): ${sql.substring(0, 100)}...`);
-        }
-        
-        return result;
-      } catch (error) {
-        lastError = error;
-        console.error(`❌ Query attempt ${attempt}/${retries} failed:`, error.message);
-        
-        if (error.code === '42701' || error.message.includes('already exists')) {
-          throw error;
-        }
-        
-        if (client) {
-          try { client.release(); } catch (e) {}
-          client = null;
-        }
-        
-        if (attempt < retries) {
-          const backoff = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
-          console.log(`⏳ Retrying in ${backoff}ms...`);
-          await new Promise(resolve => setTimeout(resolve, backoff));
-        }
-      } finally {
-        if (client) {
-          try { client.release(); } catch (e) {}
+    return this.connectionQueue.add(async () => {
+      let client = null;
+      let lastError = null;
+      
+      for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+          client = await this.pool.connect();
+          const startTime = Date.now();
+          const result = await client.query(sql, params);
+          const duration = Date.now() - startTime;
+          
+          if (duration > 5000) {
+            console.warn(`⚠️ Slow query (${duration}ms): ${sql.substring(0, 100)}...`);
+          }
+          
+          // Always release on success
+          if (client) {
+            client.release();
+            client = null;
+          }
+          
+          return result;
+        } catch (error) {
+          lastError = error;
+          console.error(`❌ Query attempt ${attempt}/${retries} failed:`, error.message);
+          
+          // Always release on error
+          if (client) {
+            try {
+              client.release();
+            } catch (releaseError) {}
+            client = null;
+          }
+          
+          // Don't retry certain errors
+          if (error.code === '42701' || error.message.includes('already exists')) {
+            throw error;
+          }
+          
+          // Don't retry on queue full
+          if (error.message.includes('Queue is full')) {
+            throw error;
+          }
+          
+          if (attempt < retries) {
+            const backoff = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+            console.log(`⏳ Retrying in ${backoff}ms...`);
+            await new Promise(resolve => setTimeout(resolve, backoff));
+          }
         }
       }
-    }
-    
-    throw lastError || new Error('Query failed after all retries');
+      
+      // Final cleanup
+      if (client) {
+        try {
+          client.release();
+        } catch (e) {}
+      }
+      
+      throw lastError || new Error('Query failed after all retries');
+    });
   }
 
   async safeQuery(sql, params = []) {
@@ -214,7 +340,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // POOL MONITORING - FIXED
+  // POOL MONITORING
   // ============================================
 
   getPoolStats() {
@@ -223,8 +349,8 @@ class DeviceDatabase {
         totalConnections: this.pool.totalCount || 0,
         idleConnections: this.pool.idleCount || 0,
         waitingClients: this.pool.waitingCount || 0,
-        maxConnections: this.pool.options.max || 50,
-        minConnections: this.pool.options.min || 10,
+        maxConnections: this.pool.options.max || 30,
+        minConnections: this.pool.options.min || 5,
         usagePercent: this.pool.totalCount ? 
           Math.round((this.pool.totalCount / this.pool.options.max) * 100) : 0
       };
@@ -233,26 +359,63 @@ class DeviceDatabase {
         totalConnections: 0,
         idleConnections: 0,
         waitingClients: 0,
-        maxConnections: 50,
-        minConnections: 10,
+        maxConnections: 30,
+        minConnections: 5,
         usagePercent: 0
       };
     }
   }
 
+  getQueueStats() {
+    return this.connectionQueue.getStats();
+  }
+
   async monitorPoolHealth() {
-    const stats = this.getPoolStats();
-    console.log('📊 Database Pool Health:', stats);
+    const poolStats = this.getPoolStats();
+    const queueStats = this.getQueueStats();
     
-    if (stats.waitingClients > 10) {
-      console.warn('⚠️ High waiting clients:', stats.waitingClients);
+    console.log('📊 Database Health:');
+    console.log(`   Pool: ${poolStats.totalConnections}/${poolStats.maxConnections} (${poolStats.usagePercent}%)`);
+    console.log(`   Idle: ${poolStats.idleConnections}, Waiting: ${poolStats.waitingClients}`);
+    console.log(`   Queue: ${queueStats.queueLength} pending, ${queueStats.totalProcessed} processed`);
+    
+    if (poolStats.usagePercent > 80) {
+      console.warn(`⚠️ Pool at ${poolStats.usagePercent}% - Consider increasing pool size`);
     }
     
-    if (stats.usagePercent > 80) {
-      console.warn(`⚠️ Connection pool usage at ${stats.usagePercent}%`);
+    if (poolStats.waitingClients > 5) {
+      console.warn(`⚠️ ${poolStats.waitingClients} clients waiting for connection`);
     }
     
-    return stats;
+    if (queueStats.queueLength > 100) {
+      console.warn(`⚠️ Queue has ${queueStats.queueLength} pending requests`);
+    }
+    
+    return { poolStats, queueStats };
+  }
+
+  startPoolMonitoring() {
+    // Monitor every 30 seconds
+    setInterval(async () => {
+      try {
+        await this.monitorPoolHealth();
+      } catch (e) {
+        // Ignore monitoring errors
+      }
+    }, 30000);
+    
+    // Clean idle connections every 2 minutes
+    setInterval(() => {
+      try {
+        // Drain idle connections if too many
+        if (this.pool.idleCount > this.pool.options.max * 0.7) {
+          console.log('🧹 Draining idle connections...');
+          this.pool.drain();
+        }
+      } catch (e) {
+        // Ignore drain errors
+      }
+    }, 120000);
   }
 
   // ============================================
@@ -286,7 +449,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Add missing columns
+      // Add missing columns to codes table
       const columnsToAdd = [
         { name: 'username', type: 'TEXT' },
         { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
@@ -303,7 +466,9 @@ class DeviceDatabase {
       for (const col of columnsToAdd) {
         try {
           await this.query(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-        } catch (e) {}
+        } catch (e) {
+          // Column might already exist
+        }
       }
 
       // code_hwids table
@@ -350,7 +515,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Add columns
+      // Add hardware and wallpaper columns
       const deviceColumns = [
         { name: 'hwid', type: 'TEXT' },
         { name: 'browser_profile', type: 'TEXT' },
@@ -370,7 +535,9 @@ class DeviceDatabase {
       for (const col of deviceColumns) {
         try {
           await this.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-        } catch (e) {}
+        } catch (e) {
+          // Column might already exist
+        }
       }
 
       // Requests table
@@ -426,7 +593,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Indexes
+      // Indexes for performance
       await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
@@ -437,6 +604,7 @@ class DeviceDatabase {
       await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status ON hwid_logs(status)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_code ON devices(code)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_last_ping ON devices(last_ping)`);
 
       console.log('✅ Tables created/verified');
       
@@ -515,7 +683,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // REGISTER DEVICE
+  // REGISTER DEVICE WITH WALLPAPER
   // ============================================
 
   async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null, hardware = null, wallpaper = null) {
@@ -707,6 +875,7 @@ class DeviceDatabase {
         `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName} | Wallpaper: ${wallpaperName || 'None'}`
       );
       
+      // Clear cache
       this.queryCache.clearPrefix(`device_${deviceId}`);
       this.queryCache.clearPrefix(`code_${code}`);
       
@@ -1972,6 +2141,18 @@ class DeviceDatabase {
       client.release();
     }
   }
+
+  // ============================================
+  // QUEUE STATS ENDPOINT
+  // ============================================
+
+  getQueueStats() {
+    return this.connectionQueue.getStats();
+  }
+
+  // ============================================
+  // CLOSE
+  // ============================================
 
   close() {
     this.pool.end();
