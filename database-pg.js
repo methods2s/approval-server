@@ -1,29 +1,30 @@
-// database-pg.js - Optimized for Supabase Pro Plan
+// database-pg.js - COMPLETE FIXED VERSION with Connection Limits
 
 const { Pool } = require('pg');
 
 class DeviceDatabase {
   constructor() {
-    // SSL Configuration
     const sslConfig = process.env.DATABASE_SSL === 'false' ? false : {
       rejectUnauthorized: false,
       sslmode: 'require'
     };
     
-    // Pro Plan Optimized Connection
+    // ============================================
+    // CRITICAL: Reduced connection pool to prevent exhaustion
+    // ============================================
     let connectionConfig = {
       connectionString: process.env.DATABASE_URL,
       ssl: sslConfig,
-      max: parseInt(process.env.DATABASE_POOL_MAX) || 30,
-      min: parseInt(process.env.DATABASE_POOL_MIN) || 10,
-      idleTimeoutMillis: parseInt(process.env.DATABASE_IDLE_TIMEOUT) || 60000,
-      connectionTimeoutMillis: parseInt(process.env.DATABASE_CONNECTION_TIMEOUT) || 15000,
-      maxUses: parseInt(process.env.DATABASE_MAX_USES) || 1000,
+      max: parseInt(process.env.DATABASE_POOL_MAX) || 8,  // REDUCED to 8!
+      min: parseInt(process.env.DATABASE_POOL_MIN) || 2,   // Keep 2 ready
+      idleTimeoutMillis: parseInt(process.env.DATABASE_IDLE_TIMEOUT) || 10000, // 10s timeout
+      connectionTimeoutMillis: parseInt(process.env.DATABASE_CONNECTION_TIMEOUT) || 5000,
+      maxUses: parseInt(process.env.DATABASE_MAX_USES) || 50, // Recycle after 50 uses
       keepAlive: true,
-      keepAliveInitialDelayMillis: 10000,
-      statement_timeout: 30000,
-      query_timeout: 30000,
-      acquireTimeoutMillis: 15000
+      keepAliveInitialDelayMillis: 5000,
+      statement_timeout: 10000,  // 10 second query timeout
+      query_timeout: 10000,
+      acquireTimeoutMillis: 5000
     };
 
     if (sslConfig) {
@@ -52,14 +53,18 @@ class DeviceDatabase {
     
     this.cacheTTL = parseInt(process.env.CACHE_TTL) || 30;
     
-    // Query queue
+    // Query queue - CRITICAL for connection management
     this.queryQueue = [];
     this.activeQueries = 0;
-    this.maxConcurrentQueries = parseInt(process.env.MAX_CONCURRENT_QUERIES) || 20;
+    this.maxConcurrentQueries = parseInt(process.env.MAX_CONCURRENT_QUERIES) || 5; // REDUCED to 5!
+    
+    // Track recent queries to prevent duplicates
+    this.recentQueries = new Map();
+    this.queryDedupeWindow = 5000; // 5 seconds
     
     // Pool event listeners
     this.pool.on('connect', () => {
-      console.log('✅ Database connection established');
+      // console.log('✅ Database connection established');
     });
     
     this.pool.on('acquire', () => {});
@@ -71,17 +76,34 @@ class DeviceDatabase {
     });
     
     this.initTables();
-    console.log('✅ PostgreSQL Database initialized with Pro Plan optimization');
+    console.log('✅ PostgreSQL Database initialized with connection limiting');
     console.log(`📊 Pool: max=${this.pool.options.max}, min=${this.pool.options.min}`);
     console.log(`⏱️  Cache TTL: ${this.cacheTTL}s`);
     console.log(`📈 Max Concurrent Queries: ${this.maxConcurrentQueries}`);
   }
 
   // ============================================
-  // QUEUED QUERY SYSTEM
+  // DEDUPLICATED QUERY SYSTEM
   // ============================================
 
+  // Create a unique key for deduplication
+  getQueryKey(sql, params) {
+    return `${sql}:${JSON.stringify(params)}`;
+  }
+
   async queuedQuery(sql, params = [], priority = 0) {
+    // Check if this exact query is already running
+    const key = this.getQueryKey(sql, params);
+    
+    // If it's a SELECT and we have a recent result, return it
+    if (sql.trim().toUpperCase().startsWith('SELECT')) {
+      const recent = this.recentQueries.get(key);
+      if (recent && Date.now() - recent.timestamp < this.queryDedupeWindow) {
+        console.log('🔄 Returning cached query result (dedupe)');
+        return recent.result;
+      }
+    }
+    
     return new Promise((resolve, reject) => {
       this.queryQueue.push({ 
         sql, 
@@ -89,7 +111,8 @@ class DeviceDatabase {
         priority, 
         resolve, 
         reject,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        key: key
       });
       
       this.queryQueue.sort((a, b) => b.priority - a.priority);
@@ -107,6 +130,22 @@ class DeviceDatabase {
 
     try {
       const result = await this.query(task.sql, task.params);
+      
+      // Cache SELECT results for deduplication
+      if (task.sql.trim().toUpperCase().startsWith('SELECT')) {
+        this.recentQueries.set(task.key, {
+          result: result,
+          timestamp: Date.now()
+        });
+        
+        // Clean old cache entries
+        for (const [key, value] of this.recentQueries) {
+          if (Date.now() - value.timestamp > this.queryDedupeWindow) {
+            this.recentQueries.delete(key);
+          }
+        }
+      }
+      
       task.resolve(result);
     } catch (error) {
       task.reject(error);
@@ -118,13 +157,49 @@ class DeviceDatabase {
 
   async query(sql, params = []) {
     let client = null;
+    let attempt = 0;
+    const maxAttempts = 2;
+    
+    while (attempt < maxAttempts) {
+      try {
+        client = await this.pool.connect();
+        await client.query('SET statement_timeout = 10000');
+        const result = await client.query(sql, params);
+        return result;
+      } catch (error) {
+        // If connection limit reached, wait and retry once
+        if (error.code === '53300' || error.message.includes('remaining connection slots')) {
+          attempt++;
+          if (attempt < maxAttempts) {
+            console.log(`⏳ Connection limit reached, waiting 1000ms... (attempt ${attempt}/${maxAttempts})`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            continue;
+          }
+        }
+        throw error;
+      } finally {
+        if (client) {
+          try {
+            client.release();
+          } catch (e) {}
+        }
+      }
+    }
+  }
+
+  async queryWithTimeout(sql, params = [], timeout = 10000) {
+    let client = null;
     try {
       client = await this.pool.connect();
-      await client.query('SET statement_timeout = 30000');
-      const result = await client.query(sql, params);
+      await client.query(`SET statement_timeout = ${timeout}`);
+      const queryPromise = client.query(sql, params);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Query timeout')), timeout);
+      });
+      const result = await Promise.race([queryPromise, timeoutPromise]);
       return result;
     } catch (error) {
-      console.error('❌ Query error:', error.message);
+      console.error('❌ Query timeout error:', error.message);
       throw error;
     } finally {
       if (client) {
@@ -135,25 +210,22 @@ class DeviceDatabase {
     }
   }
 
-  async queryWithRetry(sql, params = [], maxRetries = 3) {
+  async queryWithRetry(sql, params = [], maxRetries = 2) {
     let lastError;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       let client = null;
       try {
         client = await this.pool.connect();
-        await client.query('SET statement_timeout = 30000');
+        await client.query('SET statement_timeout = 10000');
         const result = await client.query(sql, params);
         return result;
       } catch (error) {
         lastError = error;
-        if (error.code === 'ECONNREFUSED' || 
-            error.code === 'ETIMEDOUT' || 
-            error.code === '57P01' ||
-            error.code === '53300' ||
-            error.message.includes('timeout')) {
+        if (error.code === '53300' || 
+            error.message.includes('remaining connection slots')) {
           if (attempt < maxRetries) {
-            const delay = Math.min(attempt * 500, 2000);
-            console.log(`⏳ Retrying in ${delay}ms... (attempt ${attempt}/${maxRetries})`);
+            const delay = attempt * 1000;
+            console.log(`⏳ Connection limit reached, retrying in ${delay}ms...`);
             await new Promise(resolve => setTimeout(resolve, delay));
             continue;
           }
@@ -238,7 +310,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET DASHBOARD DATA
+  // GET DASHBOARD DATA - Cached
   // ============================================
 
   async getDashboardData() {
@@ -247,47 +319,53 @@ class DeviceDatabase {
     }
 
     try {
-      const queries = {
-        stats: `SELECT 
+      // Use simpler, faster queries
+      const stats = await this.queuedQuery(`
+        SELECT 
           COUNT(*) as total,
           SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
           SUM(CASE WHEN status = 'revoked' THEN 1 ELSE 0 END) as revoked,
           SUM(ping_count) as totalPings
-          FROM devices`,
-        totalCodes: 'SELECT COUNT(*) as count FROM codes',
-        activeCodes: "SELECT COUNT(*) as count FROM codes WHERE is_active = true AND status = 'active'",
-        pendingRequests: "SELECT COUNT(*) as count FROM requests WHERE status = 'pending'",
-        codes: 'SELECT code, username, access_level, subscription_type, status, is_active, created_at, max_hwid_limit FROM codes ORDER BY created_at DESC LIMIT 200',
-        devices: `SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, cpu_name, gpu_name, ram_total_gb, storage_total_gb, wallpaper_name, wallpaper_width, wallpaper_height, wallpaper_size_kb 
-          FROM devices ORDER BY created_at DESC LIMIT 200`,
-        requests: 'SELECT * FROM requests WHERE status = "pending" ORDER BY requested_at ASC LIMIT 20'
+          FROM devices
+      `, [], 5);
+      
+      const totalCodes = await this.queuedQuery('SELECT COUNT(*) as count FROM codes', [], 5);
+      const activeCodes = await this.queuedQuery(
+        "SELECT COUNT(*) as count FROM codes WHERE is_active = true AND status = 'active'", 
+        [], 5
+      );
+      const pendingRequests = await this.queuedQuery(
+        "SELECT COUNT(*) as count FROM requests WHERE status = 'pending'", 
+        [], 5
+      );
+      const codes = await this.queuedQuery(
+        'SELECT code, username, access_level, subscription_type, status, is_active, created_at, max_hwid_limit FROM codes ORDER BY created_at DESC LIMIT 100',
+        [], 3
+      );
+      const devices = await this.queuedQuery(
+        `SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, cpu_name, gpu_name, ram_total_gb, storage_total_gb, wallpaper_name, wallpaper_width, wallpaper_height, wallpaper_size_kb 
+          FROM devices ORDER BY created_at DESC LIMIT 100`,
+        [], 3
+      );
+      const requests = await this.queuedQuery(
+        'SELECT * FROM requests WHERE status = "pending" ORDER BY requested_at ASC LIMIT 20',
+        [], 3
+      );
+      
+      const statsData = {
+        total: parseInt(stats.rows[0]?.total || 0),
+        approved: parseInt(stats.rows[0]?.approved || 0),
+        revoked: parseInt(stats.rows[0]?.revoked || 0),
+        totalPings: parseInt(stats.rows[0]?.totalPings || 0),
+        totalCodes: parseInt(totalCodes.rows[0]?.count || 0),
+        activeCodes: parseInt(activeCodes.rows[0]?.count || 0),
+        pendingRequests: parseInt(pendingRequests.rows[0]?.count || 0)
       };
       
-      const results = {};
-      for (const [key, sql] of Object.entries(queries)) {
-        try {
-          const result = await this.query(sql);
-          results[key] = result.rows;
-        } catch (error) {
-          console.error(`Error fetching ${key}:`, error);
-          results[key] = [];
-        }
-      }
-      
-      const stats = {
-        total: parseInt(results.stats[0]?.total || 0),
-        approved: parseInt(results.stats[0]?.approved || 0),
-        revoked: parseInt(results.stats[0]?.revoked || 0),
-        totalPings: parseInt(results.stats[0]?.totalPings || 0),
-        totalCodes: parseInt(results.totalCodes[0]?.count || 0),
-        activeCodes: parseInt(results.activeCodes[0]?.count || 0),
-        pendingRequests: parseInt(results.pendingRequests[0]?.count || 0)
-      };
-      
-      this.cache.stats = stats;
-      this.cache.codes = results.codes;
-      this.cache.devices = results.devices;
-      this.cache.requests = results.requests;
+      this.cache.stats = statsData;
+      this.cache.codes = codes.rows;
+      this.cache.devices = devices.rows;
+      this.cache.requests = requests.rows;
       this.cache.lastUpdate = Date.now();
       this.cache.hasInitialData = true;
       
@@ -308,6 +386,7 @@ class DeviceDatabase {
     try {
       console.log('🔧 Creating/verifying tables...');
       
+      // Create tables with simpler statements
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS codes (
           code TEXT PRIMARY KEY,
@@ -330,25 +409,6 @@ class DeviceDatabase {
         )
       `);
 
-      const columnsToAdd = [
-        { name: 'username', type: 'TEXT' },
-        { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
-        { name: 'subscription_type', type: 'TEXT DEFAULT \'Lifetime\'' },
-        { name: 'subscription_started_at', type: 'TIMESTAMP' },
-        { name: 'expires_at', type: 'TIMESTAMP' },
-        { name: 'status', type: 'TEXT DEFAULT \'active\'' },
-        { name: 'hwid', type: 'TEXT' },
-        { name: 'fingerprint', type: 'TEXT' },
-        { name: 'machine_info', type: 'JSONB' },
-        { name: 'max_hwid_limit', type: 'INTEGER DEFAULT 1' }
-      ];
-
-      for (const col of columnsToAdd) {
-        try {
-          await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-        } catch (e) {}
-      }
-
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS code_hwids (
           id SERIAL PRIMARY KEY,
@@ -365,11 +425,6 @@ class DeviceDatabase {
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid ON hwid_logs(hwid)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_created_at ON hwid_logs(created_at DESC)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status ON hwid_logs(status)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_code ON devices(code)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status)`);
 
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS devices (
@@ -401,28 +456,6 @@ class DeviceDatabase {
           wallpaper_base64 TEXT
         )
       `);
-
-      const deviceColumns = [
-        { name: 'hwid', type: 'TEXT' },
-        { name: 'browser_profile', type: 'TEXT' },
-        { name: 'cpu_name', type: 'TEXT' },
-        { name: 'gpu_name', type: 'TEXT' },
-        { name: 'ram_total_gb', type: 'DECIMAL' },
-        { name: 'storage_total_gb', type: 'DECIMAL' },
-        { name: 'profile_name', type: 'TEXT' },
-        { name: 'device_name', type: 'TEXT' },
-        { name: 'wallpaper_name', type: 'TEXT' },
-        { name: 'wallpaper_size_kb', type: 'DECIMAL' },
-        { name: 'wallpaper_width', type: 'INTEGER' },
-        { name: 'wallpaper_height', type: 'INTEGER' },
-        { name: 'wallpaper_base64', type: 'TEXT' }
-      ];
-
-      for (const col of deviceColumns) {
-        try {
-          await this.queryWithRetry(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-        } catch (e) {}
-      }
 
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS requests (
@@ -482,7 +515,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // REGISTER DEVICE
+  // REGISTER DEVICE - Optimized
   // ============================================
 
   async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null, hardware = null, wallpaper = null) {
@@ -526,30 +559,20 @@ class DeviceDatabase {
       }
 
       if (!isAuthorized && hwid) {
-        console.log(`🔄 HWID not authorized for code ${code}, attempting auto-assignment...`);
-        
         const assignResult = await this.assignHwidToCode(code, hwid, true);
-        
         if (!assignResult.success) {
           if (assignResult.auto_deactivate) {
-            console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
             const deactivateResult = await this.autoDeactivateCode(code, 'hwid_limit_exceeded_auto_assign');
-            
             return {
               success: false,
-              error: `HWID limit reached (${assignResult.max_limit}). Code auto-deactivated.`,
+              error: `HWID limit reached. Code auto-deactivated.`,
               auto_deactivated: true,
               devices_revoked: deactivateResult.devices_revoked || 0
             };
           }
           return { success: false, error: assignResult.error };
         }
-        
-        console.log(`✅ HWID auto-assigned to code ${code}`);
         isAuthorized = true;
-        
-        await this.logUsage(deviceId, code, 'hwid_auto_assigned', 
-          `HWID ${hwid.substring(0, 16)}... auto-assigned to code ${code}`);
       }
 
       if (!isAuthorized && hwid) {
@@ -588,8 +611,6 @@ class DeviceDatabase {
         wallpaperWidth = wp.width || 0;
         wallpaperHeight = wp.height || 0;
         wallpaperBase64 = wp.image_base64 || null;
-        
-        console.log(`🖼️ Wallpaper: ${wallpaperName} (${wallpaperSizeKb} KB) ${wallpaperWidth}x${wallpaperHeight}`);
       }
 
       const existingDevice = await this.getDevice(deviceId);
@@ -640,9 +661,6 @@ class DeviceDatabase {
             deviceId
           ]
         );
-        
-        console.log(`✅ Device ${deviceId} updated with wallpaper: ${wallpaperName}`);
-        
       } else {
         await this.run(
           `INSERT INTO devices (
@@ -675,14 +693,12 @@ class DeviceDatabase {
             wallpaperBase64
           ]
         );
-        
-        console.log(`✅ New device ${deviceId} registered with wallpaper: ${wallpaperName}`);
       }
 
       await this.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code]);
       
       await this.logUsage(deviceId, code, 'register', 
-        `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName} | Wallpaper: ${wallpaperName || 'None'}`
+        `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName}`
       );
       
       await this.refreshCache();
@@ -716,7 +732,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET DEVICES
+  // GET DEVICES - Cached
   // ============================================
 
   async getDevices(status = null) {
@@ -729,7 +745,7 @@ class DeviceDatabase {
         params.push(status);
       }
       
-      query += ' ORDER BY created_at DESC LIMIT 500';
+      query += ' ORDER BY created_at DESC LIMIT 100';
       return await this.all(query, params);
     } catch (error) {
       console.error('Get devices error:', error);
@@ -740,7 +756,7 @@ class DeviceDatabase {
   async getDevicesByCode(code) {
     try {
       const result = await this.queuedQuery(
-        'SELECT * FROM devices WHERE code = $1 ORDER BY created_at DESC LIMIT 100', 
+        'SELECT * FROM devices WHERE code = $1 ORDER BY created_at DESC LIMIT 50', 
         [code],
         7
       );
@@ -752,7 +768,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // HWID MANAGEMENT
+  // HWID MANAGEMENT - Keep existing methods
   // ============================================
 
   async getCodeHwidLimit(code) {
@@ -1155,7 +1171,7 @@ class DeviceDatabase {
     try {
       const result = await this.all(
         `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit
-         FROM codes ORDER BY created_at DESC LIMIT 500`
+         FROM codes ORDER BY created_at DESC LIMIT 200`
       );
       return result || [];
     } catch (error) {
@@ -1167,7 +1183,7 @@ class DeviceDatabase {
   async getActiveCodes() {
     try {
       const result = await this.all(
-        `SELECT * FROM codes WHERE is_active = true AND status = 'active' ORDER BY created_at DESC LIMIT 200`
+        `SELECT * FROM codes WHERE is_active = true AND status = 'active' ORDER BY created_at DESC LIMIT 100`
       );
       return result || [];
     } catch (error) {
@@ -1179,7 +1195,7 @@ class DeviceDatabase {
   async getCodeUsage(code) {
     try {
       const devices = await this.all(
-        `SELECT * FROM devices WHERE code = $1 AND status != 'revoked' LIMIT 50`,
+        `SELECT * FROM devices WHERE code = $1 AND status != 'revoked' LIMIT 20`,
         [code]
       );
       const codeInfo = await this.getCodeInfo(code);
@@ -1215,7 +1231,6 @@ class DeviceDatabase {
           'DELETE FROM devices WHERE device_id = $1',
           [device.device_id]
         );
-        console.log(`🗑️ Removed device: ${device.device_id}`);
       }
       
       const result = await this.run(
@@ -1252,7 +1267,6 @@ class DeviceDatabase {
           'UPDATE codes SET hwid = NULL WHERE code = $1',
           [code]
         );
-        console.log(`🔄 HWIDs removed during reactivation of code ${code}`);
       }
 
       const now = new Date().toISOString();
@@ -1392,10 +1406,10 @@ class DeviceDatabase {
     }
   }
 
-  async getHwidLogs(limit = 200, status = null) {
+  async getHwidLogs(limit = 100, status = null) {
     try {
       let query = 'SELECT * FROM hwid_logs ORDER BY created_at DESC LIMIT $1';
-      const params = [limit];
+      const params = [Math.min(limit, 200)];
       
       if (status) {
         query = 'SELECT * FROM hwid_logs WHERE status = $1 ORDER BY created_at DESC LIMIT $2';
@@ -1414,7 +1428,7 @@ class DeviceDatabase {
     try {
       return await this.all(
         'SELECT * FROM hwid_logs WHERE hwid = $1 ORDER BY created_at DESC LIMIT $2',
-        [hwid, limit]
+        [hwid, Math.min(limit, 100)]
       );
     } catch (error) {
       console.error('❌ Get HWID logs by HWID error:', error.message);
@@ -1484,7 +1498,7 @@ class DeviceDatabase {
         AND ch.code IS NULL
         ORDER BY l.created_at DESC
         LIMIT $1
-      `, [limit]);
+      `, [Math.min(limit, 200)]);
       
       const uniqueMap = new Map();
       for (const row of result) {
@@ -1552,7 +1566,7 @@ class DeviceDatabase {
       }
       
       query += ` ORDER BY l.created_at DESC LIMIT $${params.length + 1}`;
-      params.push(limit);
+      params.push(Math.min(limit, 200));
       
       const result = await this.all(query, params);
       return result || [];
@@ -1692,7 +1706,7 @@ class DeviceDatabase {
       }
       
       query += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1);
-      params.push(limit);
+      params.push(Math.min(limit, 200));
       
       return await this.all(query, params);
     } catch (error) {
@@ -1783,7 +1797,7 @@ class DeviceDatabase {
   async getPendingRequests() {
     try {
       return await this.all(
-        'SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id WHERE r.status = $1 ORDER BY r.requested_at ASC LIMIT 50',
+        'SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id WHERE r.status = $1 ORDER BY r.requested_at ASC LIMIT 20',
         ['pending']
       );
     } catch (error) {
@@ -1827,12 +1841,10 @@ class DeviceDatabase {
     try {
       console.log('🔄 Refreshing cache...');
       
-      const [codes, stats, devices, requests] = await Promise.all([
-        this.getAllCodes(),
-        this.getStats(),
-        this.getDevices(),
-        this.getPendingRequests()
-      ]);
+      const codes = await this.getAllCodes();
+      const stats = await this.getStats();
+      const devices = await this.getDevices();
+      const requests = await this.getPendingRequests();
       
       if (codes !== null && codes !== undefined) {
         this.cache.codes = codes;
