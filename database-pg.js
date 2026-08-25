@@ -1,4 +1,4 @@
-// database-pg.js - Complete with SSL Fix, Connection Pooling, and All Functions
+// database-pg.js - Complete Fixed Version
 
 const { Pool } = require('pg');
 const { Semaphore } = require('async-mutex');
@@ -81,53 +81,59 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // CONNECTION MANAGEMENT WITH RETRY
+  // CONNECTION MANAGEMENT WITH RETRY - FIXED
   // ============================================
 
   async withConnection(operation, retries = 3) {
     let lastError;
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        return await new Promise((resolve, reject) => {
-          this.semaphore.acquire()
-            .then((release) => {
-              let client = null;
-              const timeout = setTimeout(() => {
-                if (client) {
-                  try {
-                    client.release();
-                  } catch (e) {}
+        // Get semaphore permit - FIXED: properly handle the release function
+        const [value, release] = await this.semaphore.acquire();
+        
+        return new Promise((resolve, reject) => {
+          let client = null;
+          let released = false;
+          
+          const cleanup = () => {
+            if (!released) {
+              released = true;
+              if (client) {
+                try {
+                  client.release();
+                } catch (e) {
+                  // Ignore release errors
                 }
+              }
+              try {
                 release();
-                reject(new Error('Database operation timeout'));
-              }, parseInt(process.env.DB_OPERATION_TIMEOUT) || 15000);
-              
-              this.pool.connect()
-                .then(c => {
-                  client = c;
-                  clearTimeout(timeout);
-                  return operation(client);
-                })
-                .then(result => {
-                  if (client) {
-                    try {
-                      client.release();
-                    } catch (e) {}
-                  }
-                  release();
-                  resolve(result);
-                })
-                .catch(err => {
-                  if (client) {
-                    try {
-                      client.release();
-                    } catch (e) {}
-                  }
-                  release();
-                  reject(err);
-                });
+              } catch (e) {
+                // Ignore release errors
+              }
+            }
+          };
+          
+          const timeout = setTimeout(() => {
+            cleanup();
+            reject(new Error('Database operation timeout'));
+          }, parseInt(process.env.DB_OPERATION_TIMEOUT) || 15000);
+          
+          this.pool.connect()
+            .then(c => {
+              client = c;
+              clearTimeout(timeout);
+              return operation(client);
             })
-            .catch(reject);
+            .then(result => {
+              clearTimeout(timeout);
+              cleanup();
+              resolve(result);
+            })
+            .catch(err => {
+              clearTimeout(timeout);
+              cleanup();
+              reject(err);
+            });
         });
       } catch (error) {
         lastError = error;
@@ -149,29 +155,57 @@ class DeviceDatabase {
     throw lastError;
   }
 
+  // SIMPLIFIED VERSION - If the above still has issues, use this simpler version
   async query(sql, params = []) {
-    return this.withConnection(async (client) => {
+    let client = null;
+    try {
+      client = await this.pool.connect();
       const result = await client.query(sql, params);
       return result;
-    });
+    } catch (error) {
+      throw error;
+    } finally {
+      if (client) {
+        try {
+          client.release();
+        } catch (e) {
+          // Ignore release errors
+        }
+      }
+    }
   }
 
   async queryWithTimeout(sql, params = [], timeout = 10000) {
-    return this.withConnection(async (client) => {
+    let client = null;
+    try {
+      client = await this.pool.connect();
       const queryPromise = client.query(sql, params);
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('Query timeout')), timeout);
       });
       const result = await Promise.race([queryPromise, timeoutPromise]);
       return result;
-    });
+    } catch (error) {
+      throw error;
+    } finally {
+      if (client) {
+        try {
+          client.release();
+        } catch (e) {
+          // Ignore release errors
+        }
+      }
+    }
   }
 
   async queryWithRetry(sql, params = [], maxRetries = 3) {
     let lastError;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      let client = null;
       try {
-        return await this.query(sql, params);
+        client = await this.pool.connect();
+        const result = await client.query(sql, params);
+        return result;
       } catch (error) {
         lastError = error;
         if (error.code === 'ECONNREFUSED' || 
@@ -185,6 +219,14 @@ class DeviceDatabase {
           continue;
         }
         throw error;
+      } finally {
+        if (client) {
+          try {
+            client.release();
+          } catch (e) {
+            // Ignore release errors
+          }
+        }
       }
     }
     throw lastError;
