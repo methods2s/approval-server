@@ -1,367 +1,148 @@
-// database-pg.js - COMPLETE WITH SSL FIX FOR RENDER
+// database-pg.js - Optimized with Connection Pooling, Caching, and Queue Management
 
 const { Pool } = require('pg');
+const { Semaphore } = require('async-mutex');
 
-// ============================================
-// QUERY CACHE
-// ============================================
-class QueryCache {
-  constructor(ttl = 30000) {
-    this.cache = new Map();
-    this.ttl = ttl;
-  }
-  
-  get(key) {
-    const item = this.cache.get(key);
-    if (!item) return null;
-    if (Date.now() - item.timestamp > this.ttl) {
-      this.cache.delete(key);
-      return null;
-    }
-    return item.value;
-  }
-  
-  set(key, value) {
-    this.cache.set(key, {
-      value: value,
-      timestamp: Date.now()
-    });
-  }
-  
-  clear() {
-    this.cache.clear();
-  }
-  
-  clearPrefix(prefix) {
-    for (const key of this.cache.keys()) {
-      if (key.startsWith(prefix)) {
-        this.cache.delete(key);
-      }
-    }
-  }
-}
-
-// ============================================
-// CONNECTION QUEUE
-// ============================================
-class ConnectionQueue {
-  constructor() {
-    this.queue = [];
-    this.processing = false;
-    this.maxQueueSize = 1000;
-    this.stats = {
-      totalProcessed: 0,
-      totalErrors: 0,
-      averageWaitTime: 0
-    };
-  }
-  
-  async add(fn) {
-    return new Promise((resolve, reject) => {
-      if (this.queue.length > this.maxQueueSize) {
-        reject(new Error('Queue is full - too many concurrent requests'));
-        return;
-      }
-      
-      const startTime = Date.now();
-      this.queue.push({ 
-        fn, 
-        resolve, 
-        reject,
-        startTime 
-      });
-      
-      this.process();
-    });
-  }
-  
-  async process() {
-    if (this.processing || this.queue.length === 0) return;
-    
-    this.processing = true;
-    const item = this.queue.shift();
-    const waitTime = Date.now() - item.startTime;
-    
-    try {
-      const result = await item.fn();
-      item.resolve(result);
-      this.stats.totalProcessed++;
-      this.stats.averageWaitTime = (this.stats.averageWaitTime + waitTime) / 2;
-    } catch (error) {
-      item.reject(error);
-      this.stats.totalErrors++;
-    } finally {
-      this.processing = false;
-      setImmediate(() => this.process());
-    }
-  }
-  
-  getStats() {
-    return {
-      queueLength: this.queue.length,
-      isProcessing: this.processing,
-      maxQueueSize: this.maxQueueSize,
-      totalProcessed: this.stats.totalProcessed,
-      totalErrors: this.stats.totalErrors,
-      averageWaitTime: Math.round(this.stats.averageWaitTime) + 'ms'
-    };
-  }
-}
-
-// ============================================
-// MAIN DATABASE CLASS - FIXED SSL FOR RENDER
-// ============================================
 class DeviceDatabase {
   constructor() {
-    const connectionString = process.env.DATABASE_URL;
-    const isProduction = process.env.NODE_ENV === 'production';
-    
-    console.log('📡 Connecting to database...');
-    console.log(`🔗 Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
-    console.log(`🔗 Connection string: ${connectionString ? connectionString.substring(0, 50) + '...' : 'Not set'}`);
-    
-    // ============================================
-    // SSL CONFIGURATION - FIXED FOR RENDER
-    // ============================================
-    let sslConfig;
-    
-    if (isProduction) {
-      // Production (Render) - Use rejectUnauthorized: false
-      sslConfig = {
-        rejectUnauthorized: false
-      };
-    } else {
-      // Local development - Disable SSL
-      sslConfig = false;
-    }
-    
+    // Optimized connection pool configuration
     this.pool = new Pool({
-      connectionString: connectionString,
-      ssl: sslConfig,
-      max: parseInt(process.env.DB_POOL_MAX) || 10,
-      min: parseInt(process.env.DB_POOL_MIN) || 2,
-      idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT) || 60000,
-      connectionTimeoutMillis: parseInt(process.env.DB_POOL_CONNECTION_TIMEOUT) || 120000,
-      maxUses: parseInt(process.env.DB_POOL_MAX_USES) || 1000,
-      allowExitOnIdle: false,
-      max_lifetime: 3600000,
-      statement_timeout: 120000,
-      query_timeout: 120000,
+      connectionString: process.env.DATABASE_URL,
+      ssl: {
+        rejectUnauthorized: false
+      },
+      max: parseInt(process.env.DATABASE_POOL_MAX) || 30,
+      min: parseInt(process.env.DATABASE_POOL_MIN) || 5,
+      idleTimeoutMillis: parseInt(process.env.DATABASE_IDLE_TIMEOUT) || 30000,
+      connectionTimeoutMillis: parseInt(process.env.DATABASE_CONNECTION_TIMEOUT) || 5000,
+      maxUses: parseInt(process.env.DATABASE_MAX_USES) || 1000,
+      // Enable connection pooling logging
       keepAlive: true,
-      keepAliveInitialDelayMillis: 30000,
-      application_name: 'wantmatures_server',
-      connect_timeout: 60,
-      keepalives: 1,
-      keepalives_idle: 60,
-      keepalives_interval: 30,
-      keepalives_count: 5,
-      idle_in_transaction_session_timeout: 120000
+      keepAliveInitialDelayMillis: 10000
     });
     
-    // Pool event handlers
-    this.pool.on('error', (err) => {
-      console.error('❌ Database pool error:', err);
-    });
+    // Semaphore for controlling concurrent database operations
+    this.semaphore = new Semaphore(parseInt(process.env.MAX_CONCURRENT_DB_OPS) || 20);
     
-    this.pool.on('connect', () => {
-      console.log('🔗 New database connection established');
-    });
-    
-    this.pool.on('remove', () => {
-      console.log('🔌 Database connection removed from pool');
-    });
-    
-    // Initialize components
-    this.queryCache = new QueryCache(30000);
-    this.connectionQueue = new ConnectionQueue();
-    
-    // Memory cache
+    // Cache
     this.cache = {
       codes: [],
-      stats: { 
-        total: 0, 
-        pending: 0,
-        approved: 0, 
-        revoked: 0, 
-        totalPings: 0, 
-        totalCodes: 0, 
-        activeCodes: 0, 
-        pendingRequests: 0 
-      },
+      stats: { total: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
       devices: [],
       requests: [],
       lastUpdate: 0,
       hasInitialData: false
     };
     
-    // Initialize database
-    this.initDatabase();
-    this.startPoolMonitoring();
+    // Cache TTL in seconds
+    this.cacheTTL = parseInt(process.env.CACHE_TTL) || 60;
     
-    console.log('✅ PostgreSQL Database initialized');
-    console.log(`📊 Connection Pool: max=${this.pool.options.max}, min=${this.pool.options.min}`);
-    console.log(`🔒 SSL: ${this.pool.options.ssl ? 'Enabled (rejectUnauthorized=false)' : 'Disabled'}`);
-  }
-
-  // ============================================
-  // POOL MONITORING
-  // ============================================
-
-  getPoolStats() {
-    try {
-      return {
-        totalConnections: this.pool.totalCount || 0,
-        idleConnections: this.pool.idleCount || 0,
-        waitingClients: this.pool.waitingCount || 0,
-        maxConnections: this.pool.options.max || 10,
-        minConnections: this.pool.options.min || 2,
-        usagePercent: this.pool.totalCount ? 
-          Math.round((this.pool.totalCount / this.pool.options.max) * 100) : 0
-      };
-    } catch (error) {
-      return {
-        totalConnections: 0,
-        idleConnections: 0,
-        waitingClients: 0,
-        maxConnections: 10,
-        minConnections: 2,
-        usagePercent: 0
-      };
-    }
-  }
-
-  getQueueStats() {
-    return this.connectionQueue.getStats();
-  }
-
-  async monitorPoolHealth() {
-    const poolStats = this.getPoolStats();
-    const queueStats = this.getQueueStats();
-    
-    console.log('📊 Database Health:');
-    console.log(`   Pool: ${poolStats.totalConnections}/${poolStats.maxConnections} (${poolStats.usagePercent}%)`);
-    console.log(`   Idle: ${poolStats.idleConnections}, Waiting: ${poolStats.waitingClients}`);
-    console.log(`   Queue: ${queueStats.queueLength} pending`);
-    
-    if (poolStats.usagePercent > 80) {
-      console.warn(`⚠️ Pool at ${poolStats.usagePercent}%`);
-    }
-    
-    if (poolStats.waitingClients > 5) {
-      console.warn(`⚠️ ${poolStats.waitingClients} clients waiting`);
-    }
-    
-    return { poolStats, queueStats };
-  }
-
-  startPoolMonitoring() {
-    setInterval(async () => {
-      try {
-        await this.monitorPoolHealth();
-      } catch (e) {}
-    }, 60000);
-  }
-
-  // ============================================
-  // INIT DATABASE
-  // ============================================
-  
-  async initDatabase() {
-    try {
-      await this.testConnection();
-      await this.initTables();
-      await this.refreshCache();
-      console.log('✅ Database initialization complete!');
-    } catch (error) {
-      console.error('❌ Database initialization failed:', error.message);
-      console.log('💡 Please check your DATABASE_URL in .env file');
-      console.log('💡 Make sure your IP is allowed in Supabase dashboard');
-    }
-  }
-
-  // ============================================
-  // TEST CONNECTION WITH RETRY
-  // ============================================
-
-  async testConnection(retries = 5) {
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        console.log(`🔄 Testing connection (attempt ${attempt}/${retries})...`);
-        const result = await this.query('SELECT NOW() as time, version() as version');
-        console.log('✅ Database connection successful!');
-        console.log(`📅 Server time: ${result.rows[0].time}`);
-        console.log(`📦 PostgreSQL: ${result.rows[0].version}`);
-        return true;
-      } catch (error) {
-        console.error(`❌ Connection attempt ${attempt} failed:`, error.message);
-        if (attempt < retries) {
-          const delay = Math.min(5000 * Math.pow(2, attempt - 1), 30000);
-          console.log(`⏳ Retrying in ${delay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        } else {
-          throw error;
-        }
-      }
-    }
-  }
-
-  // ============================================
-  // QUERY METHODS WITH RETRY AND TIMEOUT
-  // ============================================
-
-  async query(sql, params = [], retries = 5) {
-    return this.connectionQueue.add(async () => {
-      let client = null;
-      let lastError = null;
-      
-      for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-          client = await this.pool.connect();
-          const startTime = Date.now();
-          const result = await client.query(sql, params);
-          const duration = Date.now() - startTime;
-          
-          if (duration > 5000) {
-            console.warn(`⚠️ Slow query (${duration}ms): ${sql.substring(0, 100)}...`);
-          }
-          
-          if (client) {
-            client.release();
-            client = null;
-          }
-          
-          return result;
-        } catch (error) {
-          lastError = error;
-          console.error(`❌ Query attempt ${attempt}/${retries} failed:`, error.message);
-          
-          if (client) {
-            try { client.release(); } catch (e) {}
-            client = null;
-          }
-          
-          if (error.code === '42701' || error.message.includes('already exists')) {
-            throw error;
-          }
-          
-          if (error.message.includes('Queue is full')) {
-            throw error;
-          }
-          
-          if (attempt < retries) {
-            const backoff = Math.min(2000 * Math.pow(2, attempt - 1), 30000);
-            console.log(`⏳ Retrying in ${backoff}ms...`);
-            await new Promise(resolve => setTimeout(resolve, backoff));
-          }
-        }
-      }
-      
-      if (client) {
-        try { client.release(); } catch (e) {}
-      }
-      
-      throw lastError || new Error('Query failed after all retries');
+    // Connection pool event listeners
+    this.pool.on('connect', () => {
+      console.log('✅ Database connection established');
     });
+    
+    this.pool.on('acquire', () => {
+      // console.log('🔗 Database connection acquired');
+    });
+    
+    this.pool.on('remove', () => {
+      // console.log('🗑️ Database connection removed');
+    });
+    
+    this.pool.on('error', (err) => {
+      console.error('❌ Database pool error:', err);
+    });
+    
+    this.initTables();
+    console.log('✅ PostgreSQL Database initialized with optimized pool');
+    console.log(`📊 Pool: max=${this.pool.options.max}, min=${this.pool.options.min}`);
+    console.log(`⏱️  Cache TTL: ${this.cacheTTL}s`);
+  }
+
+  // ============================================
+  // CONNECTION MANAGEMENT
+  // ============================================
+
+  async withConnection(operation) {
+    return new Promise((resolve, reject) => {
+      this.semaphore.acquire()
+        .then((release) => {
+          let client = null;
+          const timeout = setTimeout(() => {
+            if (client) {
+              try {
+                client.release();
+              } catch (e) {}
+            }
+            release();
+            reject(new Error('Database operation timeout'));
+          }, parseInt(process.env.DB_OPERATION_TIMEOUT) || 15000);
+          
+          this.pool.connect()
+            .then(c => {
+              client = c;
+              clearTimeout(timeout);
+              return operation(client);
+            })
+            .then(result => {
+              if (client) {
+                try {
+                  client.release();
+                } catch (e) {}
+              }
+              release();
+              resolve(result);
+            })
+            .catch(err => {
+              if (client) {
+                try {
+                  client.release();
+                } catch (e) {}
+              }
+              release();
+              reject(err);
+            });
+        })
+        .catch(reject);
+    });
+  }
+
+  async query(sql, params = []) {
+    return this.withConnection(async (client) => {
+      const result = await client.query(sql, params);
+      return result;
+    });
+  }
+
+  async queryWithTimeout(sql, params = [], timeout = 10000) {
+    return this.withConnection(async (client) => {
+      const queryPromise = client.query(sql, params);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Query timeout')), timeout);
+      });
+      const result = await Promise.race([queryPromise, timeoutPromise]);
+      return result;
+    });
+  }
+
+  async queryWithRetry(sql, params = [], maxRetries = 3) {
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.query(sql, params);
+      } catch (error) {
+        lastError = error;
+        if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === '57P01') {
+          const delay = Math.min(attempt * 1000, 5000);
+          console.log(`Database connection attempt ${attempt} failed, retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw lastError;
   }
 
   async safeQuery(sql, params = []) {
@@ -394,13 +175,109 @@ class DeviceDatabase {
   }
 
   // ============================================
+  // BATCH OPERATIONS
+  // ============================================
+
+  async batchGetCodeInfo(codes) {
+    if (!codes || codes.length === 0) return [];
+    try {
+      const placeholders = codes.map((_, i) => `$${i + 1}`).join(', ');
+      const result = await this.query(
+        `SELECT * FROM codes WHERE code IN (${placeholders})`,
+        codes
+      );
+      return result.rows;
+    } catch (error) {
+      console.error('Batch get code info error:', error);
+      return [];
+    }
+  }
+
+  async batchGetDevices(codes) {
+    if (!codes || codes.length === 0) return [];
+    try {
+      const placeholders = codes.map((_, i) => `$${i + 1}`).join(', ');
+      const result = await this.query(
+        `SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, cpu_name, gpu_name, ram_total_gb, storage_total_gb, wallpaper_name, wallpaper_width, wallpaper_height, wallpaper_size_kb FROM devices WHERE code IN (${placeholders})`,
+        codes
+      );
+      return result.rows;
+    } catch (error) {
+      console.error('Batch get devices error:', error);
+      return [];
+    }
+  }
+
+  // ============================================
+  // GET DASHBOARD DATA (Optimized)
+  // ============================================
+
+  async getDashboardData() {
+    // Check cache first
+    if (this.cache.hasInitialData && this.cache.lastUpdate > Date.now() - this.cacheTTL * 1000) {
+      return this.cache;
+    }
+
+    try {
+      const queries = {
+        stats: `SELECT 
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
+          SUM(CASE WHEN status = 'revoked' THEN 1 ELSE 0 END) as revoked,
+          SUM(ping_count) as totalPings
+          FROM devices`,
+        totalCodes: 'SELECT COUNT(*) as count FROM codes',
+        activeCodes: "SELECT COUNT(*) as count FROM codes WHERE is_active = true AND status = 'active'",
+        pendingRequests: "SELECT COUNT(*) as count FROM requests WHERE status = 'pending'",
+        codes: 'SELECT code, username, access_level, subscription_type, status, is_active, created_at, max_hwid_limit FROM codes ORDER BY created_at DESC LIMIT 200',
+        devices: `SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, cpu_name, gpu_name, ram_total_gb, storage_total_gb, wallpaper_name, wallpaper_width, wallpaper_height, wallpaper_size_kb 
+          FROM devices ORDER BY created_at DESC LIMIT 200`,
+        requests: 'SELECT * FROM requests WHERE status = "pending" ORDER BY requested_at ASC LIMIT 20'
+      };
+      
+      const results = {};
+      for (const [key, sql] of Object.entries(queries)) {
+        try {
+          const result = await this.query(sql);
+          results[key] = result.rows;
+        } catch (error) {
+          console.error(`Error fetching ${key}:`, error);
+          results[key] = [];
+        }
+      }
+      
+      const stats = {
+        total: parseInt(results.stats[0]?.total || 0),
+        approved: parseInt(results.stats[0]?.approved || 0),
+        revoked: parseInt(results.stats[0]?.revoked || 0),
+        totalPings: parseInt(results.stats[0]?.totalPings || 0),
+        totalCodes: parseInt(results.totalCodes[0]?.count || 0),
+        activeCodes: parseInt(results.activeCodes[0]?.count || 0),
+        pendingRequests: parseInt(results.pendingRequests[0]?.count || 0)
+      };
+      
+      this.cache.stats = stats;
+      this.cache.codes = results.codes;
+      this.cache.devices = results.devices;
+      this.cache.requests = results.requests;
+      this.cache.lastUpdate = Date.now();
+      this.cache.hasInitialData = true;
+      
+      console.log(`📊 Dashboard data cached: ${this.cache.devices.length} devices, ${this.cache.codes.length} codes`);
+      
+      return this.cache;
+    } catch (error) {
+      console.error('Error getting dashboard data:', error);
+      return this.cache;
+    }
+  }
+
+  // ============================================
   // INIT TABLES
   // ============================================
 
   async initTables() {
     try {
-      console.log('🔄 Creating/verifying tables...');
-      
       // Codes table
       await this.query(`
         CREATE TABLE IF NOT EXISTS codes (
@@ -441,7 +318,9 @@ class DeviceDatabase {
       for (const col of columnsToAdd) {
         try {
           await this.query(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-        } catch (e) {}
+        } catch (e) {
+          // Column might already exist
+        }
       }
 
       // code_hwids table
@@ -456,7 +335,19 @@ class DeviceDatabase {
         )
       `);
 
-      // Devices table
+      // Indexes for performance
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid ON hwid_logs(hwid)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_created_at ON hwid_logs(created_at DESC)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status ON hwid_logs(status)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_code ON devices(code)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status)`);
+
+      // Devices table with wallpaper columns
       await this.query(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -488,7 +379,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Add hardware and wallpaper columns
+      // Add hardware and wallpaper columns to devices table
       const deviceColumns = [
         { name: 'hwid', type: 'TEXT' },
         { name: 'browser_profile', type: 'TEXT' },
@@ -508,7 +399,9 @@ class DeviceDatabase {
       for (const col of deviceColumns) {
         try {
           await this.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-        } catch (e) {}
+        } catch (e) {
+          // Column might already exist
+        }
       }
 
       // Requests table
@@ -564,12 +457,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Indexes
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
+      // Additional indexes
       await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid ON hwid_logs(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_created_at ON hwid_logs(created_at DESC)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status ON hwid_logs(status)`);
@@ -578,77 +466,10 @@ class DeviceDatabase {
 
       console.log('✅ Tables created/verified');
       
+      await this.refreshCache();
+      
     } catch (error) {
       console.error('❌ Failed to create tables:', error.message);
-      throw error;
-    }
-  }
-
-  // ============================================
-  // CACHED QUERIES
-  // ============================================
-
-  async getCodeInfo(code) {
-    const cacheKey = `code_${code}`;
-    const cached = this.queryCache.get(cacheKey);
-    if (cached) return cached;
-    
-    try {
-      const result = await this.get('SELECT * FROM codes WHERE code = $1', [code]);
-      if (result) {
-        this.queryCache.set(cacheKey, result);
-      }
-      return result;
-    } catch (error) {
-      console.error('Get code info error:', error);
-      return null;
-    }
-  }
-
-  async getDevice(deviceId) {
-    const cacheKey = `device_${deviceId}`;
-    const cached = this.queryCache.get(cacheKey);
-    if (cached) return cached;
-    
-    try {
-      const result = await this.get('SELECT * FROM devices WHERE device_id = $1', [deviceId]);
-      if (result) {
-        this.queryCache.set(cacheKey, result);
-      }
-      return result;
-    } catch (error) {
-      console.error('Get device error:', error);
-      return null;
-    }
-  }
-
-  async getDevices(status = null) {
-    try {
-      let query = 'SELECT * FROM devices';
-      const params = [];
-      
-      if (status) {
-        query += ' WHERE status = $1';
-        params.push(status);
-      }
-      
-      query += ' ORDER BY created_at DESC';
-      return await this.all(query, params);
-    } catch (error) {
-      console.error('Get devices error:', error);
-      return this.cache.devices || [];
-    }
-  }
-
-  async getDevicesByCode(code) {
-    try {
-      return await this.all(
-        'SELECT * FROM devices WHERE code = $1 ORDER BY created_at DESC', 
-        [code]
-      );
-    } catch (error) {
-      console.error('Get devices by code error:', error);
-      return [];
     }
   }
 
@@ -845,10 +666,6 @@ class DeviceDatabase {
         `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName} | Wallpaper: ${wallpaperName || 'None'}`
       );
       
-      // Clear cache
-      this.queryCache.clearPrefix(`device_${deviceId}`);
-      this.queryCache.clearPrefix(`code_${code}`);
-      
       await this.refreshCache();
 
       const updatedCodeInfo = await this.getCodeInfo(code);
@@ -880,7 +697,50 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // HWID METHODS
+  // GET DEVICE
+  // ============================================
+
+  async getDevice(deviceId) {
+    try {
+      return await this.get('SELECT * FROM devices WHERE device_id = $1', [deviceId]);
+    } catch (error) {
+      console.error('Get device error:', error);
+      return null;
+    }
+  }
+
+  async getDevices(status = null) {
+    try {
+      let query = 'SELECT * FROM devices';
+      const params = [];
+      
+      if (status) {
+        query += ' WHERE status = $1';
+        params.push(status);
+      }
+      
+      query += ' ORDER BY created_at DESC LIMIT 500';
+      return await this.all(query, params);
+    } catch (error) {
+      console.error('Get devices error:', error);
+      return this.cache.devices || [];
+    }
+  }
+
+  async getDevicesByCode(code) {
+    try {
+      return await this.all(
+        'SELECT * FROM devices WHERE code = $1 ORDER BY created_at DESC LIMIT 100', 
+        [code]
+      );
+    } catch (error) {
+      console.error('Get devices by code error:', error);
+      return [];
+    }
+  }
+
+  // ============================================
+  // MULTI-HWID SUPPORT METHODS
   // ============================================
 
   async getCodeHwidLimit(code) {
@@ -905,7 +765,6 @@ class DeviceDatabase {
         'UPDATE codes SET max_hwid_limit = $1 WHERE code = $2',
         [limit, code]
       );
-      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       return result.changes > 0;
     } catch (error) {
@@ -1015,7 +874,6 @@ class DeviceDatabase {
         [hwid, code]
       );
 
-      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       return { success: true, message: 'HWID assigned successfully', auto_assigned: autoAssign };
     } catch (error) {
@@ -1049,7 +907,6 @@ class DeviceDatabase {
             [code]
           );
         }
-        this.queryCache.clearPrefix(`code_${code}`);
         await this.refreshCache();
         return { 
           success: true, 
@@ -1156,6 +1013,7 @@ class DeviceDatabase {
             );
         }
         
+        // Remove all HWIDs
         await this.run(
             'DELETE FROM code_hwids WHERE code = $1',
             [code]
@@ -1173,7 +1031,6 @@ class DeviceDatabase {
             `🔒 Code ${code} auto-deactivated due to ${reason}. ${devices.length} devices revoked.`
         );
         
-        this.queryCache.clearPrefix(`code_${code}`);
         await this.refreshCache();
         
         return {
@@ -1240,6 +1097,15 @@ class DeviceDatabase {
     }
   }
 
+  async getCodeInfo(code) {
+    try {
+      return await this.get('SELECT * FROM codes WHERE code = $1', [code]);
+    } catch (error) {
+      console.error('Get code info error:', error);
+      return null;
+    }
+  }
+
   async getCodeWithAuth(code, username) {
     try {
       const result = await this.get(
@@ -1300,7 +1166,7 @@ class DeviceDatabase {
     try {
       const result = await this.all(
         `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit
-         FROM codes ORDER BY created_at DESC`
+         FROM codes ORDER BY created_at DESC LIMIT 500`
       );
       return result || [];
     } catch (error) {
@@ -1312,7 +1178,7 @@ class DeviceDatabase {
   async getActiveCodes() {
     try {
       const result = await this.all(
-        `SELECT * FROM codes WHERE is_active = true AND status = 'active' ORDER BY created_at DESC`
+        `SELECT * FROM codes WHERE is_active = true AND status = 'active' ORDER BY created_at DESC LIMIT 200`
       );
       return result || [];
     } catch (error) {
@@ -1324,7 +1190,7 @@ class DeviceDatabase {
   async getCodeUsage(code) {
     try {
       const devices = await this.all(
-        `SELECT * FROM devices WHERE code = $1 AND status != 'revoked'`,
+        `SELECT * FROM devices WHERE code = $1 AND status != 'revoked' LIMIT 50`,
         [code]
       );
       const codeInfo = await this.getCodeInfo(code);
@@ -1345,16 +1211,19 @@ class DeviceDatabase {
 
   async deactivateCode(code) {
     try {
+      // Get devices first
       const devices = await this.all(
         'SELECT device_id FROM devices WHERE code = $1 AND status != $2',
         [code, 'revoked']
       );
       
+      // Remove all HWIDs for this code
       await this.run(
         'DELETE FROM code_hwids WHERE code = $1',
         [code]
       );
       
+      // Remove devices
       for (const device of devices) {
         await this.run(
           'DELETE FROM devices WHERE device_id = $1',
@@ -1363,12 +1232,12 @@ class DeviceDatabase {
         console.log(`🗑️ Removed device: ${device.device_id}`);
       }
       
+      // Update code status
       const result = await this.run(
         'UPDATE codes SET is_active = false, status = $1, hwid = NULL WHERE code = $2',
         ['inactive', code]
       );
       
-      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -1389,6 +1258,7 @@ class DeviceDatabase {
         return { success: false, error: 'Code not found' };
       }
 
+      // Remove all HWIDs if code was inactive
       if (!codeInfo.is_active || codeInfo.status === 'inactive' || codeInfo.status.includes('auto_deactivated')) {
         await this.run(
           'DELETE FROM code_hwids WHERE code = $1',
@@ -1415,7 +1285,6 @@ class DeviceDatabase {
         [subscriptionType, now, expiresAt, code]
       );
       
-      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -1436,7 +1305,6 @@ class DeviceDatabase {
         [accessLevel, code]
       );
       
-      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -1457,7 +1325,6 @@ class DeviceDatabase {
         [username.trim(), code]
       );
       
-      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -1490,7 +1357,6 @@ class DeviceDatabase {
         [subscriptionType, now, expiresAt, code]
       );
       
-      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -1499,7 +1365,7 @@ class DeviceDatabase {
       }
       return false;
     } catch (error) {
-      console.error('Update subscription error:', error);
+      console.error('Update code subscription error:', error);
       return false;
     }
   }
@@ -1510,7 +1376,6 @@ class DeviceDatabase {
       await this.run('DELETE FROM devices WHERE code = $1', [code]);
       const result = await this.run('DELETE FROM codes WHERE code = $1', [code]);
       
-      this.queryCache.clear();
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -1770,7 +1635,6 @@ class DeviceDatabase {
           await this.logUsage(deviceId, code, 'remove_user', 'User removed, slot freed');
         }
         
-        this.queryCache.clearPrefix(`device_${deviceId}`);
         await this.refreshCache();
         
         console.log(`🗑️ User ${deviceId} removed`);
@@ -1798,7 +1662,6 @@ class DeviceDatabase {
           await this.run('UPDATE codes SET used_count = used_count - 1 WHERE code = $1', [device.code]);
           await this.logUsage(deviceId, device.code, 'revoke', 'Device revoked');
         }
-        this.queryCache.clearPrefix(`device_${deviceId}`);
         return true;
       }
       return false;
@@ -1814,7 +1677,6 @@ class DeviceDatabase {
         'UPDATE devices SET last_ping = CURRENT_TIMESTAMP, ping_count = ping_count + 1, updated_at = CURRENT_TIMESTAMP WHERE device_id = $1',
         [deviceId]
       );
-      this.queryCache.clearPrefix(`device_${deviceId}`);
     } catch (error) {
       console.error('Update ping error:', error);
     }
@@ -1861,6 +1723,11 @@ class DeviceDatabase {
 
   async getStats() {
     try {
+      // Use cache if available and fresh
+      if (this.cache.hasInitialData && this.cache.lastUpdate > Date.now() - this.cacheTTL * 1000) {
+        return this.cache.stats;
+      }
+      
       const total = await this.get('SELECT COUNT(*) as count FROM devices');
       const pending = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'pending'");
       const approved = await this.get("SELECT COUNT(*) as count FROM devices WHERE status = 'approved'");
@@ -1880,6 +1747,9 @@ class DeviceDatabase {
         activeCodes: parseInt(activeCodes?.count || 0),
         pendingRequests: parseInt(pendingRequests?.count || 0)
       };
+      
+      this.cache.stats = stats;
+      this.cache.lastUpdate = Date.now();
       
       return stats;
     } catch (error) {
@@ -1930,7 +1800,7 @@ class DeviceDatabase {
   async getPendingRequests() {
     try {
       return await this.all(
-        'SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id WHERE r.status = $1 ORDER BY r.requested_at ASC',
+        'SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id WHERE r.status = $1 ORDER BY r.requested_at ASC LIMIT 50',
         ['pending']
       );
     } catch (error) {
@@ -1973,58 +1843,36 @@ class DeviceDatabase {
   async refreshCache() {
     try {
       console.log('🔄 Refreshing cache...');
-      const startTime = Date.now();
       
-      const results = await Promise.allSettled([
-        this.getAllCodes().catch(e => { 
-          console.error('❌ Codes fetch error:', e.message); 
-          return []; 
-        }),
-        this.getStats().catch(e => { 
-          console.error('❌ Stats fetch error:', e.message); 
-          return {}; 
-        }),
-        this.getDevices().catch(e => { 
-          console.error('❌ Devices fetch error:', e.message); 
-          return []; 
-        }),
-        this.getPendingRequests().catch(e => { 
-          console.error('❌ Requests fetch error:', e.message); 
-          return []; 
-        })
+      const [codes, stats, devices, requests] = await Promise.all([
+        this.getAllCodes(),
+        this.getStats(),
+        this.getDevices(),
+        this.getPendingRequests()
       ]);
       
-      const [codesResult, statsResult, devicesResult, requestsResult] = results;
-      
-      if (codesResult.status === 'fulfilled' && codesResult.value.length > 0) {
-        this.cache.codes = codesResult.value;
-      } else if (!this.cache.hasInitialData) {
-        this.cache.codes = [];
+      if (codes !== null && codes !== undefined) {
+        this.cache.codes = codes;
+        console.log(`✅ Updated codes cache with ${codes.length} codes`);
       }
       
-      if (statsResult.status === 'fulfilled' && Object.keys(statsResult.value).length > 0) {
-        this.cache.stats = statsResult.value;
+      if (stats !== null && stats !== undefined && Object.keys(stats).length > 0) {
+        this.cache.stats = stats;
       }
       
-      if (devicesResult.status === 'fulfilled' && devicesResult.value.length > 0) {
-        this.cache.devices = devicesResult.value;
-      } else if (!this.cache.hasInitialData) {
-        this.cache.devices = [];
+      if (devices !== null && devices !== undefined) {
+        this.cache.devices = devices;
+        console.log(`✅ Updated devices cache with ${devices.length} devices`);
       }
       
-      if (requestsResult.status === 'fulfilled' && requestsResult.value.length > 0) {
-        this.cache.requests = requestsResult.value;
-      } else if (!this.cache.hasInitialData) {
-        this.cache.requests = [];
+      if (requests !== null && requests !== undefined) {
+        this.cache.requests = requests;
       }
       
       this.cache.lastUpdate = Date.now();
       this.cache.hasInitialData = true;
       
-      const duration = Date.now() - startTime;
-      console.log(`✅ Cache refreshed in ${duration}ms: ${this.cache.codes.length} codes, ${this.cache.devices.length} devices`);
-      
-      await this.monitorPoolHealth();
+      console.log(`✅ Cache: ${this.cache.codes.length} codes, ${this.cache.devices.length} devices`);
       
       return this.cache;
     } catch (error) {
@@ -2036,7 +1884,7 @@ class DeviceDatabase {
   getCachedData() {
     return {
       codes: this.cache.codes || [],
-      stats: this.cache.stats || { total: 0, pending: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
+      stats: this.cache.stats || { total: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
       devices: this.cache.devices || [],
       requests: this.cache.requests || []
     };
@@ -2049,8 +1897,7 @@ class DeviceDatabase {
   async cleanupInactiveDevices() {
     try {
       const result = await this.query(`
-        UPDATE devices 
-        SET status = 'revoked', revoked_at = CURRENT_TIMESTAMP 
+        DELETE FROM devices 
         WHERE last_ping < NOW() - INTERVAL '7 days'
         AND status != 'revoked'
         RETURNING device_id, code
@@ -2061,10 +1908,9 @@ class DeviceDatabase {
         
         for (const row of result.rows) {
           await this.query(
-            `UPDATE codes SET used_count = GREATEST(used_count - 1, 0) WHERE code = $1`,
+            `UPDATE codes SET used_count = used_count - 1 WHERE code = $1`,
             [row.code]
           );
-          this.queryCache.clearPrefix(`device_${row.device_id}`);
         }
       }
       
@@ -2076,53 +1922,19 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // BULK OPERATIONS
+  // CONNECTION POOL STATUS
   // ============================================
 
-  async bulkRegisterDevices(devices) {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      
-      for (const device of devices) {
-        await client.query(
-          `INSERT INTO devices (device_id, user_agent, ip_address, code, hwid, status, approved_at)
-           VALUES ($1, $2, $3, $4, $5, 'approved', CURRENT_TIMESTAMP)
-           ON CONFLICT (device_id) DO UPDATE SET 
-             user_agent = EXCLUDED.user_agent,
-             ip_address = EXCLUDED.ip_address,
-             code = EXCLUDED.code,
-             hwid = EXCLUDED.hwid,
-             status = 'approved',
-             approved_at = CURRENT_TIMESTAMP,
-             updated_at = CURRENT_TIMESTAMP`,
-          [device.device_id, device.user_agent, device.ip, device.code, device.hwid]
-        );
-      }
-      
-      await client.query('COMMIT');
-      this.queryCache.clear();
-      await this.refreshCache();
-      return { success: true, count: devices.length };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+  getPoolStatus() {
+    return {
+      total: this.pool.totalCount,
+      idle: this.pool.idleCount,
+      waiting: this.pool.waitingCount,
+      max: this.pool.options.max,
+      min: this.pool.options.min,
+      used: this.pool.totalCount - this.pool.idleCount
+    };
   }
-
-  // ============================================
-  // QUEUE STATS
-  // ============================================
-
-  getQueueStats() {
-    return this.connectionQueue.getStats();
-  }
-
-  // ============================================
-  // CLOSE CONNECTION
-  // ============================================
 
   close() {
     this.pool.end();
