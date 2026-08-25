@@ -1,53 +1,187 @@
-// database-pg.js - Complete with HWID Logs
+// database-pg.js - Complete with ALL Methods
+
 const { Pool } = require('pg');
+
+// ============================================
+// QUERY CACHE
+// ============================================
+class QueryCache {
+  constructor(ttl = 30000) {
+    this.cache = new Map();
+    this.ttl = ttl;
+  }
+  
+  get(key) {
+    const item = this.cache.get(key);
+    if (!item) return null;
+    if (Date.now() - item.timestamp > this.ttl) {
+      this.cache.delete(key);
+      return null;
+    }
+    return item.value;
+  }
+  
+  set(key, value) {
+    this.cache.set(key, {
+      value: value,
+      timestamp: Date.now()
+    });
+  }
+  
+  clear() {
+    this.cache.clear();
+  }
+  
+  clearPrefix(prefix) {
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.cache.delete(key);
+      }
+    }
+  }
+}
 
 class DeviceDatabase {
   constructor() {
+    const connectionString = process.env.DATABASE_URL;
+    const isSupabase = connectionString && connectionString.includes('supabase');
+    
     this.pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: {
+      connectionString: connectionString,
+      ssl: isSupabase ? {
+        rejectUnauthorized: false,
+        sslmode: 'require'
+      } : {
         rejectUnauthorized: false
       },
-      max: 10,
-      idleTimeoutMillis: 10000,
-      connectionTimeoutMillis: 2000,
-      maxUses: 100
+      max: parseInt(process.env.DB_POOL_MAX) || 50,
+      min: parseInt(process.env.DB_POOL_MIN) || 10,
+      idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT) || 30000,
+      connectionTimeoutMillis: parseInt(process.env.DB_POOL_CONNECTION_TIMEOUT) || 30000,
+      maxUses: parseInt(process.env.DB_POOL_MAX_USES) || 1000,
+      allowExitOnIdle: false,
+      max_lifetime: 3600000,
+      statement_timeout: 60000,
+      query_timeout: 60000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
+      
+      ...(isSupabase && {
+        application_name: 'wantmatures_server',
+        connect_timeout: 30,
+        keepalives: 1,
+        keepalives_idle: 60,
+        keepalives_interval: 10,
+        keepalives_count: 3
+      })
     });
     
+    this.pool.on('error', (err) => {
+      console.error('❌ Database pool error:', err);
+    });
+    
+    this.pool.on('connect', () => {
+      console.log('🔗 New database connection established');
+    });
+    
+    this.pool.on('remove', () => {
+      console.log('🔌 Database connection removed from pool');
+    });
+    
+    this.queryCache = new QueryCache(30000);
     this.cache = {
       codes: [],
-      stats: { total: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
+      stats: { total: 0, pending: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
       devices: [],
       requests: [],
       lastUpdate: 0,
       hasInitialData: false
     };
     
-    this.pool.on('error', (err) => {
-      console.error('Database pool error:', err);
-    });
+    this.initDatabase();
     
-    this.initTables();
     console.log('✅ PostgreSQL Database initialized');
+    console.log(`📊 Connection Pool: max=${this.pool.options.max}, min=${this.pool.options.min}`);
   }
 
-  async query(sql, params = []) {
-    let client = null;
+  // ============================================
+  // INIT DATABASE
+  // ============================================
+  
+  async initDatabase() {
     try {
-      client = await this.pool.connect();
-      const result = await client.query(sql, params);
-      return result;
+      await this.testConnection();
+      await this.initTables();
+      await this.refreshCache();
+      console.log('✅ Database initialization complete!');
     } catch (error) {
+      console.error('❌ Database initialization failed:', error.message);
+    }
+  }
+
+  // ============================================
+  // TEST CONNECTION
+  // ============================================
+
+  async testConnection() {
+    try {
+      console.log('🔄 Testing database connection...');
+      const result = await this.query('SELECT NOW() as time, version() as version');
+      console.log('✅ Database connection successful!');
+      console.log(`📅 Server time: ${result.rows[0].time}`);
+      return true;
+    } catch (error) {
+      console.error('❌ Database connection test failed:', error.message);
       throw error;
-    } finally {
-      if (client) {
-        try {
-          client.release();
-        } catch (releaseError) {
-          // Ignore release errors
+    }
+  }
+
+  // ============================================
+  // QUERY METHODS
+  // ============================================
+
+  async query(sql, params = [], retries = 3) {
+    let client = null;
+    let lastError = null;
+    
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        client = await this.pool.connect();
+        const startTime = Date.now();
+        const result = await client.query(sql, params);
+        const duration = Date.now() - startTime;
+        
+        if (duration > 5000) {
+          console.warn(`⚠️ Slow query (${duration}ms): ${sql.substring(0, 100)}...`);
+        }
+        
+        return result;
+      } catch (error) {
+        lastError = error;
+        console.error(`❌ Query attempt ${attempt}/${retries} failed:`, error.message);
+        
+        if (error.code === '42701' || error.message.includes('already exists')) {
+          throw error;
+        }
+        
+        if (client) {
+          try { client.release(); } catch (e) {}
+          client = null;
+        }
+        
+        if (attempt < retries) {
+          const backoff = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+          console.log(`⏳ Retrying in ${backoff}ms...`);
+          await new Promise(resolve => setTimeout(resolve, backoff));
+        }
+      } finally {
+        if (client) {
+          try { client.release(); } catch (e) {}
         }
       }
     }
+    
+    throw lastError || new Error('Query failed after all retries');
   }
 
   async safeQuery(sql, params = []) {
@@ -79,8 +213,56 @@ class DeviceDatabase {
     return result.rows;
   }
 
+  // ============================================
+  // POOL MONITORING - FIXED
+  // ============================================
+
+  getPoolStats() {
+    try {
+      return {
+        totalConnections: this.pool.totalCount || 0,
+        idleConnections: this.pool.idleCount || 0,
+        waitingClients: this.pool.waitingCount || 0,
+        maxConnections: this.pool.options.max || 50,
+        minConnections: this.pool.options.min || 10,
+        usagePercent: this.pool.totalCount ? 
+          Math.round((this.pool.totalCount / this.pool.options.max) * 100) : 0
+      };
+    } catch (error) {
+      return {
+        totalConnections: 0,
+        idleConnections: 0,
+        waitingClients: 0,
+        maxConnections: 50,
+        minConnections: 10,
+        usagePercent: 0
+      };
+    }
+  }
+
+  async monitorPoolHealth() {
+    const stats = this.getPoolStats();
+    console.log('📊 Database Pool Health:', stats);
+    
+    if (stats.waitingClients > 10) {
+      console.warn('⚠️ High waiting clients:', stats.waitingClients);
+    }
+    
+    if (stats.usagePercent > 80) {
+      console.warn(`⚠️ Connection pool usage at ${stats.usagePercent}%`);
+    }
+    
+    return stats;
+  }
+
+  // ============================================
+  // INIT TABLES
+  // ============================================
+
   async initTables() {
     try {
+      console.log('🔄 Creating/verifying tables...');
+      
       // Codes table
       await this.query(`
         CREATE TABLE IF NOT EXISTS codes (
@@ -104,7 +286,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Add missing columns to codes table
+      // Add missing columns
       const columnsToAdd = [
         { name: 'username', type: 'TEXT' },
         { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
@@ -121,9 +303,7 @@ class DeviceDatabase {
       for (const col of columnsToAdd) {
         try {
           await this.query(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-        } catch (e) {
-          // Column might already exist
-        }
+        } catch (e) {}
       }
 
       // code_hwids table
@@ -138,7 +318,7 @@ class DeviceDatabase {
         )
       `);
 
-      // Devices table with hardware specs
+      // Devices table
       await this.query(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -161,11 +341,16 @@ class DeviceDatabase {
           ram_total_gb DECIMAL,
           storage_total_gb DECIMAL,
           profile_name TEXT,
-          device_name TEXT
+          device_name TEXT,
+          wallpaper_name TEXT,
+          wallpaper_size_kb DECIMAL,
+          wallpaper_width INTEGER,
+          wallpaper_height INTEGER,
+          wallpaper_base64 TEXT
         )
       `);
 
-      // Add hardware columns to devices table
+      // Add columns
       const deviceColumns = [
         { name: 'hwid', type: 'TEXT' },
         { name: 'browser_profile', type: 'TEXT' },
@@ -174,17 +359,18 @@ class DeviceDatabase {
         { name: 'ram_total_gb', type: 'DECIMAL' },
         { name: 'storage_total_gb', type: 'DECIMAL' },
         { name: 'profile_name', type: 'TEXT' },
-        { name: 'device_name', type: 'TEXT' }
+        { name: 'device_name', type: 'TEXT' },
+        { name: 'wallpaper_name', type: 'TEXT' },
+        { name: 'wallpaper_size_kb', type: 'DECIMAL' },
+        { name: 'wallpaper_width', type: 'INTEGER' },
+        { name: 'wallpaper_height', type: 'INTEGER' },
+        { name: 'wallpaper_base64', type: 'TEXT' }
       ];
 
       for (const col of deviceColumns) {
         try {
           await this.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-          console.log(`✅ Added column ${col.name} to devices table`);
-        } catch (e) {
-          // Column might already exist
-          console.log(`ℹ️ Column ${col.name} already exists or error:`, e.message);
-        }
+        } catch (e) {}
       }
 
       // Requests table
@@ -223,9 +409,7 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
       // HWID LOGS TABLE
-      // ============================================
       await this.query(`
         CREATE TABLE IF NOT EXISTS hwid_logs (
           id SERIAL PRIMARY KEY,
@@ -251,18 +435,313 @@ class DeviceDatabase {
       await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid ON hwid_logs(hwid)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_created_at ON hwid_logs(created_at DESC)`);
       await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status ON hwid_logs(status)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_code ON devices(code)`);
+      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status)`);
 
       console.log('✅ Tables created/verified');
       
-      await this.refreshCache();
-      
     } catch (error) {
       console.error('❌ Failed to create tables:', error.message);
+      throw error;
     }
   }
 
   // ============================================
-  // MULTI-HWID SUPPORT METHODS
+  // CACHED QUERIES
+  // ============================================
+
+  async getCodeInfo(code) {
+    const cacheKey = `code_${code}`;
+    const cached = this.queryCache.get(cacheKey);
+    if (cached) return cached;
+    
+    try {
+      const result = await this.get('SELECT * FROM codes WHERE code = $1', [code]);
+      if (result) {
+        this.queryCache.set(cacheKey, result);
+      }
+      return result;
+    } catch (error) {
+      console.error('Get code info error:', error);
+      return null;
+    }
+  }
+
+  async getDevice(deviceId) {
+    const cacheKey = `device_${deviceId}`;
+    const cached = this.queryCache.get(cacheKey);
+    if (cached) return cached;
+    
+    try {
+      const result = await this.get('SELECT * FROM devices WHERE device_id = $1', [deviceId]);
+      if (result) {
+        this.queryCache.set(cacheKey, result);
+      }
+      return result;
+    } catch (error) {
+      console.error('Get device error:', error);
+      return null;
+    }
+  }
+
+  async getDevices(status = null) {
+    try {
+      let query = 'SELECT * FROM devices';
+      const params = [];
+      
+      if (status) {
+        query += ' WHERE status = $1';
+        params.push(status);
+      }
+      
+      query += ' ORDER BY created_at DESC';
+      return await this.all(query, params);
+    } catch (error) {
+      console.error('Get devices error:', error);
+      return this.cache.devices || [];
+    }
+  }
+
+  async getDevicesByCode(code) {
+    try {
+      return await this.all(
+        'SELECT * FROM devices WHERE code = $1 ORDER BY created_at DESC', 
+        [code]
+      );
+    } catch (error) {
+      console.error('Get devices by code error:', error);
+      return [];
+    }
+  }
+
+  // ============================================
+  // REGISTER DEVICE
+  // ============================================
+
+  async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null, hardware = null, wallpaper = null) {
+    try {
+      const codeInfo = await this.getCodeInfo(code);
+      if (!codeInfo) {
+        return { success: false, error: 'Invalid code' };
+      }
+
+      if (!codeInfo.is_active) {
+        return { success: false, error: 'Code is inactive' };
+      }
+
+      if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
+        const now = new Date();
+        const expires = new Date(codeInfo.expires_at);
+        if (now > expires) {
+          await this.run(`UPDATE codes SET status = 'expired' WHERE code = $1`, [code]);
+          return { success: false, error: 'Subscription expired' };
+        }
+      }
+
+      if (codeInfo.status !== 'active') {
+        return { success: false, error: `Code is ${codeInfo.status}` };
+      }
+
+      let isAuthorized = false;
+      if (hwid) {
+        isAuthorized = await this.isHwidAuthorized(code, hwid);
+      }
+
+      if (!isAuthorized && hwid) {
+        console.log(`🔄 HWID not authorized for code ${code}, attempting auto-assignment...`);
+        
+        const assignResult = await this.assignHwidToCode(code, hwid, true);
+        
+        if (!assignResult.success) {
+          if (assignResult.auto_deactivate) {
+            console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
+            const deactivateResult = await this.autoDeactivateCode(code, 'hwid_limit_exceeded_auto_assign');
+            
+            return {
+              success: false,
+              error: `HWID limit reached (${assignResult.max_limit}). Code auto-deactivated.`,
+              auto_deactivated: true,
+              devices_revoked: deactivateResult.devices_revoked || 0
+            };
+          }
+          return { success: false, error: assignResult.error };
+        }
+        
+        console.log(`✅ HWID auto-assigned to code ${code}`);
+        isAuthorized = true;
+        
+        await this.logUsage(deviceId, code, 'hwid_auto_assigned', 
+          `HWID ${hwid.substring(0, 16)}... auto-assigned to code ${code}`);
+      }
+
+      if (!isAuthorized && hwid) {
+        return { 
+          success: false, 
+          error: 'This computer is not authorized for this code',
+          needsRegistration: true
+        };
+      }
+
+      if (!hwid) {
+        return { 
+          success: false, 
+          error: 'HWID is required for registration' 
+        };
+      }
+
+      // Parse hardware and wallpaper
+      let cpuName = 'Unknown', gpuName = 'Unknown', ramTotal = 0, storageTotal = 0, deviceName = 'Unknown', profileName = 'Default';
+      let wallpaperName = null, wallpaperSizeKb = 0, wallpaperWidth = 0, wallpaperHeight = 0, wallpaperBase64 = null;
+
+      if (hardware) {
+        const hw = typeof hardware === 'string' ? JSON.parse(hardware) : hardware;
+        cpuName = hw.cpu || 'Unknown';
+        gpuName = hw.gpu || 'Unknown';
+        ramTotal = hw.ram_gb || 0;
+        storageTotal = hw.storage_gb || 0;
+        deviceName = hw.device_name || 'Unknown';
+        profileName = hw.profile_name || 'Default';
+      }
+
+      if (wallpaper) {
+        const wp = typeof wallpaper === 'string' ? JSON.parse(wallpaper) : wallpaper;
+        wallpaperName = wp.file_name || null;
+        wallpaperSizeKb = wp.size_kb || 0;
+        wallpaperWidth = wp.width || 0;
+        wallpaperHeight = wp.height || 0;
+        wallpaperBase64 = wp.image_base64 || null;
+        
+        console.log(`🖼️ Wallpaper: ${wallpaperName} (${wallpaperSizeKb} KB) ${wallpaperWidth}x${wallpaperHeight}`);
+      }
+
+      const existingDevice = await this.getDevice(deviceId);
+      
+      if (existingDevice) {
+        await this.run(
+          `UPDATE devices SET 
+            user_agent = $1, 
+            ip_address = $2, 
+            browser_info = $3, 
+            code = $4,
+            hwid = $5,
+            status = 'approved',
+            updated_at = CURRENT_TIMESTAMP,
+            browser_profile = $6,
+            cpu_name = $7,
+            gpu_name = $8,
+            ram_total_gb = $9,
+            storage_total_gb = $10,
+            profile_name = $11,
+            device_name = $12,
+            wallpaper_name = $13,
+            wallpaper_size_kb = $14,
+            wallpaper_width = $15,
+            wallpaper_height = $16,
+            wallpaper_base64 = $17,
+            approved_at = CURRENT_TIMESTAMP,
+            revoked_at = NULL
+          WHERE device_id = $18`,
+          [
+            userAgent || '',
+            ip || '',
+            JSON.stringify(browserInfo || {}),
+            code,
+            hwid,
+            profileName,
+            cpuName,
+            gpuName,
+            ramTotal,
+            storageTotal,
+            profileName,
+            deviceName,
+            wallpaperName,
+            wallpaperSizeKb,
+            wallpaperWidth,
+            wallpaperHeight,
+            wallpaperBase64,
+            deviceId
+          ]
+        );
+        
+        console.log(`✅ Device ${deviceId} updated with wallpaper: ${wallpaperName}`);
+        
+      } else {
+        await this.run(
+          `INSERT INTO devices (
+            device_id, user_agent, ip_address, browser_info, code, hwid,
+            status, approved_at, browser_profile,
+            cpu_name, gpu_name, ram_total_gb, storage_total_gb,
+            profile_name, device_name,
+            wallpaper_name, wallpaper_size_kb, wallpaper_width, wallpaper_height, wallpaper_base64
+          ) VALUES ($1, $2, $3, $4, $5, $6, 'approved', CURRENT_TIMESTAMP, $7,
+            $8, $9, $10, $11, $12, $13,
+            $14, $15, $16, $17, $18)`,
+          [
+            deviceId,
+            userAgent || '',
+            ip || '',
+            JSON.stringify(browserInfo || {}),
+            code,
+            hwid,
+            profileName,
+            cpuName,
+            gpuName,
+            ramTotal,
+            storageTotal,
+            profileName,
+            deviceName,
+            wallpaperName,
+            wallpaperSizeKb,
+            wallpaperWidth,
+            wallpaperHeight,
+            wallpaperBase64
+          ]
+        );
+        
+        console.log(`✅ New device ${deviceId} registered with wallpaper: ${wallpaperName}`);
+      }
+
+      await this.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code]);
+      
+      await this.logUsage(deviceId, code, 'register', 
+        `Device registered | Profile: ${profileName} | CPU: ${cpuName} | GPU: ${gpuName} | Wallpaper: ${wallpaperName || 'None'}`
+      );
+      
+      this.queryCache.clearPrefix(`device_${deviceId}`);
+      this.queryCache.clearPrefix(`code_${code}`);
+      
+      await this.refreshCache();
+
+      const updatedCodeInfo = await this.getCodeInfo(code);
+
+      return { 
+        success: true, 
+        status: 'approved', 
+        code: code,
+        username: updatedCodeInfo.username,
+        access: updatedCodeInfo.access_level,
+        subscription: updatedCodeInfo.subscription_type,
+        subscription_started_at: updatedCodeInfo.subscription_started_at,
+        subscription_expires_at: updatedCodeInfo.expires_at,
+        status_code: updatedCodeInfo.status,
+        hwid_auto_assigned: !isAuthorized,
+        wallpaper: {
+          name: wallpaperName,
+          size_kb: wallpaperSizeKb,
+          width: wallpaperWidth,
+          height: wallpaperHeight,
+          has_base64: !!wallpaperBase64
+        }
+      };
+      
+    } catch (error) {
+      console.error('Register device error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================
+  // HWID METHODS
   // ============================================
 
   async getCodeHwidLimit(code) {
@@ -287,6 +766,7 @@ class DeviceDatabase {
         'UPDATE codes SET max_hwid_limit = $1 WHERE code = $2',
         [limit, code]
       );
+      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       return result.changes > 0;
     } catch (error) {
@@ -396,6 +876,7 @@ class DeviceDatabase {
         [hwid, code]
       );
 
+      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       return { success: true, message: 'HWID assigned successfully', auto_assigned: autoAssign };
     } catch (error) {
@@ -406,13 +887,11 @@ class DeviceDatabase {
 
   async removeHwidFromCode(code, hwid) {
     try {
-      // Delete all devices with this HWID
       await this.run(
         'DELETE FROM devices WHERE code = $1 AND hwid = $2',
         [code, hwid]
       );
 
-      // Remove from code_hwids
       const result = await this.run(
         'DELETE FROM code_hwids WHERE code = $1 AND hwid = $2',
         [code, hwid]
@@ -431,6 +910,7 @@ class DeviceDatabase {
             [code]
           );
         }
+        this.queryCache.clearPrefix(`code_${code}`);
         await this.refreshCache();
         return { 
           success: true, 
@@ -554,6 +1034,7 @@ class DeviceDatabase {
             `🔒 Code ${code} auto-deactivated due to ${reason}. ${devices.length} devices revoked.`
         );
         
+        this.queryCache.clearPrefix(`code_${code}`);
         await this.refreshCache();
         
         return {
@@ -569,167 +1050,6 @@ class DeviceDatabase {
             success: false,
             error: error.message
         };
-    }
-  }
-
-  // ============================================
-  // HWID CODE MANAGEMENT
-  // ============================================
-
-  async getCodeByHwid(hwid) {
-    try {
-      return await this.get(
-        'SELECT * FROM codes WHERE hwid = $1 AND is_active = true',
-        [hwid]
-      );
-    } catch (error) {
-      console.error('Get code by HWID error:', error);
-      return null;
-    }
-  }
-
-  async verifyHwidCode(code, hwid) {
-    try {
-      const authorized = await this.isHwidAuthorized(code, hwid);
-      if (!authorized) {
-        return { valid: false, error: 'Invalid HWID/code combination' };
-      }
-
-      const result = await this.get(
-        'SELECT * FROM codes WHERE code = $1 AND is_active = true',
-        [code]
-      );
-      
-      if (!result) {
-        return { valid: false, error: 'Invalid code' };
-      }
-      
-      if (result.subscription_type !== 'Lifetime' && result.expires_at) {
-        const now = new Date();
-        const expires = new Date(result.expires_at);
-        if (now > expires) {
-          await this.run(`UPDATE codes SET status = 'expired' WHERE code = $1`, [code]);
-          return { valid: false, error: 'Subscription expired' };
-        }
-      }
-      
-      return {
-        valid: true,
-        username: result.username,
-        access: result.access_level,
-        subscription: result.subscription_type,
-        subscription_started_at: result.subscription_started_at,
-        subscription_expires_at: result.expires_at,
-        status_code: result.status
-      };
-    } catch (error) {
-      console.error('Verify HWID code error:', error);
-      return { valid: false, error: 'Verification failed' };
-    }
-  }
-
-  async addHwidCode(code, hwid, fingerprint, username, accessLevel = 'VIP', subscriptionType = 'Lifetime', createdBy = 'admin', maxHwidLimit = 1) {
-    try {
-      const existingHwid = await this.get(
-        'SELECT code FROM code_hwids WHERE hwid = $1',
-        [hwid]
-      );
-      if (existingHwid) {
-        return {
-          success: false,
-          error: `This computer is already registered with code: ${existingHwid.code}`,
-          existing_code: existingHwid.code
-        };
-      }
-
-      const existingCode = await this.get('SELECT * FROM codes WHERE code = $1', [code]);
-      if (existingCode) {
-        return {
-          success: false,
-          error: `Code ${code} already exists`
-        };
-      }
-
-      const now = new Date().toISOString();
-      const expiresAt = subscriptionType === 'Lifetime' ? null : this.calculateExpiration(now, subscriptionType);
-
-      await this.run(
-        `INSERT INTO codes (code, hwid, fingerprint, username, max_devices, created_by, notes, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, max_hwid_limit)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active', true, $12)`,
-        [code, hwid, fingerprint || hwid.substring(0, 16) + '...', username.trim(), 10, createdBy, `HWID: ${fingerprint || hwid.substring(0, 16)}`, accessLevel, subscriptionType, now, expiresAt, maxHwidLimit]
-      );
-
-      await this.run(
-        'INSERT INTO code_hwids (code, hwid, assigned_at) VALUES ($1, $2, CURRENT_TIMESTAMP)',
-        [code, hwid]
-      );
-
-      await this.logUsage('admin', code, 'hwid_code_added', 
-        `HWID code ${code} added for ${username} by ${createdBy} (limit: ${maxHwidLimit})`);
-
-      await this.refreshCache();
-
-      return {
-        success: true,
-        code: code,
-        username: username,
-        hwid: hwid,
-        fingerprint: fingerprint,
-        access: accessLevel,
-        subscription: subscriptionType,
-        expires_at: expiresAt,
-        max_hwid_limit: maxHwidLimit
-      };
-
-    } catch (error) {
-      console.error('Add HWID code error:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  async getHwidCodes() {
-    try {
-      return await this.all(`
-        SELECT code, hwid, fingerprint, username, access_level, subscription_type, 
-               is_active, used_count, created_at, expires_at, status, created_by, max_hwid_limit
-        FROM codes 
-        WHERE hwid IS NOT NULL
-        ORDER BY created_at DESC
-      `);
-    } catch (error) {
-      console.error('Get HWID codes error:', error);
-      return [];
-    }
-  }
-
-  // ============================================
-  // CLEANUP INACTIVE DEVICES
-  // ============================================
-
-  async cleanupInactiveDevices() {
-    try {
-      const result = await this.query(`
-        DELETE FROM devices 
-        WHERE last_ping < NOW() - INTERVAL '7 days'
-        AND status != 'revoked'
-        RETURNING device_id, code
-      `);
-      
-      if (result.rowCount > 0) {
-        console.log(`🧹 Cleaned up ${result.rowCount} inactive devices`);
-        
-        for (const row of result.rows) {
-          await this.query(
-            `UPDATE codes SET used_count = used_count - 1 WHERE code = $1`,
-            [row.code]
-          );
-        }
-      }
-      
-      return result.rowCount;
-    } catch (error) {
-      console.error('Cleanup inactive devices error:', error);
-      return 0;
     }
   }
 
@@ -778,15 +1098,6 @@ class DeviceDatabase {
     } catch (error) {
       console.error('Generate code error:', error);
       throw error;
-    }
-  }
-
-  async getCodeInfo(code) {
-    try {
-      return await this.get('SELECT * FROM codes WHERE code = $1', [code]);
-    } catch (error) {
-      console.error('Get code info error:', error);
-      return null;
     }
   }
 
@@ -900,6 +1211,11 @@ class DeviceDatabase {
         [code, 'revoked']
       );
       
+      await this.run(
+        'DELETE FROM code_hwids WHERE code = $1',
+        [code]
+      );
+      
       for (const device of devices) {
         await this.run(
           'DELETE FROM devices WHERE device_id = $1',
@@ -909,10 +1225,11 @@ class DeviceDatabase {
       }
       
       const result = await this.run(
-        'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
+        'UPDATE codes SET is_active = false, status = $1, hwid = NULL WHERE code = $2',
         ['inactive', code]
       );
       
+      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -933,6 +1250,18 @@ class DeviceDatabase {
         return { success: false, error: 'Code not found' };
       }
 
+      if (!codeInfo.is_active || codeInfo.status === 'inactive' || codeInfo.status.includes('auto_deactivated')) {
+        await this.run(
+          'DELETE FROM code_hwids WHERE code = $1',
+          [code]
+        );
+        await this.run(
+          'UPDATE codes SET hwid = NULL WHERE code = $1',
+          [code]
+        );
+        console.log(`🔄 HWIDs removed during reactivation of code ${code}`);
+      }
+
       const now = new Date().toISOString();
       const expiresAt = subscriptionType === 'Lifetime' ? null : this.calculateExpiration(now, subscriptionType);
       
@@ -947,6 +1276,7 @@ class DeviceDatabase {
         [subscriptionType, now, expiresAt, code]
       );
       
+      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -967,6 +1297,7 @@ class DeviceDatabase {
         [accessLevel, code]
       );
       
+      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -987,6 +1318,7 @@ class DeviceDatabase {
         [username.trim(), code]
       );
       
+      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -1019,6 +1351,7 @@ class DeviceDatabase {
         [subscriptionType, now, expiresAt, code]
       );
       
+      this.queryCache.clearPrefix(`code_${code}`);
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -1027,7 +1360,7 @@ class DeviceDatabase {
       }
       return false;
     } catch (error) {
-      console.error('Update code subscription error:', error);
+      console.error('Update subscription error:', error);
       return false;
     }
   }
@@ -1038,6 +1371,7 @@ class DeviceDatabase {
       await this.run('DELETE FROM devices WHERE code = $1', [code]);
       const result = await this.run('DELETE FROM codes WHERE code = $1', [code]);
       
+      this.queryCache.clear();
       await this.refreshCache();
       
       if (result.changes > 0) {
@@ -1052,7 +1386,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // HWID LOGGING METHODS
+  // HWID LOGGING
   // ============================================
 
   async logHwidActivity(hwid, code, deviceId, action, status, details, ip, userAgent, browserProfile) {
@@ -1126,141 +1460,117 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // DEVICE REGISTRATION WITH HWID
+  // NEW HWID METHODS
   // ============================================
 
-  async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null) {
+  async getNewUniqueHwids(limit = 100) {
     try {
-      const codeInfo = await this.getCodeInfo(code);
-      if (!codeInfo) {
-        return { success: false, error: 'Invalid code' };
-      }
-
-      if (!codeInfo.is_active) {
-        return { success: false, error: 'Code is inactive' };
-      }
-
-      if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
-        const now = new Date();
-        const expires = new Date(codeInfo.expires_at);
-        if (now > expires) {
-          await this.run(
-            `UPDATE codes SET status = 'expired' WHERE code = $1`,
-            [code]
-          );
-          return { success: false, error: 'Subscription expired' };
-        }
-      }
-
-      if (codeInfo.status !== 'active') {
-        return { success: false, error: `Code is ${codeInfo.status}` };
-      }
-
-      let isAuthorized = false;
-      if (hwid) {
-        isAuthorized = await this.isHwidAuthorized(code, hwid);
-      }
-
-      if (!isAuthorized && hwid) {
-        console.log(`🔄 HWID not authorized for code ${code}, attempting auto-assignment...`);
-        
-        const assignResult = await this.assignHwidToCode(code, hwid, true);
-        
-        if (!assignResult.success) {
-          if (assignResult.auto_deactivate) {
-            console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
-            const deactivateResult = await this.autoDeactivateCode(code, 'hwid_limit_exceeded_auto_assign');
-            
-            return {
-              success: false,
-              error: `HWID limit reached (${assignResult.max_limit}). Code auto-deactivated.`,
-              auto_deactivated: true,
-              devices_revoked: deactivateResult.devices_revoked || 0
-            };
-          }
-          return { success: false, error: assignResult.error };
-        }
-        
-        console.log(`✅ HWID auto-assigned to code ${code}`);
-        isAuthorized = true;
-        
-        await this.logUsage(deviceId, code, 'hwid_auto_assigned', 
-          `HWID ${hwid.substring(0, 16)}... auto-assigned to code ${code}`);
-      }
-
-      if (!isAuthorized && hwid) {
-        return { 
-          success: false, 
-          error: 'This computer is not authorized for this code',
-          needsRegistration: true
-        };
-      }
-
-      if (!hwid) {
-        return { 
-          success: false, 
-          error: 'HWID is required for registration' 
-        };
-      }
-
-      const existingDevice = await this.getDevice(deviceId);
-      if (existingDevice) {
-        if (existingDevice.code === code) {
-          await this.run(
-            'UPDATE devices SET status = $1, user_agent = $2, ip_address = $3, browser_info = $4, approved_at = CURRENT_TIMESTAMP, revoked_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE device_id = $5',
-            ['approved', userAgent || '', ip || '', browserInfo || '', deviceId]
-          );
-          if (hwid) {
-            await this.run('UPDATE devices SET hwid = $1 WHERE device_id = $2', [hwid, deviceId]);
-          }
-          await this.logUsage(deviceId, code, 're-register', 'Device re-registered');
-          
-          await this.refreshCache();
-          
-          return { 
-            success: true, 
-            status: 'approved', 
-            code: code,
-            username: codeInfo.username,
-            access: codeInfo.access_level,
-            subscription: codeInfo.subscription_type,
-            subscription_started_at: codeInfo.subscription_started_at,
-            subscription_expires_at: codeInfo.expires_at,
-            status_code: codeInfo.status,
-            hwid_auto_assigned: !isAuthorized
-          };
-        }
-      }
-
-      await this.run(
-        'INSERT INTO devices (device_id, user_agent, ip_address, browser_info, code, status, approved_at) VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)',
-        [deviceId, userAgent || '', ip || '', browserInfo || '', code, 'approved']
-      );
-
-      if (hwid) {
-        await this.run('UPDATE devices SET hwid = $1 WHERE device_id = $2', [hwid, deviceId]);
-      }
-
-      await this.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code]);
-      await this.logUsage(deviceId, code, 'register', 'Device registered and auto-approved');
+      const result = await this.all(`
+        SELECT DISTINCT 
+            l.hwid,
+            l.code,
+            l.device_id,
+            l.action,
+            l.details,
+            l.created_at,
+            l.ip_address,
+            l.user_agent,
+            l.browser_profile,
+            l.status,
+            CASE 
+                WHEN ch.code IS NOT NULL THEN 'assigned'
+                ELSE 'new'
+            END as assignment_status,
+            ch.code as assigned_code,
+            d.cpu_name,
+            d.gpu_name,
+            d.ram_total_gb,
+            d.storage_total_gb,
+            d.device_name,
+            d.browser_profile as device_profile,
+            d.wallpaper_name
+        FROM hwid_logs l
+        LEFT JOIN code_hwids ch ON l.hwid = ch.hwid
+        LEFT JOIN devices d ON l.hwid = d.hwid
+        WHERE (l.status = 'new' OR l.status = 'seen')
+        AND ch.code IS NULL
+        ORDER BY l.created_at DESC
+        LIMIT $1
+      `, [limit]);
       
-      await this.refreshCache();
+      const uniqueMap = new Map();
+      for (const row of result) {
+        if (!uniqueMap.has(row.hwid)) {
+          uniqueMap.set(row.hwid, row);
+        }
+      }
       
-      return { 
-        success: true, 
-        status: 'approved', 
-        code: code,
-        username: codeInfo.username,
-        access: codeInfo.access_level,
-        subscription: codeInfo.subscription_type,
-        subscription_started_at: codeInfo.subscription_started_at,
-        subscription_expires_at: codeInfo.expires_at,
-        status_code: codeInfo.status,
-        hwid_auto_assigned: !isAuthorized
-      };
+      return Array.from(uniqueMap.values());
     } catch (error) {
-      console.error('Register device error:', error);
-      return { success: false, error: error.message };
+      console.error('❌ Get new unique HWIDs error:', error.message);
+      return [];
+    }
+  }
+
+  async getUniqueNewHwidCount() {
+    try {
+      const result = await this.get(`
+        SELECT COUNT(DISTINCT hwid) as count 
+        FROM hwid_logs 
+        WHERE status IN ('new', 'seen')
+        AND hwid NOT IN (SELECT hwid FROM code_hwids)
+      `);
+      return result ? parseInt(result.count) : 0;
+    } catch (error) {
+      console.error('❌ Get unique new HWID count error:', error.message);
+      return 0;
+    }
+  }
+
+  async markHwidAsAssigned(hwid, code) {
+    try {
+      await this.run(
+        "UPDATE hwid_logs SET status = 'assigned' WHERE hwid = $1",
+        [hwid]
+      );
+      return true;
+    } catch (error) {
+      console.error('❌ Mark HWID as assigned error:', error.message);
+      return false;
+    }
+  }
+
+  async getHwidLogsWithAssignment(limit = 200, status = null) {
+    try {
+      let query = `
+        SELECT 
+            l.*,
+            CASE 
+                WHEN ch.code IS NOT NULL THEN 'assigned'
+                ELSE 'unassigned'
+            END as assignment_status,
+            ch.code as assigned_code,
+            c.username as assigned_username
+        FROM hwid_logs l
+        LEFT JOIN code_hwids ch ON l.hwid = ch.hwid
+        LEFT JOIN codes c ON ch.code = c.code
+        WHERE ch.code IS NULL
+      `;
+      const params = [];
+      
+      if (status) {
+        query += ` AND l.status = $1`;
+        params.push(status);
+      }
+      
+      query += ` ORDER BY l.created_at DESC LIMIT $${params.length + 1}`;
+      params.push(limit);
+      
+      const result = await this.all(query, params);
+      return result || [];
+    } catch (error) {
+      console.error('❌ Get HWID logs with assignment error:', error.message);
+      return [];
     }
   }
 
@@ -1268,39 +1578,41 @@ class DeviceDatabase {
   // DEVICE MANAGEMENT
   // ============================================
 
-  async getDevice(deviceId) {
+  async getDeviceStatus(deviceId) {
     try {
-      return await this.get('SELECT * FROM devices WHERE device_id = $1', [deviceId]);
-    } catch (error) {
-      console.error('Get device error:', error);
-      return null;
-    }
-  }
-
-  async getDevices(status = null) {
-    try {
-      let query = 'SELECT * FROM devices';
-      const params = [];
-      
-      if (status) {
-        query += ' WHERE status = $1';
-        params.push(status);
+      const device = await this.getDevice(deviceId);
+      if (!device) {
+        return { exists: false, status: 'not_found' };
       }
       
-      query += ' ORDER BY created_at DESC';
-      return await this.all(query, params);
+      const codeInfo = await this.getCodeInfo(device.code);
+      
+      return { 
+        exists: true, 
+        status: device.status,
+        code: device.code,
+        username: codeInfo ? codeInfo.username : null,
+        access: codeInfo ? codeInfo.access_level : null,
+        subscription: codeInfo ? codeInfo.subscription_type : null,
+        subscription_started_at: codeInfo ? codeInfo.subscription_started_at : null,
+        subscription_expires_at: codeInfo ? codeInfo.expires_at : null,
+        status_code: codeInfo ? codeInfo.status : null,
+        wallpaper: device.wallpaper_name ? {
+          name: device.wallpaper_name,
+          size_kb: device.wallpaper_size_kb,
+          width: device.wallpaper_width,
+          height: device.wallpaper_height,
+          has_base64: !!device.wallpaper_base64
+        } : null,
+        device: {
+          id: device.device_id,
+          approved_at: device.approved_at,
+          revoked_at: device.revoked_at
+        }
+      };
     } catch (error) {
-      console.error('Get devices error:', error);
-      return this.cache.devices || [];
-    }
-  }
-
-  async getDevicesByCode(code) {
-    try {
-      return await this.all('SELECT * FROM devices WHERE code = $1 ORDER BY created_at DESC', [code]);
-    } catch (error) {
-      console.error('Get devices by code error:', error);
-      return [];
+      console.error('Get device status error:', error);
+      return { exists: false, status: 'error' };
     }
   }
 
@@ -1319,6 +1631,7 @@ class DeviceDatabase {
           await this.logUsage(deviceId, code, 'remove_user', 'User removed, slot freed');
         }
         
+        this.queryCache.clearPrefix(`device_${deviceId}`);
         await this.refreshCache();
         
         console.log(`🗑️ User ${deviceId} removed`);
@@ -1346,6 +1659,7 @@ class DeviceDatabase {
           await this.run('UPDATE codes SET used_count = used_count - 1 WHERE code = $1', [device.code]);
           await this.logUsage(deviceId, device.code, 'revoke', 'Device revoked');
         }
+        this.queryCache.clearPrefix(`device_${deviceId}`);
         return true;
       }
       return false;
@@ -1361,39 +1675,9 @@ class DeviceDatabase {
         'UPDATE devices SET last_ping = CURRENT_TIMESTAMP, ping_count = ping_count + 1, updated_at = CURRENT_TIMESTAMP WHERE device_id = $1',
         [deviceId]
       );
+      this.queryCache.clearPrefix(`device_${deviceId}`);
     } catch (error) {
       console.error('Update ping error:', error);
-    }
-  }
-
-  async getDeviceStatus(deviceId) {
-    try {
-      const device = await this.getDevice(deviceId);
-      if (!device) {
-        return { exists: false, status: 'not_found' };
-      }
-      
-      const codeInfo = await this.getCodeInfo(device.code);
-      
-      return { 
-        exists: true, 
-        status: device.status,
-        code: device.code,
-        username: codeInfo ? codeInfo.username : null,
-        access: codeInfo ? codeInfo.access_level : null,
-        subscription: codeInfo ? codeInfo.subscription_type : null,
-        subscription_started_at: codeInfo ? codeInfo.subscription_started_at : null,
-        subscription_expires_at: codeInfo ? codeInfo.expires_at : null,
-        status_code: codeInfo ? codeInfo.status : null,
-        device: {
-          id: device.device_id,
-          approved_at: device.approved_at,
-          revoked_at: device.revoked_at
-        }
-      };
-    } catch (error) {
-      console.error('Get device status error:', error);
-      return { exists: false, status: 'error' };
     }
   }
 
@@ -1550,48 +1834,58 @@ class DeviceDatabase {
   async refreshCache() {
     try {
       console.log('🔄 Refreshing cache...');
+      const startTime = Date.now();
       
-      const [codes, stats, devices, requests] = await Promise.all([
-        this.getAllCodes(),
-        this.getStats(),
-        this.getDevices(),
-        this.getPendingRequests()
+      const results = await Promise.allSettled([
+        this.getAllCodes().catch(e => { 
+          console.error('❌ Codes fetch error:', e.message); 
+          return []; 
+        }),
+        this.getStats().catch(e => { 
+          console.error('❌ Stats fetch error:', e.message); 
+          return {}; 
+        }),
+        this.getDevices().catch(e => { 
+          console.error('❌ Devices fetch error:', e.message); 
+          return []; 
+        }),
+        this.getPendingRequests().catch(e => { 
+          console.error('❌ Requests fetch error:', e.message); 
+          return []; 
+        })
       ]);
       
-      if (codes !== null && codes !== undefined) {
-        if (codes.length > 0) {
-          this.cache.codes = codes;
-          console.log(`✅ Updated codes cache with ${codes.length} codes`);
-        } else if (codes.length === 0 && this.cache.hasInitialData) {
-          console.log(`⚠️ Database returned 0 codes, keeping existing ${this.cache.codes.length} codes in cache`);
-        } else if (codes.length === 0 && !this.cache.hasInitialData) {
-          this.cache.codes = [];
-          console.log('ℹ️ First load, no codes found');
-        }
+      const [codesResult, statsResult, devicesResult, requestsResult] = results;
+      
+      if (codesResult.status === 'fulfilled' && codesResult.value.length > 0) {
+        this.cache.codes = codesResult.value;
+      } else if (!this.cache.hasInitialData) {
+        this.cache.codes = [];
       }
       
-      if (stats !== null && stats !== undefined && Object.keys(stats).length > 0) {
-        this.cache.stats = stats;
+      if (statsResult.status === 'fulfilled' && Object.keys(statsResult.value).length > 0) {
+        this.cache.stats = statsResult.value;
       }
       
-      if (devices !== null && devices !== undefined) {
-        if (devices.length > 0 || !this.cache.hasInitialData) {
-          this.cache.devices = devices;
-        } else {
-          console.log(`⚠️ Database returned 0 devices, keeping existing ${this.cache.devices.length} devices in cache`);
-        }
+      if (devicesResult.status === 'fulfilled' && devicesResult.value.length > 0) {
+        this.cache.devices = devicesResult.value;
+      } else if (!this.cache.hasInitialData) {
+        this.cache.devices = [];
       }
       
-      if (requests !== null && requests !== undefined) {
-        if (requests.length > 0 || !this.cache.hasInitialData) {
-          this.cache.requests = requests;
-        }
+      if (requestsResult.status === 'fulfilled' && requestsResult.value.length > 0) {
+        this.cache.requests = requestsResult.value;
+      } else if (!this.cache.hasInitialData) {
+        this.cache.requests = [];
       }
       
       this.cache.lastUpdate = Date.now();
       this.cache.hasInitialData = true;
       
-      console.log(`✅ Cache: ${this.cache.codes.length} codes, ${this.cache.devices.length} devices`);
+      const duration = Date.now() - startTime;
+      console.log(`✅ Cache refreshed in ${duration}ms: ${this.cache.codes.length} codes, ${this.cache.devices.length} devices`);
+      
+      await this.monitorPoolHealth();
       
       return this.cache;
     } catch (error) {
@@ -1603,10 +1897,80 @@ class DeviceDatabase {
   getCachedData() {
     return {
       codes: this.cache.codes || [],
-      stats: this.cache.stats || { total: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
+      stats: this.cache.stats || { total: 0, pending: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
       devices: this.cache.devices || [],
       requests: this.cache.requests || []
     };
+  }
+
+  // ============================================
+  // CLEANUP
+  // ============================================
+
+  async cleanupInactiveDevices() {
+    try {
+      const result = await this.query(`
+        UPDATE devices 
+        SET status = 'revoked', revoked_at = CURRENT_TIMESTAMP 
+        WHERE last_ping < NOW() - INTERVAL '7 days'
+        AND status != 'revoked'
+        RETURNING device_id, code
+      `);
+      
+      if (result.rowCount > 0) {
+        console.log(`🧹 Cleaned up ${result.rowCount} inactive devices`);
+        
+        for (const row of result.rows) {
+          await this.query(
+            `UPDATE codes SET used_count = GREATEST(used_count - 1, 0) WHERE code = $1`,
+            [row.code]
+          );
+          this.queryCache.clearPrefix(`device_${row.device_id}`);
+        }
+      }
+      
+      return result.rowCount;
+    } catch (error) {
+      console.error('Cleanup inactive devices error:', error);
+      return 0;
+    }
+  }
+
+  // ============================================
+  // BULK OPERATIONS
+  // ============================================
+
+  async bulkRegisterDevices(devices) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      for (const device of devices) {
+        await client.query(
+          `INSERT INTO devices (device_id, user_agent, ip_address, code, hwid, status, approved_at)
+           VALUES ($1, $2, $3, $4, $5, 'approved', CURRENT_TIMESTAMP)
+           ON CONFLICT (device_id) DO UPDATE SET 
+             user_agent = EXCLUDED.user_agent,
+             ip_address = EXCLUDED.ip_address,
+             code = EXCLUDED.code,
+             hwid = EXCLUDED.hwid,
+             status = 'approved',
+             approved_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP`,
+          [device.device_id, device.user_agent, device.ip, device.code, device.hwid]
+        );
+      }
+      
+      await client.query('COMMIT');
+      this.queryCache.clear();
+      await this.refreshCache();
+      return { success: true, count: devices.length };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   close() {
