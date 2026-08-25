@@ -115,19 +115,18 @@ class DeviceDatabase {
   constructor() {
     const connectionString = process.env.DATABASE_URL;
     const isProduction = process.env.NODE_ENV === 'production';
-    const isSupabase = connectionString && connectionString.includes('supabase');
     
     console.log('📡 Connecting to database...');
     console.log(`🔗 Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
     console.log(`🔗 Connection string: ${connectionString ? connectionString.substring(0, 50) + '...' : 'Not set'}`);
     
     // ============================================
-    // SSL CONFIGURATION - Works for both local and Render
+    // SSL CONFIGURATION - FIXED FOR RENDER
     // ============================================
     let sslConfig;
     
     if (isProduction) {
-      // Production (Render) - Need SSL with rejectUnauthorized false
+      // Production (Render) - Use rejectUnauthorized: false
       sslConfig = {
         rejectUnauthorized: false
       };
@@ -201,7 +200,7 @@ class DeviceDatabase {
     
     console.log('✅ PostgreSQL Database initialized');
     console.log(`📊 Connection Pool: max=${this.pool.options.max}, min=${this.pool.options.min}`);
-    console.log(`🔒 SSL: ${this.pool.options.ssl ? 'Enabled' : 'Disabled'}`);
+    console.log(`🔒 SSL: ${this.pool.options.ssl ? 'Enabled (rejectUnauthorized=false)' : 'Disabled'}`);
   }
 
   // ============================================
