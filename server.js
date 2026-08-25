@@ -126,12 +126,12 @@ app.use((req, res, next) => {
 });
 
 // ============================================
-// RATE LIMIT - OPTIMIZED
+// RATE LIMIT - INCREASED FOR MANY USERS
 // ============================================
 
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 500,
+    max: parseInt(process.env.GENERAL_RATE_LIMIT_MAX) || 1000,
     message: { 
         error: 'Too many requests, please try again later.',
         retryAfter: 15 * 60
@@ -156,14 +156,14 @@ app.use('/api/', limiter);
 
 const registerLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 10,
+    max: parseInt(process.env.REGISTER_RATE_LIMIT_MAX) || 50,
     message: { error: 'Too many registration attempts. Please wait.' }
 });
 app.use('/api/register', registerLimiter);
 
 const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 60,
+    max: parseInt(process.env.API_RATE_LIMIT_MAX) || 200,
     message: { error: 'Too many API requests. Please wait.' }
 });
 app.use('/api/codes', apiLimiter);
@@ -2113,6 +2113,7 @@ createDefaultAdmin().then(() => {
         console.log('='.repeat(60));
         console.log('✅ CORS: Chrome Extensions allowed');
         console.log('✅ Supabase Pro Plan Optimized');
+        console.log(`✅ Rate Limits: Register=${registerLimiter.max}/min, API=${apiLimiter.max}/min`);
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');

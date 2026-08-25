@@ -14,7 +14,6 @@ class DeviceDatabase {
     let connectionConfig = {
       connectionString: process.env.DATABASE_URL,
       ssl: sslConfig,
-      // Pro plan can handle more connections
       max: parseInt(process.env.DATABASE_POOL_MAX) || 30,
       min: parseInt(process.env.DATABASE_POOL_MIN) || 10,
       idleTimeoutMillis: parseInt(process.env.DATABASE_IDLE_TIMEOUT) || 60000,
@@ -24,9 +23,7 @@ class DeviceDatabase {
       keepAliveInitialDelayMillis: 10000,
       statement_timeout: 30000,
       query_timeout: 30000,
-      acquireTimeoutMillis: 15000,
-      // Allow more connections to queue
-      connectionTimeoutMillis: 15000
+      acquireTimeoutMillis: 15000
     };
 
     if (sslConfig) {
@@ -53,9 +50,9 @@ class DeviceDatabase {
       hasInitialData: false
     };
     
-    this.cacheTTL = parseInt(process.env.CACHE_TTL) || 30; // Reduced to 30s for fresh data
+    this.cacheTTL = parseInt(process.env.CACHE_TTL) || 30;
     
-    // Query queue for limiting concurrent queries
+    // Query queue
     this.queryQueue = [];
     this.activeQueries = 0;
     this.maxConcurrentQueries = parseInt(process.env.MAX_CONCURRENT_QUERIES) || 20;
@@ -65,13 +62,9 @@ class DeviceDatabase {
       console.log('✅ Database connection established');
     });
     
-    this.pool.on('acquire', () => {
-      // console.log('🔗 Database connection acquired');
-    });
+    this.pool.on('acquire', () => {});
     
-    this.pool.on('remove', () => {
-      // console.log('🗑️ Database connection removed');
-    });
+    this.pool.on('remove', () => {});
     
     this.pool.on('error', (err) => {
       console.error('❌ Database pool error:', err);
@@ -81,17 +74,15 @@ class DeviceDatabase {
     console.log('✅ PostgreSQL Database initialized with Pro Plan optimization');
     console.log(`📊 Pool: max=${this.pool.options.max}, min=${this.pool.options.min}`);
     console.log(`⏱️  Cache TTL: ${this.cacheTTL}s`);
-    console.log(`🔒 SSL: ${sslConfig ? 'Enabled (rejectUnauthorized=false)' : 'Disabled'}`);
     console.log(`📈 Max Concurrent Queries: ${this.maxConcurrentQueries}`);
   }
 
   // ============================================
-  // QUEUED QUERY SYSTEM - Prevents Connection Overload
+  // QUEUED QUERY SYSTEM
   // ============================================
 
   async queuedQuery(sql, params = [], priority = 0) {
     return new Promise((resolve, reject) => {
-      // Add to queue with priority
       this.queryQueue.push({ 
         sql, 
         params, 
@@ -101,32 +92,26 @@ class DeviceDatabase {
         timestamp: Date.now()
       });
       
-      // Sort by priority (higher priority first)
       this.queryQueue.sort((a, b) => b.priority - a.priority);
-      
       this.processQueue();
     });
   }
 
   async processQueue() {
-    // Check if we can process more queries
     if (this.activeQueries >= this.maxConcurrentQueries || this.queryQueue.length === 0) {
       return;
     }
 
-    // Get next query from queue
     const task = this.queryQueue.shift();
     this.activeQueries++;
 
     try {
-      // Execute the query with timeout
       const result = await this.query(task.sql, task.params);
       task.resolve(result);
     } catch (error) {
       task.reject(error);
     } finally {
       this.activeQueries--;
-      // Process next in queue
       this.processQueue();
     }
   }
@@ -135,7 +120,6 @@ class DeviceDatabase {
     let client = null;
     try {
       client = await this.pool.connect();
-      // Set statement timeout for this query
       await client.query('SET statement_timeout = 30000');
       const result = await client.query(sql, params);
       return result;
@@ -146,34 +130,7 @@ class DeviceDatabase {
       if (client) {
         try {
           client.release();
-        } catch (e) {
-          // Ignore release errors
-        }
-      }
-    }
-  }
-
-  async queryWithTimeout(sql, params = [], timeout = 15000) {
-    let client = null;
-    try {
-      client = await this.pool.connect();
-      await client.query(`SET statement_timeout = ${timeout}`);
-      const queryPromise = client.query(sql, params);
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Query timeout')), timeout);
-      });
-      const result = await Promise.race([queryPromise, timeoutPromise]);
-      return result;
-    } catch (error) {
-      console.error('❌ Query timeout error:', error.message);
-      throw error;
-    } finally {
-      if (client) {
-        try {
-          client.release();
-        } catch (e) {
-          // Ignore release errors
-        }
+        } catch (e) {}
       }
     }
   }
@@ -193,8 +150,6 @@ class DeviceDatabase {
             error.code === 'ETIMEDOUT' || 
             error.code === '57P01' ||
             error.code === '53300' ||
-            error.message.includes('self-signed certificate') ||
-            error.message.includes('certificate chain') ||
             error.message.includes('timeout')) {
           if (attempt < maxRetries) {
             const delay = Math.min(attempt * 500, 2000);
@@ -208,9 +163,7 @@ class DeviceDatabase {
         if (client) {
           try {
             client.release();
-          } catch (e) {
-            // Ignore release errors
-          }
+          } catch (e) {}
         }
       }
     }
@@ -247,12 +200,11 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // HIGH PRIORITY METHODS (Use queued queries)
+  // HIGH PRIORITY METHODS
   // ============================================
 
   async getCodeInfo(code) {
     try {
-      // High priority (10)
       const result = await this.queuedQuery('SELECT * FROM codes WHERE code = $1', [code], 10);
       return result.rows[0] || null;
     } catch (error) {
@@ -286,7 +238,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET DASHBOARD DATA (Optimized)
+  // GET DASHBOARD DATA
   // ============================================
 
   async getDashboardData() {
@@ -356,7 +308,6 @@ class DeviceDatabase {
     try {
       console.log('🔧 Creating/verifying tables...');
       
-      // Codes table
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS codes (
           code TEXT PRIMARY KEY,
@@ -379,7 +330,6 @@ class DeviceDatabase {
         )
       `);
 
-      // Add missing columns
       const columnsToAdd = [
         { name: 'username', type: 'TEXT' },
         { name: 'access_level', type: 'TEXT DEFAULT \'VIP\'' },
@@ -396,12 +346,9 @@ class DeviceDatabase {
       for (const col of columnsToAdd) {
         try {
           await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-        } catch (e) {
-          // Column might already exist
-        }
+        } catch (e) {}
       }
 
-      // code_hwids table
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS code_hwids (
           id SERIAL PRIMARY KEY,
@@ -413,7 +360,6 @@ class DeviceDatabase {
         )
       `);
 
-      // Indexes - Optimized for Pro Plan
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
@@ -424,9 +370,7 @@ class DeviceDatabase {
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status ON hwid_logs(status)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_code ON devices(code)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_last_ping ON devices(last_ping)`);
 
-      // Devices table
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -458,7 +402,6 @@ class DeviceDatabase {
         )
       `);
 
-      // Add columns
       const deviceColumns = [
         { name: 'hwid', type: 'TEXT' },
         { name: 'browser_profile', type: 'TEXT' },
@@ -478,12 +421,9 @@ class DeviceDatabase {
       for (const col of deviceColumns) {
         try {
           await this.queryWithRetry(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-        } catch (e) {
-          // Column might already exist
-        }
+        } catch (e) {}
       }
 
-      // Other tables
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS requests (
           id SERIAL PRIMARY KEY,
@@ -534,7 +474,6 @@ class DeviceDatabase {
       `);
 
       console.log('✅ Tables created/verified');
-      
       await this.refreshCache();
       
     } catch (error) {
@@ -543,12 +482,11 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // REGISTER DEVICE WITH WALLPAPER - OPTIMIZED
+  // REGISTER DEVICE
   // ============================================
 
   async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null, hardware = null, wallpaper = null) {
     try {
-      // Use queued query for high priority
       const codeInfoResult = await this.queuedQuery(
         'SELECT * FROM codes WHERE code = $1', 
         [code], 
@@ -778,7 +716,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET DEVICE (Using queued query)
+  // GET DEVICES
   // ============================================
 
   async getDevices(status = null) {
@@ -814,7 +752,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // MULTI-HWID SUPPORT METHODS
+  // HWID MANAGEMENT
   // ============================================
 
   async getCodeHwidLimit(code) {

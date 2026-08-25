@@ -1,17 +1,54 @@
+# render.yaml - Blueprint for Render Deployment
+
 services:
   - type: web
-    name: wantmatures-approval-server
+    name: approval-server
     env: node
     buildCommand: npm install
     startCommand: npm start
+    repo: https://github.com/methods2s/approval-server
+    branch: main
+    plan: starter
+    healthCheckPath: /api/health
     envVars:
-      - key: DATABASE_URL
-        value: postgresql://wantmatures_user:CWSWZCkVncc7RUu74TLwBFig5zeQWRRZ@dpg-d9f8ts1kh4rs7380h9sg-a.singapore-postgres.render.com/wantmatures
-      - key: ADMIN_USERNAME
-        value: admin
-      - key: ADMIN_PASSWORD
-        value: YourSecurePassword123!
-      - key: SESSION_SECRET
-        value: my-super-secret-key-12345
+      - key: NODE_VERSION
+        value: 20.18.0
       - key: PORT
         value: 3000
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_POOL_MAX
+        value: 30
+      - key: DATABASE_POOL_MIN
+        value: 10
+      - key: DATABASE_IDLE_TIMEOUT
+        value: 60000
+      - key: DATABASE_CONNECTION_TIMEOUT
+        value: 15000
+      - key: DATABASE_MAX_USES
+        value: 1000
+      - key: DB_OPERATION_TIMEOUT
+        value: 30000
+      - key: MAX_CONCURRENT_QUERIES
+        value: 20
+      - key: CACHE_TTL
+        value: 30
+      - key: DATABASE_SSL
+        value: true
+      - key: NODE_TLS_REJECT_UNAUTHORIZED
+        value: 0
+      - key: REGISTER_RATE_LIMIT_MAX
+        value: 50
+      - key: API_RATE_LIMIT_MAX
+        value: 200
+      - key: GENERAL_RATE_LIMIT_MAX
+        value: 1000
+    regions:
+      - ohio
+    autoDeploy: true
