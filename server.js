@@ -1,4 +1,4 @@
-// server.js - Complete Optimized for 200+ Users
+// server.js - Complete Optimized Version with SSL Fix
 
 require('dotenv').config();
 const express = require('express');
@@ -8,12 +8,39 @@ const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcrypt');
 const path = require('path');
 const fs = require('fs');
+const compression = require('compression');
+const helmet = require('helmet');
 const db = require('./database-pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// SSL Fix - Allow self-signed certificates
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 app.set('trust proxy', 1);
+
+// ============================================
+// SECURITY & COMPRESSION
+// ============================================
+
+// Compression middleware
+app.use(compression({
+  level: 6,
+  threshold: 1024,
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) {
+      return false;
+    }
+    return compression.filter(req, res);
+  }
+}));
+
+// Helmet for security headers
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
+}));
 
 // ============================================
 // CORS
@@ -57,44 +84,59 @@ app.use(session({
 }));
 
 // ============================================
-// RATE LIMITING - OPTIMIZED FOR 200+ USERS
+// REQUEST TIMEOUT
+// ============================================
+app.use((req, res, next) => {
+    req.setTimeout(30000, () => {
+        res.status(408).json({ error: 'Request timeout' });
+    });
+    next();
+});
+
+// ============================================
+// RATE LIMIT - OPTIMIZED
 // ============================================
 
-// Global rate limiter - 1000 requests per minute
-const globalLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000,
-    max: 1000,
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 500,
     message: { 
         error: 'Too many requests, please try again later.',
-        retryAfter: 60
+        retryAfter: 15 * 60
     },
     standardHeaders: true,
     legacyHeaders: false,
     skip: function(req) {
-        return req.path === '/api/health';
+        const skipPaths = [
+            '/api/dashboard-data',
+            '/api/status/',
+            '/api/code/',
+            '/api/hwid-logs',
+            '/api/hwid-log',
+            '/api/hwid-new',
+            '/api/wallpaper/'
+        ];
+        return skipPaths.some(path => req.path.startsWith(path));
     }
 });
 
-// Registration rate limiter - 30 per minute
+app.use('/api/', limiter);
+
 const registerLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: 30,
+    max: 10,
     message: { error: 'Too many registration attempts. Please wait.' }
 });
-
-// Status check rate limiter - 500 per minute
-const statusLimiter = rateLimit({
-    windowMs: 60 * 1000,
-    max: 500,
-    message: { error: 'Too many status checks. Please wait.' },
-    skip: function(req) {
-        return req.path === '/api/health';
-    }
-});
-
-app.use('/api/', globalLimiter);
 app.use('/api/register', registerLimiter);
-app.use('/api/status/', statusLimiter);
+
+// API rate limiter with stricter limits
+const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    message: { error: 'Too many API requests. Please wait.' }
+});
+app.use('/api/codes', apiLimiter);
+app.use('/api/device/', apiLimiter);
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -119,34 +161,25 @@ function isApiAuthenticated(req, res, next) {
 }
 
 // ============================================
-// HEALTH CHECK ENDPOINT
+// HEALTH CHECK
 // ============================================
 
 app.get('/api/health', async (req, res) => {
+    const poolStatus = db.getPoolStatus();
+    
     try {
         await db.query('SELECT 1');
-        const poolStats = db.getPoolStats();
-        const cacheAge = Date.now() - db.cache.lastUpdate;
-        const cacheAgeSeconds = Math.round(cacheAge / 1000);
-        
         res.json({
             status: 'healthy',
             database: 'connected',
-            pool: poolStats,
-            cache: {
-                lastUpdate: new Date(db.cache.lastUpdate).toISOString(),
-                age: cacheAgeSeconds + 's',
-                codes: db.cache.codes.length,
-                devices: db.cache.devices.length,
-                requests: db.cache.requests.length,
-                hasData: db.cache.hasInitialData
-            },
+            pool: poolStatus,
+            uptime: process.uptime(),
             timestamp: new Date().toISOString(),
-            uptime: process.uptime() + 's',
-            memory: {
-                rss: Math.round(process.memoryUsage().rss / 1024 / 1024) + 'MB',
-                heapTotal: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + 'MB',
-                heapUsed: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
+            cache: {
+                hasData: db.cache.hasInitialData,
+                lastUpdate: db.cache.lastUpdate ? new Date(db.cache.lastUpdate).toISOString() : 'never',
+                codes: db.cache.codes.length,
+                devices: db.cache.devices.length
             }
         });
     } catch (error) {
@@ -154,26 +187,9 @@ app.get('/api/health', async (req, res) => {
             status: 'unhealthy',
             database: 'disconnected',
             error: error.message,
-            timestamp: new Date().toISOString(),
-            uptime: process.uptime() + 's'
-        });
-    }
-});
-
-// ============================================
-// POOL STATS ENDPOINT
-// ============================================
-
-app.get('/api/pool-stats', isApiAuthenticated, async (req, res) => {
-    try {
-        const stats = db.getPoolStats();
-        res.json({
-            success: true,
-            stats: stats,
+            pool: poolStatus,
             timestamp: new Date().toISOString()
         });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to get pool stats' });
     }
 });
 
@@ -239,6 +255,7 @@ app.get('/real_automation.js', (req, res) => {
             }
 
             res.setHeader('Content-Type', 'application/javascript');
+            res.setHeader('Cache-Control', 'public, max-age=3600');
             res.sendFile(path.join(__dirname, 'real_automation.js'));
         }).catch(() => {
             res.status(403).send('Access Denied');
@@ -289,23 +306,26 @@ app.get('/logout', (req, res) => {
 
 app.get('/dashboard', isAuthenticated, async (req, res) => {
     try {
-        await db.cleanupInactiveDevices();
+        // Cleanup inactive devices in background (don't wait)
+        db.cleanupInactiveDevices().catch(err => console.error('Cleanup error:', err));
+        
+        const data = await db.getDashboardData();
+        res.render('dashboard', { 
+            username: req.session.username,
+            devices: data.devices || [],
+            stats: data.stats || {},
+            codes: data.codes || [],
+            requests: data.requests || []
+        });
+    } catch (error) {
+        console.error('Dashboard error:', error);
         const cached = db.getCachedData();
         res.render('dashboard', { 
             username: req.session.username,
             devices: cached.devices || [],
             stats: cached.stats || {},
             codes: cached.codes || [],
-            requests: cached.requests || []
-        });
-    } catch (error) {
-        console.error('Dashboard error:', error);
-        res.render('dashboard', { 
-            username: req.session.username,
-            devices: [],
-            stats: {},
-            codes: [],
-            requests: [],
+            requests: cached.requests || [],
             error: 'Failed to load data'
         });
     }
@@ -331,7 +351,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE
+// REGISTER DEVICE - OPTIMIZED
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -561,6 +581,7 @@ app.get('/api/wallpaper/:deviceId', async (req, res) => {
             return res.status(404).json({ error: 'Wallpaper not found' });
         }
         
+        // Try to compress if sharp is available
         try {
             const sharp = require('sharp');
             const imageBuffer = Buffer.from(device.wallpaper_base64, 'base64');
@@ -574,6 +595,7 @@ app.get('/api/wallpaper/:deviceId', async (req, res) => {
             res.setHeader('Cache-Control', 'public, max-age=86400');
             res.send(compressed);
         } catch (sharpError) {
+            // Fallback: return original base64
             const imageSrc = device.wallpaper_base64.startsWith('data:image') 
                 ? device.wallpaper_base64 
                 : 'data:image/jpeg;base64,' + device.wallpaper_base64;
@@ -593,7 +615,7 @@ app.get('/api/wallpaper/:deviceId', async (req, res) => {
 });
 
 // ============================================
-// STATUS CHECK - WITH BETTER ERROR HANDLING
+// STATUS CHECK - OPTIMIZED
 // ============================================
 
 app.get('/api/status/:deviceId', async (req, res) => {
@@ -646,8 +668,6 @@ app.get('/api/status/:deviceId', async (req, res) => {
         
         if (!codeInfo || !codeInfo.is_active) {
             let deactivationReason = 'Code deactivated';
-            let statusCode = 'code_inactive';
-            
             if (codeInfo && codeInfo.status) {
                 const statusMap = {
                     'auto_deactivated': 'Auto-deactivated (General)',
@@ -658,13 +678,12 @@ app.get('/api/status/:deviceId', async (req, res) => {
                     'expired': 'Subscription expired'
                 };
                 deactivationReason = statusMap[codeInfo.status] || codeInfo.status;
-                statusCode = codeInfo.status;
             }
             
             return res.json({
                 exists: true,
                 approved: false,
-                status: statusCode,
+                status: 'code_inactive',
                 message: deactivationReason,
                 needsCode: true,
                 code: device.code,
@@ -737,6 +756,7 @@ app.get('/api/status/:deviceId', async (req, res) => {
             });
         }
 
+        // Update ping asynchronously (don't wait)
         db.updatePing(deviceId).catch(err => console.error('Ping update error:', err));
 
         res.json({
@@ -765,15 +785,18 @@ app.get('/api/status/:deviceId', async (req, res) => {
         });
     } catch (error) {
         console.error('Status check error:', error);
-        // Don't return code_inactive on DB error
         res.status(500).json({ 
-            error: 'Service temporarily unavailable',
-            exists: true,
+            error: 'Failed to check status',
+            exists: false,
             approved: false,
-            status: 'service_unavailable',
-            message: 'Database connection issue, please try again',
-            needsCode: false,
-            keepActive: true
+            needsCode: true,
+            username: null,
+            access: null,
+            subscription: null,
+            subscription_started_at: null,
+            subscription_expires_at: null,
+            status_code: null,
+            wallpaper: null
         });
     }
 });
@@ -842,6 +865,7 @@ app.post('/api/auto-deactivate', async (req, res) => {
             revokedCount++;
         }
         
+        // Remove all HWIDs
         await db.run(
             'DELETE FROM code_hwids WHERE code = $1',
             [code]
@@ -945,10 +969,13 @@ app.get('/api/codes', isApiAuthenticated, async (req, res) => {
 
 app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
     try {
-        await db.cleanupInactiveDevices();
-        const cached = db.getCachedData();
+        // Cleanup in background
+        db.cleanupInactiveDevices().catch(err => console.error('Cleanup error:', err));
         
-        const devicesWithoutWallpaper = (cached.devices || []).map(device => ({
+        const data = await db.getDashboardData();
+        
+        // OPTIMIZED: Don't send wallpaper_base64 to reduce payload size
+        const devicesWithoutWallpaper = (data.devices || []).map(device => ({
             ...device,
             wallpaper_base64: null,
             wallpaper_name: device.wallpaper_name || null,
@@ -959,11 +986,12 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
         }));
         
         res.json({
-            stats: cached.stats || {},
+            stats: data.stats || {},
             devices: devicesWithoutWallpaper,
-            codes: cached.codes || [],
-            requests: cached.requests || [],
-            username: req.session.username
+            codes: data.codes || [],
+            requests: data.requests || [],
+            username: req.session.username,
+            cache_age: Math.floor((Date.now() - data.lastUpdate) / 1000)
         });
     } catch (error) {
         console.error('Dashboard data error:', error);
@@ -973,7 +1001,9 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
             devices: cached.devices || [],
             codes: cached.codes || [],
             requests: cached.requests || [],
-            username: req.session.username
+            username: req.session.username,
+            cache_age: 0,
+            error: 'Using cached data'
         });
     }
 });
@@ -1168,6 +1198,7 @@ app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
         const hwids = await db.getCodeHwids(code);
         const hwidCount = hwids.length;
         
+        // Remove all HWIDs if code was inactive
         if (!codeInfo.is_active || codeInfo.status === 'inactive' || codeInfo.status.includes('auto_deactivated')) {
             console.log(`🔄 Reactivating code ${code} - Removing ${hwidCount} HWIDs`);
             
@@ -1440,7 +1471,7 @@ app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) =>
 
 app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
     try {
-        const limit = parseInt(req.query.limit) || 200;
+        const limit = Math.min(parseInt(req.query.limit) || 200, 500);
         const status = req.query.status || null;
         
         console.log(`📊 Fetching HWID logs - Limit: ${limit}, Status: ${status}`);
@@ -1469,7 +1500,7 @@ app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
 app.get('/api/hwid-logs/:hwid', isApiAuthenticated, async (req, res) => {
     try {
         const { hwid } = req.params;
-        const limit = parseInt(req.query.limit) || 50;
+        const limit = Math.min(parseInt(req.query.limit) || 50, 200);
         const logs = await db.getHwidLogsByHwid(hwid, limit);
         
         res.json({
@@ -1530,7 +1561,7 @@ app.get('/api/hwid-logs/new-count', isApiAuthenticated, async (req, res) => {
 
 app.get('/api/hwid-new', isApiAuthenticated, async (req, res) => {
     try {
-        const limit = parseInt(req.query.limit) || 100;
+        const limit = Math.min(parseInt(req.query.limit) || 100, 500);
         const newHwids = await db.getNewUniqueHwids(limit);
         
         res.json({
@@ -1754,6 +1785,7 @@ app.post('/api/delete-all-devices', isApiAuthenticated, async (req, res) => {
         await db.run('UPDATE codes SET used_count = 0');
         await db.logUsage('admin', null, 'delete_all_devices', 
             `Admin ${req.session.username} deleted all ${count.count} devices`);
+        await db.refreshCache();
         res.json({ success: true, message: `All ${count.count} devices deleted!`, deleted: parseInt(count.count) });
     } catch (error) {
         console.error('Delete all devices error:', error);
@@ -1767,6 +1799,7 @@ app.post('/api/delete-all-requests', isApiAuthenticated, async (req, res) => {
         await db.run('DELETE FROM requests');
         await db.logUsage('admin', null, 'delete_all_requests', 
             `Admin ${req.session.username} deleted all ${count.count} requests`);
+        await db.refreshCache();
         res.json({ success: true, message: `All ${count.count} requests deleted!`, deleted: parseInt(count.count) });
     } catch (error) {
         console.error('Delete all requests error:', error);
@@ -1782,6 +1815,7 @@ app.post('/api/delete-all-codes', isApiAuthenticated, async (req, res) => {
         await db.run('DELETE FROM codes');
         await db.logUsage('admin', null, 'delete_all_codes', 
             `Admin ${req.session.username} deleted all ${count.count} codes and all devices`);
+        await db.refreshCache();
         res.json({ success: true, message: `All ${count.count} codes and all devices deleted!`, deleted: parseInt(count.count) });
     } catch (error) {
         console.error('Delete all codes error:', error);
@@ -1880,10 +1914,12 @@ async function autoDeleteOldLogs() {
     }
 }
 
+// Run auto-delete every hour
 setInterval(async () => {
     await autoDeleteOldLogs();
 }, 60 * 60 * 1000);
 
+// Also run on startup
 setTimeout(async () => {
     await autoDeleteOldLogs();
 }, 5000);
@@ -1943,7 +1979,28 @@ app.post('/api/cleanup-logs', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// CREATE DEFAULT ADMIN
+// METRICS ENDPOINT
+// ============================================
+
+app.get('/api/metrics', isApiAuthenticated, async (req, res) => {
+    const poolStatus = db.getPoolStatus();
+    const cached = db.getCachedData();
+    
+    res.json({
+        connections: poolStatus,
+        cache: {
+            codes: cached.codes?.length || 0,
+            devices: cached.devices?.length || 0,
+            lastUpdate: cached.lastUpdate ? new Date(cached.lastUpdate).toISOString() : 'never',
+            hasData: cached.hasInitialData
+        },
+        uptime: process.uptime(),
+        timestamp: new Date().toISOString()
+    });
+});
+
+// ============================================
+// START SERVER
 // ============================================
 
 async function createDefaultAdmin() {
@@ -1965,9 +2022,17 @@ async function createDefaultAdmin() {
     }
 }
 
-// ============================================
-// START SERVER
-// ============================================
+// Error handling middleware
+app.use((err, req, res, next) => {
+    if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT') {
+        console.error('Connection timeout:', err);
+        return res.status(503).json({ 
+            error: 'Service temporarily unavailable, please try again' 
+        });
+    }
+    console.error('Unhandled error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+});
 
 createDefaultAdmin().then(() => {
     app.listen(PORT, () => {
@@ -1981,7 +2046,10 @@ createDefaultAdmin().then(() => {
         console.log(`🧪 Test API: http://localhost:${PORT}/api/test`);
         console.log(`📊 Stats API: http://localhost:${PORT}/api/stats`);
         console.log(`💚 Health: http://localhost:${PORT}/api/health`);
-        console.log(`📊 Pool Stats: http://localhost:${PORT}/api/pool-stats`);
+        console.log(`📈 Metrics: http://localhost:${PORT}/api/metrics`);
+        console.log('='.repeat(60));
+        console.log(`📊 Database Pool: max=${db.pool.options.max}, min=${db.pool.options.min}`);
+        console.log(`⏱️  Cache TTL: ${db.cacheTTL}s`);
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');

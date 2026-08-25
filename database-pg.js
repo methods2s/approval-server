@@ -1,25 +1,45 @@
-// database-pg.js - Optimized with Connection Pooling, Caching, and Queue Management
+// database-pg.js - Complete with SSL Fix, Connection Pooling, and All Functions
 
 const { Pool } = require('pg');
 const { Semaphore } = require('async-mutex');
 
 class DeviceDatabase {
   constructor() {
-    // Optimized connection pool configuration
-    this.pool = new Pool({
+    // SSL Configuration - Fix for self-signed certificates
+    const sslConfig = process.env.DATABASE_SSL === 'false' ? false : {
+      rejectUnauthorized: false,
+      sslmode: 'require'
+    };
+    
+    // Connection configuration
+    let connectionConfig = {
       connectionString: process.env.DATABASE_URL,
-      ssl: {
-        rejectUnauthorized: false
-      },
+      ssl: sslConfig,
       max: parseInt(process.env.DATABASE_POOL_MAX) || 30,
       min: parseInt(process.env.DATABASE_POOL_MIN) || 5,
       idleTimeoutMillis: parseInt(process.env.DATABASE_IDLE_TIMEOUT) || 30000,
-      connectionTimeoutMillis: parseInt(process.env.DATABASE_CONNECTION_TIMEOUT) || 5000,
+      connectionTimeoutMillis: parseInt(process.env.DATABASE_CONNECTION_TIMEOUT) || 10000,
       maxUses: parseInt(process.env.DATABASE_MAX_USES) || 1000,
-      // Enable connection pooling logging
       keepAlive: true,
-      keepAliveInitialDelayMillis: 10000
-    });
+      keepAliveInitialDelayMillis: 10000,
+      statement_timeout: 30000,
+      query_timeout: 30000
+    };
+
+    // Override SSL if needed
+    if (sslConfig) {
+      connectionConfig = {
+        ...connectionConfig,
+        ssl: {
+          rejectUnauthorized: false,
+          ca: process.env.DATABASE_CA || undefined,
+          key: process.env.DATABASE_KEY || undefined,
+          cert: process.env.DATABASE_CERT || undefined
+        }
+      };
+    }
+
+    this.pool = new Pool(connectionConfig);
     
     // Semaphore for controlling concurrent database operations
     this.semaphore = new Semaphore(parseInt(process.env.MAX_CONCURRENT_DB_OPS) || 20);
@@ -34,7 +54,6 @@ class DeviceDatabase {
       hasInitialData: false
     };
     
-    // Cache TTL in seconds
     this.cacheTTL = parseInt(process.env.CACHE_TTL) || 60;
     
     // Connection pool event listeners
@@ -58,54 +77,76 @@ class DeviceDatabase {
     console.log('✅ PostgreSQL Database initialized with optimized pool');
     console.log(`📊 Pool: max=${this.pool.options.max}, min=${this.pool.options.min}`);
     console.log(`⏱️  Cache TTL: ${this.cacheTTL}s`);
+    console.log(`🔒 SSL: ${sslConfig ? 'Enabled (rejectUnauthorized=false)' : 'Disabled'}`);
   }
 
   // ============================================
-  // CONNECTION MANAGEMENT
+  // CONNECTION MANAGEMENT WITH RETRY
   // ============================================
 
-  async withConnection(operation) {
-    return new Promise((resolve, reject) => {
-      this.semaphore.acquire()
-        .then((release) => {
-          let client = null;
-          const timeout = setTimeout(() => {
-            if (client) {
-              try {
-                client.release();
-              } catch (e) {}
-            }
-            release();
-            reject(new Error('Database operation timeout'));
-          }, parseInt(process.env.DB_OPERATION_TIMEOUT) || 15000);
-          
-          this.pool.connect()
-            .then(c => {
-              client = c;
-              clearTimeout(timeout);
-              return operation(client);
+  async withConnection(operation, retries = 3) {
+    let lastError;
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        return await new Promise((resolve, reject) => {
+          this.semaphore.acquire()
+            .then((release) => {
+              let client = null;
+              const timeout = setTimeout(() => {
+                if (client) {
+                  try {
+                    client.release();
+                  } catch (e) {}
+                }
+                release();
+                reject(new Error('Database operation timeout'));
+              }, parseInt(process.env.DB_OPERATION_TIMEOUT) || 15000);
+              
+              this.pool.connect()
+                .then(c => {
+                  client = c;
+                  clearTimeout(timeout);
+                  return operation(client);
+                })
+                .then(result => {
+                  if (client) {
+                    try {
+                      client.release();
+                    } catch (e) {}
+                  }
+                  release();
+                  resolve(result);
+                })
+                .catch(err => {
+                  if (client) {
+                    try {
+                      client.release();
+                    } catch (e) {}
+                  }
+                  release();
+                  reject(err);
+                });
             })
-            .then(result => {
-              if (client) {
-                try {
-                  client.release();
-                } catch (e) {}
-              }
-              release();
-              resolve(result);
-            })
-            .catch(err => {
-              if (client) {
-                try {
-                  client.release();
-                } catch (e) {}
-              }
-              release();
-              reject(err);
-            });
-        })
-        .catch(reject);
-    });
+            .catch(reject);
+        });
+      } catch (error) {
+        lastError = error;
+        if (error.code === 'ECONNREFUSED' || 
+            error.code === 'ETIMEDOUT' || 
+            error.code === '57P01' ||
+            error.message.includes('self-signed certificate') ||
+            error.message.includes('certificate chain')) {
+          if (attempt < retries) {
+            const delay = Math.min(attempt * 2000, 8000);
+            console.log(`⏳ Retrying in ${delay}ms... (attempt ${attempt}/${retries})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+        }
+        throw error;
+      }
+    }
+    throw lastError;
   }
 
   async query(sql, params = []) {
@@ -133,9 +174,13 @@ class DeviceDatabase {
         return await this.query(sql, params);
       } catch (error) {
         lastError = error;
-        if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT' || error.code === '57P01') {
-          const delay = Math.min(attempt * 1000, 5000);
-          console.log(`Database connection attempt ${attempt} failed, retrying in ${delay}ms...`);
+        if (error.code === 'ECONNREFUSED' || 
+            error.code === 'ETIMEDOUT' || 
+            error.code === '57P01' ||
+            error.message.includes('self-signed certificate') ||
+            error.message.includes('certificate chain')) {
+          const delay = Math.min(attempt * 2000, 8000);
+          console.log(`⏳ Retrying in ${delay}ms... (attempt ${attempt}/${maxRetries})`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
@@ -213,7 +258,6 @@ class DeviceDatabase {
   // ============================================
 
   async getDashboardData() {
-    // Check cache first
     if (this.cache.hasInitialData && this.cache.lastUpdate > Date.now() - this.cacheTTL * 1000) {
       return this.cache;
     }
@@ -278,8 +322,10 @@ class DeviceDatabase {
 
   async initTables() {
     try {
+      console.log('🔧 Creating/verifying tables...');
+      
       // Codes table
-      await this.query(`
+      await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS codes (
           code TEXT PRIMARY KEY,
           max_devices INTEGER DEFAULT 10,
@@ -317,14 +363,14 @@ class DeviceDatabase {
 
       for (const col of columnsToAdd) {
         try {
-          await this.query(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
+          await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
         } catch (e) {
           // Column might already exist
         }
       }
 
       // code_hwids table
-      await this.query(`
+      await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS code_hwids (
           id SERIAL PRIMARY KEY,
           code TEXT NOT NULL REFERENCES codes(code) ON DELETE CASCADE,
@@ -336,19 +382,19 @@ class DeviceDatabase {
       `);
 
       // Indexes for performance
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid ON hwid_logs(hwid)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_created_at ON hwid_logs(created_at DESC)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status ON hwid_logs(status)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_code ON devices(code)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid ON hwid_logs(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_created_at ON hwid_logs(created_at DESC)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status ON hwid_logs(status)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_code ON devices(code)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status)`);
 
       // Devices table with wallpaper columns
-      await this.query(`
+      await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
           device_id TEXT UNIQUE NOT NULL,
@@ -398,14 +444,14 @@ class DeviceDatabase {
 
       for (const col of deviceColumns) {
         try {
-          await this.query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
+          await this.queryWithRetry(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
         } catch (e) {
           // Column might already exist
         }
       }
 
       // Requests table
-      await this.query(`
+      await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS requests (
           id SERIAL PRIMARY KEY,
           device_id TEXT NOT NULL,
@@ -419,7 +465,7 @@ class DeviceDatabase {
       `);
 
       // Usage logs table
-      await this.query(`
+      await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS usage_logs (
           id SERIAL PRIMARY KEY,
           device_id TEXT,
@@ -431,7 +477,7 @@ class DeviceDatabase {
       `);
 
       // Admins table
-      await this.query(`
+      await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS admins (
           id SERIAL PRIMARY KEY,
           username TEXT UNIQUE NOT NULL,
@@ -441,7 +487,7 @@ class DeviceDatabase {
       `);
 
       // HWID LOGS TABLE
-      await this.query(`
+      await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS hwid_logs (
           id SERIAL PRIMARY KEY,
           hwid TEXT NOT NULL,
@@ -456,13 +502,6 @@ class DeviceDatabase {
           browser_profile TEXT
         )
       `);
-
-      // Additional indexes
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid ON hwid_logs(hwid)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_created_at ON hwid_logs(created_at DESC)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status ON hwid_logs(status)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_code ON devices(code)`);
-      await this.query(`CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status)`);
 
       console.log('✅ Tables created/verified');
       
@@ -1211,19 +1250,16 @@ class DeviceDatabase {
 
   async deactivateCode(code) {
     try {
-      // Get devices first
       const devices = await this.all(
         'SELECT device_id FROM devices WHERE code = $1 AND status != $2',
         [code, 'revoked']
       );
       
-      // Remove all HWIDs for this code
       await this.run(
         'DELETE FROM code_hwids WHERE code = $1',
         [code]
       );
       
-      // Remove devices
       for (const device of devices) {
         await this.run(
           'DELETE FROM devices WHERE device_id = $1',
@@ -1232,7 +1268,6 @@ class DeviceDatabase {
         console.log(`🗑️ Removed device: ${device.device_id}`);
       }
       
-      // Update code status
       const result = await this.run(
         'UPDATE codes SET is_active = false, status = $1, hwid = NULL WHERE code = $2',
         ['inactive', code]
@@ -1258,7 +1293,6 @@ class DeviceDatabase {
         return { success: false, error: 'Code not found' };
       }
 
-      // Remove all HWIDs if code was inactive
       if (!codeInfo.is_active || codeInfo.status === 'inactive' || codeInfo.status.includes('auto_deactivated')) {
         await this.run(
           'DELETE FROM code_hwids WHERE code = $1',
@@ -1723,7 +1757,6 @@ class DeviceDatabase {
 
   async getStats() {
     try {
-      // Use cache if available and fresh
       if (this.cache.hasInitialData && this.cache.lastUpdate > Date.now() - this.cacheTTL * 1000) {
         return this.cache.stats;
       }
