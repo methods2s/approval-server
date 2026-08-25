@@ -1,4 +1,4 @@
-// database-pg.js - COMPLETE FIXED VERSION
+// database-pg.js - COMPLETE WITH ALL METHODS
 
 const { Pool } = require('pg');
 
@@ -114,22 +114,13 @@ class ConnectionQueue {
 class DeviceDatabase {
   constructor() {
     const connectionString = process.env.DATABASE_URL;
-    const isSupabase = connectionString && connectionString.includes('supabase');
     
     console.log('📡 Connecting to database...');
     console.log(`🔗 Connection string: ${connectionString ? connectionString.substring(0, 50) + '...' : 'Not set'}`);
     
-    // ============================================
-    // OPTIMIZED POOL WITH HIGHER TIMEOUTS
-    // ============================================
     this.pool = new Pool({
       connectionString: connectionString,
-      ssl: isSupabase ? {
-        rejectUnauthorized: false,
-        sslmode: 'require'
-      } : {
-        rejectUnauthorized: false
-      },
+      ssl: false,
       max: parseInt(process.env.DB_POOL_MAX) || 10,
       min: parseInt(process.env.DB_POOL_MIN) || 2,
       idleTimeoutMillis: parseInt(process.env.DB_POOL_IDLE_TIMEOUT) || 60000,
@@ -141,16 +132,13 @@ class DeviceDatabase {
       query_timeout: 120000,
       keepAlive: true,
       keepAliveInitialDelayMillis: 30000,
-      
-      ...(isSupabase && {
-        application_name: 'wantmatures_server',
-        connect_timeout: 60,
-        keepalives: 1,
-        keepalives_idle: 60,
-        keepalives_interval: 30,
-        keepalives_count: 5,
-        idle_in_transaction_session_timeout: 120000
-      })
+      application_name: 'wantmatures_server',
+      connect_timeout: 60,
+      keepalives: 1,
+      keepalives_idle: 60,
+      keepalives_interval: 30,
+      keepalives_count: 5,
+      idle_in_transaction_session_timeout: 120000
     });
     
     this.pool.on('error', (err) => {
@@ -177,13 +165,70 @@ class DeviceDatabase {
       hasInitialData: false
     };
     
-    // Start initialization
     this.initDatabase();
     this.startPoolMonitoring();
     
     console.log('✅ PostgreSQL Database initialized');
     console.log(`📊 Connection Pool: max=${this.pool.options.max}, min=${this.pool.options.min}`);
-    console.log(`⏱️ Query Timeout: ${this.pool.options.query_timeout}ms`);
+  }
+
+  // ============================================
+  // POOL MONITORING - FIXED
+  // ============================================
+
+  getPoolStats() {
+    try {
+      return {
+        totalConnections: this.pool.totalCount || 0,
+        idleConnections: this.pool.idleCount || 0,
+        waitingClients: this.pool.waitingCount || 0,
+        maxConnections: this.pool.options.max || 10,
+        minConnections: this.pool.options.min || 2,
+        usagePercent: this.pool.totalCount ? 
+          Math.round((this.pool.totalCount / this.pool.options.max) * 100) : 0
+      };
+    } catch (error) {
+      return {
+        totalConnections: 0,
+        idleConnections: 0,
+        waitingClients: 0,
+        maxConnections: 10,
+        minConnections: 2,
+        usagePercent: 0
+      };
+    }
+  }
+
+  getQueueStats() {
+    return this.connectionQueue.getStats();
+  }
+
+  async monitorPoolHealth() {
+    const poolStats = this.getPoolStats();
+    const queueStats = this.getQueueStats();
+    
+    console.log('📊 Database Health:');
+    console.log(`   Pool: ${poolStats.totalConnections}/${poolStats.maxConnections} (${poolStats.usagePercent}%)`);
+    console.log(`   Idle: ${poolStats.idleConnections}, Waiting: ${poolStats.waitingClients}`);
+    console.log(`   Queue: ${queueStats.queueLength} pending`);
+    
+    if (poolStats.usagePercent > 80) {
+      console.warn(`⚠️ Pool at ${poolStats.usagePercent}%`);
+    }
+    
+    if (poolStats.waitingClients > 5) {
+      console.warn(`⚠️ ${poolStats.waitingClients} clients waiting`);
+    }
+    
+    return { poolStats, queueStats };
+  }
+
+  startPoolMonitoring() {
+    setInterval(async () => {
+      try {
+        await this.monitorPoolHealth();
+      } catch (e) {}
+    }, 60000);
   }
 
   // ============================================
@@ -198,13 +243,11 @@ class DeviceDatabase {
       console.log('✅ Database initialization complete!');
     } catch (error) {
       console.error('❌ Database initialization failed:', error.message);
-      console.log('💡 Please check your DATABASE_URL in .env file');
-      console.log('💡 Make sure your IP is allowed in Supabase dashboard');
     }
   }
 
   // ============================================
-  // TEST CONNECTION WITH RETRY
+  // TEST CONNECTION
   // ============================================
 
   async testConnection(retries = 5) {
@@ -230,7 +273,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // QUERY METHOD WITH RETRY AND TIMEOUT
+  // QUERY METHODS
   // ============================================
 
   async query(sql, params = [], retries = 5) {
@@ -318,65 +361,6 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // POOL MONITORING
-  // ============================================
-
-  getPoolStats() {
-    try {
-      return {
-        totalConnections: this.pool.totalCount || 0,
-        idleConnections: this.pool.idleCount || 0,
-        waitingClients: this.pool.waitingCount || 0,
-        maxConnections: this.pool.options.max || 10,
-        minConnections: this.pool.options.min || 2,
-        usagePercent: this.pool.totalCount ? 
-          Math.round((this.pool.totalCount / this.pool.options.max) * 100) : 0
-      };
-    } catch (error) {
-      return {
-        totalConnections: 0,
-        idleConnections: 0,
-        waitingClients: 0,
-        maxConnections: 10,
-        minConnections: 2,
-        usagePercent: 0
-      };
-    }
-  }
-
-  getQueueStats() {
-    return this.connectionQueue.getStats();
-  }
-
-  async monitorPoolHealth() {
-    const poolStats = this.getPoolStats();
-    const queueStats = this.getQueueStats();
-    
-    console.log('📊 Database Health:');
-    console.log(`   Pool: ${poolStats.totalConnections}/${poolStats.maxConnections} (${poolStats.usagePercent}%)`);
-    console.log(`   Idle: ${poolStats.idleConnections}, Waiting: ${poolStats.waitingClients}`);
-    console.log(`   Queue: ${queueStats.queueLength} pending`);
-    
-    if (poolStats.usagePercent > 80) {
-      console.warn(`⚠️ Pool at ${poolStats.usagePercent}%`);
-    }
-    
-    if (poolStats.waitingClients > 5) {
-      console.warn(`⚠️ ${poolStats.waitingClients} clients waiting`);
-    }
-    
-    return { poolStats, queueStats };
-  }
-
-  startPoolMonitoring() {
-    setInterval(async () => {
-      try {
-        await this.monitorPoolHealth();
-      } catch (e) {}
-    }, 60000);
-  }
-
-  // ============================================
   // INIT TABLES
   // ============================================
 
@@ -384,6 +368,7 @@ class DeviceDatabase {
     try {
       console.log('🔄 Creating/verifying tables...');
       
+      // Codes table
       await this.query(`
         CREATE TABLE IF NOT EXISTS codes (
           code TEXT PRIMARY KEY,
@@ -425,6 +410,7 @@ class DeviceDatabase {
         } catch (e) {}
       }
 
+      // code_hwids table
       await this.query(`
         CREATE TABLE IF NOT EXISTS code_hwids (
           id SERIAL PRIMARY KEY,
@@ -436,6 +422,7 @@ class DeviceDatabase {
         )
       `);
 
+      // Devices table
       await this.query(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -489,6 +476,7 @@ class DeviceDatabase {
         } catch (e) {}
       }
 
+      // Requests table
       await this.query(`
         CREATE TABLE IF NOT EXISTS requests (
           id SERIAL PRIMARY KEY,
@@ -502,6 +490,7 @@ class DeviceDatabase {
         )
       `);
 
+      // Usage logs table
       await this.query(`
         CREATE TABLE IF NOT EXISTS usage_logs (
           id SERIAL PRIMARY KEY,
@@ -513,6 +502,7 @@ class DeviceDatabase {
         )
       `);
 
+      // Admins table
       await this.query(`
         CREATE TABLE IF NOT EXISTS admins (
           id SERIAL PRIMARY KEY,
@@ -522,6 +512,7 @@ class DeviceDatabase {
         )
       `);
 
+      // HWID LOGS TABLE
       await this.query(`
         CREATE TABLE IF NOT EXISTS hwid_logs (
           id SERIAL PRIMARY KEY,
