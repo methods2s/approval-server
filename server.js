@@ -1,4 +1,4 @@
-// server.js - Complete Optimized Version with Performance Fixes
+// server.js - Complete Optimized with Auto-Refresh & HWID Specs Fix
 
 require('dotenv').config();
 const express = require('express');
@@ -400,7 +400,7 @@ app.get('/logout', (req, res) => {
 });
 
 // ============================================
-// DASHBOARD
+// DASHBOARD - WITH AUTO-REFRESH
 // ============================================
 
 app.get('/dashboard', isAuthenticated, async (req, res) => {
@@ -413,7 +413,9 @@ app.get('/dashboard', isAuthenticated, async (req, res) => {
             devices: data.devices || [],
             stats: data.stats || {},
             codes: data.codes || [],
-            requests: data.requests || []
+            requests: data.requests || [],
+            autoRefresh: true,  // Enable auto-refresh
+            refreshInterval: 5000  // 5 seconds
         });
     } catch (error) {
         console.error('Dashboard error:', error);
@@ -424,6 +426,8 @@ app.get('/dashboard', isAuthenticated, async (req, res) => {
             stats: cached.stats || {},
             codes: cached.codes || [],
             requests: cached.requests || [],
+            autoRefresh: true,
+            refreshInterval: 5000,
             error: 'Failed to load data'
         });
     }
@@ -735,7 +739,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
                 subscription_started_at: null,
                 subscription_expires_at: null,
                 status_code: null,
-                wallpaper: null
+                wallpaper: null,
+                hardware: null
             });
         }
 
@@ -758,7 +763,15 @@ app.get('/api/status/:deviceId', async (req, res) => {
                     width: device.wallpaper_width,
                     height: device.wallpaper_height,
                     has_base64: !!device.wallpaper_base64
-                } : null
+                } : null,
+                hardware: {
+                    cpu: device.cpu_name,
+                    gpu: device.gpu_name,
+                    ram_gb: device.ram_total_gb,
+                    storage_gb: device.storage_total_gb,
+                    device_name: device.device_name,
+                    profile_name: device.profile_name
+                }
             });
         }
 
@@ -797,7 +810,15 @@ app.get('/api/status/:deviceId', async (req, res) => {
                     width: device.wallpaper_width,
                     height: device.wallpaper_height,
                     has_base64: !!device.wallpaper_base64
-                } : null
+                } : null,
+                hardware: {
+                    cpu: device.cpu_name,
+                    gpu: device.gpu_name,
+                    ram_gb: device.ram_total_gb,
+                    storage_gb: device.storage_total_gb,
+                    device_name: device.device_name,
+                    profile_name: device.profile_name
+                }
             });
         }
 
@@ -825,7 +846,15 @@ app.get('/api/status/:deviceId', async (req, res) => {
                         width: device.wallpaper_width,
                         height: device.wallpaper_height,
                         has_base64: !!device.wallpaper_base64
-                    } : null
+                    } : null,
+                    hardware: {
+                        cpu: device.cpu_name,
+                        gpu: device.gpu_name,
+                        ram_gb: device.ram_total_gb,
+                        storage_gb: device.storage_total_gb,
+                        device_name: device.device_name,
+                        profile_name: device.profile_name
+                    }
                 });
             }
         }
@@ -850,7 +879,15 @@ app.get('/api/status/:deviceId', async (req, res) => {
                     width: device.wallpaper_width,
                     height: device.wallpaper_height,
                     has_base64: !!device.wallpaper_base64
-                } : null
+                } : null,
+                hardware: {
+                    cpu: device.cpu_name,
+                    gpu: device.gpu_name,
+                    ram_gb: device.ram_total_gb,
+                    storage_gb: device.storage_total_gb,
+                    device_name: device.device_name,
+                    profile_name: device.profile_name
+                }
             });
         }
 
@@ -874,6 +911,14 @@ app.get('/api/status/:deviceId', async (req, res) => {
                 height: device.wallpaper_height,
                 has_base64: !!device.wallpaper_base64
             } : null,
+            hardware: {
+                cpu: device.cpu_name,
+                gpu: device.gpu_name,
+                ram_gb: device.ram_total_gb,
+                storage_gb: device.storage_total_gb,
+                device_name: device.device_name,
+                profile_name: device.profile_name
+            },
             device: {
                 id: device.device_id,
                 approved_at: device.approved_at,
@@ -893,7 +938,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
             subscription_started_at: null,
             subscription_expires_at: null,
             status_code: null,
-            wallpaper: null
+            wallpaper: null,
+            hardware: null
         });
     }
 });
@@ -1091,7 +1137,9 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
             requests: data.requests || [],
             username: req.session.username,
             cache_age: Math.floor((Date.now() - data.lastUpdate) / 1000),
-            cache_ttl: db.cacheTTL || 5
+            cache_ttl: db.cacheTTL || 5,
+            autoRefresh: true,
+            refreshInterval: 5000
         });
     } catch (error) {
         console.error('Dashboard data error:', error);
@@ -1103,7 +1151,9 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
             requests: cached.requests || [],
             username: req.session.username,
             cache_age: 0,
-            error: 'Using cached data'
+            error: 'Using cached data',
+            autoRefresh: true,
+            refreshInterval: 5000
         });
     }
 });
@@ -1403,7 +1453,7 @@ app.delete('/api/device/:deviceId', async (req, res) => {
 });
 
 // ============================================
-// BATCH DEVICE UPDATE - NEW OPTIMIZED
+// BATCH DEVICE UPDATE
 // ============================================
 
 app.post('/api/device/batch-update', isApiAuthenticated, async (req, res) => {
@@ -1437,7 +1487,7 @@ app.post('/api/device/batch-update', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// GET HARDWARE SPECS - NEW OPTIMIZED
+// GET HARDWARE SPECS - FIXED
 // ============================================
 
 app.get('/api/device/:deviceId/hardware', isApiAuthenticated, async (req, res) => {
@@ -1449,17 +1499,189 @@ app.get('/api/device/:deviceId/hardware', isApiAuthenticated, async (req, res) =
         if (specs) {
             res.json({
                 success: true,
-                hardware: specs
+                hardware: {
+                    cpu: specs.cpu_name || 'Unknown',
+                    gpu: specs.gpu_name || 'Unknown',
+                    ram_gb: specs.ram_total_gb || 0,
+                    storage_gb: specs.storage_total_gb || 0,
+                    device_name: specs.device_name || 'Unknown',
+                    profile_name: specs.profile_name || 'Unknown'
+                }
+            });
+        } else {
+            // Try to get from devices table directly
+            const device = await db.get(
+                'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name FROM devices WHERE device_id = $1',
+                [deviceId]
+            );
+            
+            if (device) {
+                res.json({
+                    success: true,
+                    hardware: {
+                        cpu: device.cpu_name || 'Unknown',
+                        gpu: device.gpu_name || 'Unknown',
+                        ram_gb: device.ram_total_gb || 0,
+                        storage_gb: device.storage_total_gb || 0,
+                        device_name: device.device_name || 'Unknown',
+                        profile_name: device.profile_name || 'Unknown'
+                    }
+                });
+            } else {
+                res.json({
+                    success: false,
+                    hardware: null,
+                    message: 'No hardware specs available. Please register a device first.'
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Get hardware specs error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to get hardware specs'
+        });
+    }
+});
+
+// ============================================
+// GET DEVICE BY HWID - FIXED FOR HWID MANAGER
+// ============================================
+
+app.get('/api/device/hwid/:hwid', isApiAuthenticated, async (req, res) => {
+    const { hwid } = req.params;
+    
+    try {
+        const device = await db.get(
+            'SELECT device_id, cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, wallpaper_name, status, code, created_at, last_ping FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
+            [hwid]
+        );
+        
+        if (device) {
+            res.json({
+                success: true,
+                device: {
+                    device_id: device.device_id,
+                    cpu: device.cpu_name || 'Unknown',
+                    gpu: device.gpu_name || 'Unknown',
+                    ram_gb: device.ram_total_gb || 0,
+                    storage_gb: device.storage_total_gb || 0,
+                    device_name: device.device_name || 'Unknown',
+                    profile_name: device.profile_name || 'Unknown',
+                    wallpaper: device.wallpaper_name || null,
+                    status: device.status || 'unknown',
+                    code: device.code || null,
+                    created_at: device.created_at,
+                    last_ping: device.last_ping
+                }
+            });
+        } else {
+            res.json({
+                success: false,
+                device: null,
+                message: 'No device found with this HWID'
+            });
+        }
+    } catch (error) {
+        console.error('Get device by HWID error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to get device by HWID'
+        });
+    }
+});
+
+// ============================================
+// HWID MANAGER - GET HWID WITH DEVICE INFO
+// ============================================
+
+app.get('/api/hwid/:hwid/details', isApiAuthenticated, async (req, res) => {
+    const { hwid } = req.params;
+    
+    try {
+        // Get HWID info
+        const hwidInfo = await db.get(
+            'SELECT * FROM hwid_logs WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
+            [hwid]
+        );
+        
+        // Get associated device
+        const device = await db.get(
+            'SELECT device_id, cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, wallpaper_name, status, code, created_at, last_ping FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
+            [hwid]
+        );
+        
+        // Check if assigned to a code
+        const codeHwid = await db.get(
+            'SELECT code FROM code_hwids WHERE hwid = $1',
+            [hwid]
+        );
+        
+        res.json({
+            success: true,
+            hwid: hwid,
+            hwid_masked: hwid.substring(0, 16) + '...' + hwid.substring(48),
+            assigned_to_code: codeHwid ? codeHwid.code : null,
+            device: device ? {
+                device_id: device.device_id,
+                cpu: device.cpu_name || 'Unknown',
+                gpu: device.gpu_name || 'Unknown',
+                ram_gb: device.ram_total_gb || 0,
+                storage_gb: device.storage_total_gb || 0,
+                device_name: device.device_name || 'Unknown',
+                profile_name: device.profile_name || 'Unknown',
+                wallpaper: device.wallpaper_name || null,
+                status: device.status || 'unknown',
+                code: device.code || null,
+                created_at: device.created_at,
+                last_ping: device.last_ping
+            } : null,
+            hwid_info: hwidInfo || null
+        });
+    } catch (error) {
+        console.error('Get HWID details error:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to get HWID details'
+        });
+    }
+});
+
+// ============================================
+// HWID MANAGER - GET HARDWARE BY HWID
+// ============================================
+
+app.get('/api/hwid/:hwid/hardware', isApiAuthenticated, async (req, res) => {
+    const { hwid } = req.params;
+    
+    try {
+        const device = await db.get(
+            'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, wallpaper_name FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
+            [hwid]
+        );
+        
+        if (device) {
+            res.json({
+                success: true,
+                hardware: {
+                    cpu: device.cpu_name || 'Unknown',
+                    gpu: device.gpu_name || 'Unknown',
+                    ram_gb: device.ram_total_gb || 0,
+                    storage_gb: device.storage_total_gb || 0,
+                    device_name: device.device_name || 'Unknown',
+                    profile_name: device.profile_name || 'Unknown',
+                    wallpaper: device.wallpaper_name || null
+                }
             });
         } else {
             res.json({
                 success: false,
                 hardware: null,
-                message: 'Hardware specs not found'
+                message: 'No hardware specs found for this HWID'
             });
         }
     } catch (error) {
-        console.error('Get hardware specs error:', error);
+        console.error('Get hardware by HWID error:', error);
         res.status(500).json({ 
             success: false, 
             error: 'Failed to get hardware specs'
@@ -1480,16 +1702,33 @@ app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
         
         const hwidArray = Array.isArray(hwids) ? hwids : [];
         
-        const masked = hwidArray.map(h => ({
-            ...h,
-            hwid_masked: h.hwid ? h.hwid.substring(0, 16) + '...' + h.hwid.substring(48) : null,
-            hwid_full: h.hwid
+        // Get hardware specs for each HWID
+        const hwidsWithSpecs = await Promise.all(hwidArray.map(async (h) => {
+            const device = await db.get(
+                'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, wallpaper_name FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
+                [h.hwid]
+            );
+            
+            return {
+                ...h,
+                hwid_masked: h.hwid ? h.hwid.substring(0, 16) + '...' + h.hwid.substring(48) : null,
+                hwid_full: h.hwid,
+                hardware: device ? {
+                    cpu: device.cpu_name || 'Unknown',
+                    gpu: device.gpu_name || 'Unknown',
+                    ram_gb: device.ram_total_gb || 0,
+                    storage_gb: device.storage_total_gb || 0,
+                    device_name: device.device_name || 'Unknown',
+                    profile_name: device.profile_name || 'Unknown',
+                    wallpaper: device.wallpaper_name || null
+                } : null
+            };
         }));
         
         res.json({
             success: true,
             code: code,
-            hwids: masked,
+            hwids: hwidsWithSpecs,
             max_hwid_limit: limit || 1,
             current_count: count || 0,
             available_slots: (limit || 1) - (count || 0)
@@ -2073,7 +2312,7 @@ app.post('/api/monitor', async (req, res) => {
 });
 
 // ============================================
-// AUTO-DELETE OLD LOGS - FIXED
+// AUTO-DELETE OLD LOGS
 // ============================================
 
 async function autoDeleteOldLogs() {
@@ -2248,12 +2487,14 @@ createDefaultAdmin().then(() => {
         console.log(`✅ Rate Limits: Register=${registerLimiter.max}/min, API=${apiLimiter.max}/min`);
         console.log('='.repeat(60));
         console.log('⚡ OPTIMIZATIONS ENABLED:');
+        console.log('   ✅ Auto-Refresh Dashboard (5s)');
         console.log('   ✅ Cache TTL: 5 seconds');
         console.log('   ✅ Dashboard Limit: 50 items');
         console.log('   ✅ HWID Logs: Pagination (50/page)');
         console.log('   ✅ Parallel Queries');
         console.log('   ✅ Batch Updates');
-        console.log('   ✅ Hardware Specs Cache');
+        console.log('   ✅ Hardware Specs in HWID Manager');
+        console.log('   ✅ Device Info by HWID');
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');
