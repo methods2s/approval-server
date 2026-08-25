@@ -1,4 +1,4 @@
-// database-pg.js - Complete Optimized for 50+ Users
+// database-pg.js - Complete Optimized for 50+ Users (FIXED for PostgreSQL)
 
 const { Pool } = require('pg');
 
@@ -262,7 +262,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET DASHBOARD DATA
+  // GET DASHBOARD DATA - FIXED
   // ============================================
 
   async getDashboardData() {
@@ -299,7 +299,7 @@ class DeviceDatabase {
         [], 3
       );
       const requests = await this.queuedQuery(
-        'SELECT * FROM requests WHERE status = "pending" ORDER BY requested_at ASC LIMIT 20',
+        "SELECT * FROM requests WHERE status = 'pending' ORDER BY requested_at ASC LIMIT 20",
         [], 3
       );
       
@@ -1335,7 +1335,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // HWID LOGGING
+  // HWID LOGGING - FIXED
   // ============================================
 
   async logHwidActivity(hwid, code, deviceId, action, status, details, ip, userAgent, browserProfile) {
@@ -1409,7 +1409,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // NEW HWID METHODS
+  // NEW HWID METHODS - FIXED
   // ============================================
 
   async getNewUniqueHwids(limit = 100) {
@@ -1663,7 +1663,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // STATS
+  // STATS - FIXED
   // ============================================
 
   async getStats() {
@@ -1738,14 +1738,14 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // REQUEST MANAGEMENT
+  // REQUEST MANAGEMENT - FIXED
   // ============================================
 
   async getPendingRequests() {
     try {
       return await this.all(
-        'SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id WHERE r.status = $1 ORDER BY r.requested_at ASC LIMIT 20',
-        ['pending']
+        "SELECT r.*, d.status as device_status FROM requests r LEFT JOIN devices d ON r.device_id = d.device_id WHERE r.status = 'pending' ORDER BY r.requested_at ASC LIMIT 20",
+        []
       );
     } catch (error) {
       console.error('Get pending requests error:', error);

@@ -1,4 +1,4 @@
-// server.js - Complete Optimized Version for 50+ Users with Supabase Pro
+// server.js - Complete Optimized Version for 50+ Users with Supabase Pro (FIXED)
 
 require('dotenv').config();
 const express = require('express');
@@ -1974,7 +1974,7 @@ app.post('/api/monitor', async (req, res) => {
 });
 
 // ============================================
-// AUTO-DELETE OLD LOGS
+// AUTO-DELETE OLD LOGS - FIXED
 // ============================================
 
 async function autoDeleteOldLogs() {
