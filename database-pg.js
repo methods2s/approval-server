@@ -1,7 +1,6 @@
-// database-pg.js - Complete Fixed Version
+// database-pg.js - Complete Fixed Version with Proper Connection Management
 
 const { Pool } = require('pg');
-const { Semaphore } = require('async-mutex');
 
 class DeviceDatabase {
   constructor() {
@@ -11,19 +10,21 @@ class DeviceDatabase {
       sslmode: 'require'
     };
     
-    // Connection configuration
+    // Connection configuration - OPTIMIZED
     let connectionConfig = {
       connectionString: process.env.DATABASE_URL,
       ssl: sslConfig,
-      max: parseInt(process.env.DATABASE_POOL_MAX) || 30,
-      min: parseInt(process.env.DATABASE_POOL_MIN) || 5,
-      idleTimeoutMillis: parseInt(process.env.DATABASE_IDLE_TIMEOUT) || 30000,
-      connectionTimeoutMillis: parseInt(process.env.DATABASE_CONNECTION_TIMEOUT) || 10000,
+      max: parseInt(process.env.DATABASE_POOL_MAX) || 50,  // Increased pool size
+      min: parseInt(process.env.DATABASE_POOL_MIN) || 10,   // Keep more connections ready
+      idleTimeoutMillis: parseInt(process.env.DATABASE_IDLE_TIMEOUT) || 60000, // 60 seconds
+      connectionTimeoutMillis: parseInt(process.env.DATABASE_CONNECTION_TIMEOUT) || 30000, // 30 seconds
       maxUses: parseInt(process.env.DATABASE_MAX_USES) || 1000,
       keepAlive: true,
       keepAliveInitialDelayMillis: 10000,
       statement_timeout: 30000,
-      query_timeout: 30000
+      query_timeout: 30000,
+      // Allow more time for connections
+      acquireTimeoutMillis: 30000
     };
 
     // Override SSL if needed
@@ -40,9 +41,6 @@ class DeviceDatabase {
     }
 
     this.pool = new Pool(connectionConfig);
-    
-    // Semaphore for controlling concurrent database operations
-    this.semaphore = new Semaphore(parseInt(process.env.MAX_CONCURRENT_DB_OPS) || 20);
     
     // Cache
     this.cache = {
@@ -81,81 +79,9 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // CONNECTION MANAGEMENT WITH RETRY - FIXED
+  // CONNECTION MANAGEMENT - SIMPLIFIED & RELIABLE
   // ============================================
 
-  async withConnection(operation, retries = 3) {
-    let lastError;
-    for (let attempt = 1; attempt <= retries; attempt++) {
-      try {
-        // Get semaphore permit - FIXED: properly handle the release function
-        const [value, release] = await this.semaphore.acquire();
-        
-        return new Promise((resolve, reject) => {
-          let client = null;
-          let released = false;
-          
-          const cleanup = () => {
-            if (!released) {
-              released = true;
-              if (client) {
-                try {
-                  client.release();
-                } catch (e) {
-                  // Ignore release errors
-                }
-              }
-              try {
-                release();
-              } catch (e) {
-                // Ignore release errors
-              }
-            }
-          };
-          
-          const timeout = setTimeout(() => {
-            cleanup();
-            reject(new Error('Database operation timeout'));
-          }, parseInt(process.env.DB_OPERATION_TIMEOUT) || 15000);
-          
-          this.pool.connect()
-            .then(c => {
-              client = c;
-              clearTimeout(timeout);
-              return operation(client);
-            })
-            .then(result => {
-              clearTimeout(timeout);
-              cleanup();
-              resolve(result);
-            })
-            .catch(err => {
-              clearTimeout(timeout);
-              cleanup();
-              reject(err);
-            });
-        });
-      } catch (error) {
-        lastError = error;
-        if (error.code === 'ECONNREFUSED' || 
-            error.code === 'ETIMEDOUT' || 
-            error.code === '57P01' ||
-            error.message.includes('self-signed certificate') ||
-            error.message.includes('certificate chain')) {
-          if (attempt < retries) {
-            const delay = Math.min(attempt * 2000, 8000);
-            console.log(`⏳ Retrying in ${delay}ms... (attempt ${attempt}/${retries})`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            continue;
-          }
-        }
-        throw error;
-      }
-    }
-    throw lastError;
-  }
-
-  // SIMPLIFIED VERSION - If the above still has issues, use this simpler version
   async query(sql, params = []) {
     let client = null;
     try {
@@ -163,6 +89,7 @@ class DeviceDatabase {
       const result = await client.query(sql, params);
       return result;
     } catch (error) {
+      console.error('❌ Query error:', error.message);
       throw error;
     } finally {
       if (client) {
@@ -175,7 +102,7 @@ class DeviceDatabase {
     }
   }
 
-  async queryWithTimeout(sql, params = [], timeout = 10000) {
+  async queryWithTimeout(sql, params = [], timeout = 30000) {
     let client = null;
     try {
       client = await this.pool.connect();
@@ -186,6 +113,7 @@ class DeviceDatabase {
       const result = await Promise.race([queryPromise, timeoutPromise]);
       return result;
     } catch (error) {
+      console.error('❌ Query timeout error:', error.message);
       throw error;
     } finally {
       if (client) {
@@ -212,11 +140,14 @@ class DeviceDatabase {
             error.code === 'ETIMEDOUT' || 
             error.code === '57P01' ||
             error.message.includes('self-signed certificate') ||
-            error.message.includes('certificate chain')) {
-          const delay = Math.min(attempt * 2000, 8000);
-          console.log(`⏳ Retrying in ${delay}ms... (attempt ${attempt}/${maxRetries})`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
+            error.message.includes('certificate chain') ||
+            error.message.includes('timeout')) {
+          if (attempt < maxRetries) {
+            const delay = Math.min(attempt * 1000, 5000);
+            console.log(`⏳ Retrying in ${delay}ms... (attempt ${attempt}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
         }
         throw error;
       } finally {
