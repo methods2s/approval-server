@@ -1,1589 +1,1826 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Approval Server Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Dating Sites</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css" rel="stylesheet">
     <style>
-        /* ============================================================
-           RESET & BASE
-           ============================================================ */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #0b0e14;
-            color: #e8edf5;
-            padding: 20px;
-            min-height: 100vh;
-        }
-
-        a {
-            color: #58a6ff;
-            text-decoration: none;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
-
-        /* ============================================================
-           LAYOUT
-           ============================================================ */
-        .container {
-            max-width: 1600px;
-            margin: 0 auto;
-        }
-
-        /* ============================================================
-           HEADER
-           ============================================================ */
-        .header {
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: rgba(255,255,255,0.05); border-radius: 10px; margin-bottom: 20px; }
+        .header h1 { font-size: 24px; color: #fff; }
+        .header .user { font-size: 14px; color: #aaa; }
+        .header .user strong { color: #4CAF50; }
+        .header .logout-btn { padding: 8px 20px; background: #f44336; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+        .header .logout-btn:hover { background: #d32f2f; }
+        
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .stat-card { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.08); }
+        .stat-card .number { font-size: 32px; font-weight: bold; color: #4CAF50; }
+        .stat-card .label { font-size: 13px; color: #888; margin-top: 5px; }
+        
+        .card { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.08); }
+        .card h3 { color: #fff; margin-bottom: 15px; font-size: 18px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+        .card-header h3 { margin-bottom: 0; }
+        
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; font-size: 13px; color: #aaa; margin-bottom: 4px; font-weight: bold; }
+        .form-group input, .form-group select { width: 100%; padding: 10px; border: 1px solid #555; border-radius: 6px; background: #222; color: #fff; font-size: 14px; }
+        .form-group input:focus, .form-group select:focus { border-color: #4CAF50; outline: none; }
+        .form-row { display: flex; gap: 15px; flex-wrap: wrap; }
+        .form-row .form-group { flex: 1; min-width: 150px; }
+        
+        .btn-primary { padding: 10px 25px; background: #4CAF50; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; }
+        .btn-primary:hover { background: #45a049; }
+        .btn-warning { padding: 8px 15px; background: #FF9800; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .btn-warning:hover { background: #e68900; }
+        .btn-danger { padding: 8px 15px; background: #f44336; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .btn-danger:hover { background: #d32f2f; }
+        .btn-success { padding: 8px 15px; background: #4CAF50; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .btn-success:hover { background: #388E3C; }
+        .btn-small { padding: 4px 10px; font-size: 11px; border: none; border-radius: 4px; cursor: pointer; }
+        .btn-edit { background: #2196F3; color: #fff; }
+        .btn-edit:hover { background: #1976D2; }
+        .btn-save { background: #4CAF50; color: #fff; }
+        .btn-save:hover { background: #388E3C; }
+        .btn-cancel { background: #757575; color: #fff; }
+        .btn-cancel:hover { background: #616161; }
+        .btn-remove { background: #f44336; color: #fff; }
+        .btn-remove:hover { background: #d32f2f; }
+        .btn-refresh { background: #2196F3; color: #fff; padding: 6px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+        .btn-refresh:hover { background: #1976D2; }
+        .btn-copy-one { background: linear-gradient(135deg, #00BCD4, #FF9800); color: #fff; border: none; border-radius: 4px; padding: 4px 12px; font-size: 11px; cursor: pointer; transition: all 0.2s; }
+        .btn-copy-one:hover { transform: scale(1.05); opacity: 0.9; }
+        .btn-remove-hwid-code { background: #f44336; color: #fff; border: none; border-radius: 4px; padding: 4px 10px; font-size: 10px; cursor: pointer; transition: all 0.2s; }
+        .btn-remove-hwid-code:hover { background: #d32f2f; transform: scale(1.05); }
+        .btn-remove-hwid-code:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
+        .btn-hwid-manager { background: #9C27B0; color: #fff; border: none; border-radius: 4px; padding: 4px 8px; font-size: 10px; cursor: pointer; transition: all 0.2s; }
+        .btn-hwid-manager:hover { background: #7B1FA2; transform: scale(1.05); }
+        
+        .scroll-table { overflow-x: auto; max-height: 500px; overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        table th { text-align: left; padding: 10px 8px; background: rgba(255,255,255,0.05); color: #aaa; border-bottom: 2px solid #333; position: sticky; top: 0; z-index: 10; }
+        table td { padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.05); vertical-align: middle; }
+        table tr:hover { background: rgba(255,255,255,0.03); }
+        table tr.editing { background: rgba(255,152,0,0.15); }
+        
+        .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+        .badge.active { background: rgba(76,175,80,0.2); color: #4CAF50; }
+        .badge.inactive { background: rgba(244,67,54,0.2); color: #f44336; }
+        .badge.vip { background: rgba(255,152,0,0.2); color: #FF9800; }
+        .badge.svip { background: rgba(76,175,80,0.2); color: #4CAF50; }
+        .badge.auto-deactivated { background: rgba(244,67,54,0.2); color: #f44336; }
+        .badge.approved { background: rgba(76,175,80,0.2); color: #4CAF50; }
+        
+        .badge-hwid-status { padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+        .badge-hwid-status.has-hwid { background: rgba(76,175,80,0.2); color: #4CAF50; }
+        .badge-hwid-status.no-hwid { background: rgba(244,67,54,0.2); color: #f44336; }
+        .badge-hwid-status.full { background: rgba(255,152,0,0.2); color: #FF9800; }
+        
+        .badge-unregistered { background: rgba(255,152,0,0.2); color: #FF9800; font-size: 9px; padding: 1px 6px; border-radius: 8px; }
+        .badge-approved { background: rgba(76,175,80,0.2); color: #4CAF50; font-size: 9px; padding: 1px 6px; border-radius: 8px; }
+        
+        .edit-input { width: 100%; padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; min-width: 60px; }
+        .edit-input:focus { outline: none; border-color: #4CAF50; }
+        .edit-select { padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; }
+        .edit-select:focus { outline: none; border-color: #4CAF50; }
+        
+        .tab-buttons { display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+        .tab-btn { padding: 8px 20px; border: 2px solid #555; border-radius: 6px; background: transparent; color: #aaa; cursor: pointer; font-size: 14px; }
+        .tab-btn.active { border-color: #4CAF50; color: #4CAF50; background: rgba(76,175,80,0.1); }
+        .tab-btn:hover { border-color: #888; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        .refresh-btn { padding: 6px 15px; background: #2196F3; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; margin-left: 10px; }
+        .refresh-btn:hover { background: #1976D2; }
+        .code-font { font-family: monospace; font-size: 13px; }
+        .text-muted { color: #888; }
+        .mt-10 { margin-top: 10px; }
+        .action-buttons { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+        
+        #result-message { position: fixed; bottom: 20px; right: 20px; padding: 12px 24px; border-radius: 8px; display: none; z-index: 9999; font-size: 14px; max-width: 400px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+        #result-message.success { display: block; color: #4CAF50; background: rgba(76,175,80,0.15); border: 1px solid #4CAF50; }
+        #result-message.error { display: block; color: #f44336; background: rgba(244,67,54,0.15); border: 1px solid #f44336; }
+        #result-message.loading { display: block; color: #FF9800; background: rgba(255,152,0,0.15); border: 1px solid #FF9800; }
+        #result-message.info { display: block; color: #2196F3; background: rgba(33,150,243,0.15); border: 1px solid #2196F3; }
+        #result-message .close-msg { float: right; cursor: pointer; margin-left: 15px; opacity: 0.7; background: none; border: none; color: inherit; font-size: 16px; }
+        #result-message .close-msg:hover { opacity: 1; }
+        
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%; border-top-color: transparent; animation: spin 0.6s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .device-count-badge { background: rgba(33,150,243,0.15); color: #2196F3; padding: 2px 8px; border-radius: 10px; font-size: 10px; }
+        
+        .hwid-spec-detail { display: inline-block; padding: 2px 10px; border-radius: 4px; font-size: 11px; margin: 2px 0; }
+        .hwid-spec-detail.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
+        .hwid-spec-detail.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
+        .hwid-spec-detail.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
+        .hwid-spec-detail.storage { background: rgba(33,150,243,0.15); color: #2196F3; }
+        .hwid-spec-detail.device { background: rgba(255,87,34,0.15); color: #FF5722; }
+        .hwid-spec-detail.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
+        .hwid-spec-detail.unregistered { background: rgba(255,152,0,0.1); color: #FF9800; border: 1px dashed #FF9800; }
+        
+        .btn-remove-hwid { background: #f44336; color: #fff; border: none; border-radius: 4px; padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: bold; transition: all 0.2s; }
+        .btn-remove-hwid:hover { background: #d32f2f; transform: scale(1.05); }
+        .btn-remove-hwid:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
+        
+        .hwid-stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 15px; }
+        .hwid-stat-card { background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; text-align: center; border: 1px solid rgba(255,255,255,0.08); }
+        .hwid-stat-card .number { font-size: 28px; font-weight: bold; color: #4CAF50; }
+        .hwid-stat-card .label { font-size: 12px; color: #888; margin-top: 4px; }
+        .hwid-stat-card .number.warning { color: #FF9800; }
+        .hwid-stat-card .number.danger { color: #f44336; }
+        
+        .badge-new-count { background: #f44336; color: #fff; padding: 4px 12px; border-radius: 12px; font-size: 12px; }
+        .badge-new-count.zero { background: #4CAF50; }
+        
+        .search-box {
             display: flex;
-            justify-content: space-between;
+            gap: 10px;
             align-items: center;
             flex-wrap: wrap;
-            gap: 16px;
-            margin-bottom: 28px;
-            padding-bottom: 16px;
-            border-bottom: 1px solid #1f2937;
         }
-
-        .header-left h1 {
-            font-size: 26px;
-            font-weight: 700;
-            background: linear-gradient(135deg, #58a6ff, #a78bfa);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .header-left .sub {
-            font-size: 14px;
-            color: #8b95a9;
-            margin-top: 2px;
-        }
-
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            flex-wrap: wrap;
-        }
-
-        .header-right .user-badge {
-            background: #1f2937;
-            padding: 6px 16px;
-            border-radius: 40px;
-            font-size: 14px;
-            color: #c9d1d9;
-        }
-
-        .header-right .user-badge strong {
-            color: #58a6ff;
-        }
-
-        .header-right .btn-outline {
-            background: transparent;
-            border: 1px solid #30363d;
-            color: #c9d1d9;
-            padding: 6px 18px;
-            border-radius: 40px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: 0.2s;
-        }
-        .header-right .btn-outline:hover {
-            border-color: #58a6ff;
-            color: #58a6ff;
-        }
-
-        /* ============================================================
-           STATUS BAR (Auto-Refresh Indicator)
-           ============================================================ */
-        .status-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 12px;
-            background: #141a23;
-            border-radius: 12px;
-            padding: 12px 20px;
-            margin-bottom: 28px;
-            border: 1px solid #1f2937;
-        }
-
-        .status-bar .left {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            flex-wrap: wrap;
-        }
-
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 13px;
-            font-weight: 600;
-            padding: 4px 14px;
-            border-radius: 40px;
-        }
-        .status-badge.online {
-            background: #0d2818;
-            color: #4ade80;
-        }
-        .status-badge.online::before {
-            content: '';
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #4ade80;
-            animation: pulse-dot 1.8s ease-in-out infinite;
-        }
-
-        @keyframes pulse-dot {
-            0%,
-            100% {
-                opacity: 1;
-                transform: scale(1);
-            }
-            50% {
-                opacity: 0.5;
-                transform: scale(0.85);
-            }
-        }
-
-        .status-bar .timestamp {
-            font-size: 13px;
-            color: #8b95a9;
-        }
-
-        .status-bar .refresh-info {
-            font-size: 13px;
-            color: #8b95a9;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .status-bar .refresh-info .spinner {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid #1f2937;
-            border-top: 2px solid #58a6ff;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        .btn-refresh {
-            background: #1f2937;
-            border: none;
-            color: #c9d1d9;
-            padding: 6px 18px;
-            border-radius: 40px;
-            font-size: 13px;
-            cursor: pointer;
-            transition: 0.2s;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .btn-refresh:hover {
-            background: #2d3748;
-            color: #fff;
-        }
-        .btn-refresh:active {
-            transform: scale(0.96);
-        }
-
-        /* ============================================================
-           STAT CARDS
-           ============================================================ */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 16px;
-            margin-bottom: 28px;
-        }
-
-        .stat-card {
-            background: #141a23;
-            border-radius: 12px;
-            padding: 18px 16px;
-            border: 1px solid #1f2937;
-            transition: 0.2s;
-        }
-        .stat-card:hover {
-            border-color: #30363d;
-        }
-
-        .stat-card .label {
-            font-size: 13px;
-            color: #8b95a9;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .stat-card .value {
-            font-size: 28px;
-            font-weight: 700;
-            margin-top: 4px;
-            color: #e8edf5;
-        }
-        .stat-card .value.green {
-            color: #4ade80;
-        }
-        .stat-card .value.blue {
-            color: #58a6ff;
-        }
-        .stat-card .value.purple {
-            color: #a78bfa;
-        }
-        .stat-card .value.orange {
-            color: #fbbf24;
-        }
-        .stat-card .value.red {
-            color: #f87171;
-        }
-        .stat-card .value.pink {
-            color: #f472b6;
-        }
-        .stat-card .value.cyan {
-            color: #22d3ee;
-        }
-
-        /* ============================================================
-           TABLES
-           ============================================================ */
-        .section {
-            background: #141a23;
-            border-radius: 12px;
-            border: 1px solid #1f2937;
-            margin-bottom: 28px;
-            overflow: hidden;
-        }
-
-        .section-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 16px 20px;
-            border-bottom: 1px solid #1f2937;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-
-        .section-header h2 {
-            font-size: 18px;
-            font-weight: 600;
-        }
-
-        .section-header .count-badge {
-            background: #1f2937;
-            padding: 2px 14px;
-            border-radius: 40px;
-            font-size: 13px;
-            color: #8b95a9;
-        }
-
-        .table-wrap {
-            overflow-x: auto;
-            padding: 0 4px 4px 4px;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-        }
-
-        thead {
-            background: #0f151e;
-        }
-
-        th {
-            text-align: left;
-            padding: 12px 16px;
-            font-weight: 600;
-            color: #8b95a9;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.4px;
-            border-bottom: 1px solid #1f2937;
-            white-space: nowrap;
-        }
-
-        td {
-            padding: 12px 16px;
-            border-bottom: 1px solid #1a222e;
-            vertical-align: middle;
-            word-break: break-word;
-        }
-
-        tr:hover td {
-            background: #1a222e;
-        }
-
-        /* status tags */
-        .tag {
-            display: inline-block;
-            padding: 2px 12px;
-            border-radius: 40px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        .tag.approved {
-            background: #0d2818;
-            color: #4ade80;
-        }
-        .tag.revoked {
-            background: #2a0f14;
-            color: #f87171;
-        }
-        .tag.pending {
-            background: #1e1b0b;
-            color: #fbbf24;
-        }
-        .tag.inactive {
-            background: #1f1a2e;
-            color: #a78bfa;
-        }
-        .tag.active {
-            background: #0d2818;
-            color: #4ade80;
-        }
-        .tag.expired {
-            background: #2a0f14;
-            color: #f87171;
-        }
-        .tag.auto_deactivated {
-            background: #2a0f14;
-            color: #f87171;
-        }
-        .tag.auto_deactivated_limit_exceeded {
-            background: #2a0f14;
-            color: #f87171;
-        }
-        .tag.auto_deactivated_multiple_hwids {
-            background: #2a0f14;
-            color: #f87171;
-        }
-        .tag.auto_deactivated_unauthorized {
-            background: #2a0f14;
-            color: #f87171;
-        }
-        .tag.code_inactive {
-            background: #1f1a2e;
-            color: #a78bfa;
-        }
-        .tag.not_found {
-            background: #1f2937;
-            color: #8b95a9;
-        }
-
-        .text-muted {
-            color: #8b95a9;
-            font-size: 13px;
-        }
-
-        .text-truncate {
-            max-width: 180px;
-            display: inline-block;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        /* ============================================================
-           BUTTONS
-           ============================================================ */
-        .btn-sm {
-            padding: 4px 12px;
+        .search-box input {
+            padding: 8px 14px;
+            border: 1px solid #555;
             border-radius: 6px;
-            font-size: 12px;
+            background: #222;
+            color: #fff;
+            font-size: 13px;
+            min-width: 200px;
+            flex: 1;
+        }
+        .search-box input:focus {
+            border-color: #4CAF50;
+            outline: none;
+        }
+        .search-box .search-icon {
+            color: #888;
+            font-size: 14px;
+        }
+        .search-box .clear-search {
+            background: none;
             border: none;
+            color: #888;
             cursor: pointer;
-            transition: 0.2s;
+            font-size: 16px;
+            padding: 4px 8px;
         }
-        .btn-sm.danger {
-            background: #7f1d1d;
-            color: #fca5a5;
+        .search-box .clear-search:hover { color: #f44336; }
+        
+        .hwid-status-badge {
+            font-size: 11px;
+            padding: 3px 12px;
+            border-radius: 12px;
+            display: inline-block;
+            font-weight: bold;
         }
-        .btn-sm.danger:hover {
-            background: #991b1b;
+        .hwid-status-badge.has-hwid { background: rgba(76,175,80,0.2); color: #4CAF50; }
+        .hwid-status-badge.no-hwid { background: rgba(244,67,54,0.2); color: #f44336; }
+        .hwid-status-badge.full { background: rgba(255,152,0,0.2); color: #FF9800; }
+        
+        .cleanup-btn-container {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
         }
-        .btn-sm.primary {
-            background: #1e3a5f;
-            color: #93c5fd;
+        
+        /* HWID Status Badge in Codes Table */
+        .hwid-status-cell {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
         }
-        .btn-sm.primary:hover {
-            background: #1e40af;
+        .hwid-status-badge-sm {
+            font-size: 11px;
+            padding: 2px 10px;
+            border-radius: 12px;
+            display: inline-block;
+            font-weight: bold;
         }
-        .btn-sm.success {
-            background: #14532d;
-            color: #86efac;
+        .hwid-status-badge-sm.has-hwid { background: rgba(76,175,80,0.2); color: #4CAF50; }
+        .hwid-status-badge-sm.no-hwid { background: rgba(244,67,54,0.2); color: #f44336; }
+        .hwid-status-badge-sm.full { background: rgba(255,152,0,0.2); color: #FF9800; }
+        
+        .hwid-count-display {
+            font-size: 11px;
+            color: #888;
+            font-family: monospace;
         }
-        .btn-sm.success:hover {
-            background: #166534;
-        }
-        .btn-sm.warning {
-            background: #78350f;
-            color: #fcd34d;
-        }
-        .btn-sm.warning:hover {
-            background: #92400e;
-        }
-
-        /* ============================================================
-           RESPONSIVE
-           ============================================================ */
-        @media (max-width: 640px) {
-            .header {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            .header-right {
-                justify-content: flex-start;
-            }
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-            .stat-card .value {
-                font-size: 22px;
-            }
-            .status-bar {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            .status-bar .left {
-                flex-wrap: wrap;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .stats-grid {
-                grid-template-columns: 1fr 1fr;
-                gap: 10px;
-            }
-            .stat-card {
-                padding: 12px;
-            }
-            .stat-card .value {
-                font-size: 20px;
-            }
-        }
-
-        /* ============================================================
-           SCROLLBAR
-           ============================================================ */
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #0b0e14;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #2d3748;
-            border-radius: 8px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #4a5568;
-        }
-
-        /* ============================================================
-           EMPTY STATE
-           ============================================================ */
-        .empty-state {
-            text-align: center;
-            padding: 40px 20px;
-            color: #8b95a9;
-        }
-        .empty-state .icon {
-            font-size: 48px;
-            margin-bottom: 12px;
-        }
-        .empty-state h3 {
-            font-size: 18px;
-            color: #c9d1d9;
-            margin-bottom: 4px;
+        
+        @media (max-width: 768px) { 
+            .form-row { flex-direction: column; } 
+            .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .search-box input { min-width: 120px; }
         }
     </style>
 </head>
-
 <body>
     <div class="container">
-
-        <!-- ============================================================
-        HEADER
-        ============================================================ -->
-        <header class="header">
-            <div class="header-left">
-                <h1>📊 Approval Server</h1>
-                <div class="sub">Real-time dashboard &bull; <span id="connection-status">connected</span></div>
-            </div>
-            <div class="header-right">
-                <span class="user-badge">👤 <strong><%= username || 'Admin' %></strong></span>
-                <a href="/logout" class="btn-outline">Logout</a>
-            </div>
-        </header>
-
-        <!-- ============================================================
-        STATUS BAR
-        ============================================================ -->
-        <div class="status-bar">
-            <div class="left">
-                <span class="status-badge online">Live</span>
-                <span class="timestamp" id="last-update">
-                    Last updated: <%= new Date().toLocaleString() %>
-                </span>
-                <span class="refresh-info" id="refresh-info">
-                    <span class="spinner" id="refresh-spinner"></span>
-                    Auto-refresh every <strong id="refresh-interval-display">5</strong>s
-                </span>
+        <!-- HEADER -->
+        <div class="header">
+            <div>
+                <h1>🔐 Admin Dashboard</h1>
+                <div class="user">Logged in as: <strong><%= username %></strong></div>
             </div>
             <div>
-                <button class="btn-refresh" id="manual-refresh-btn">
-                    🔄 Refresh now
-                </button>
+                <button class="refresh-btn" onclick="refreshData()">🔄 Refresh</button>
+                <a href="/logout"><button class="logout-btn">🚪 Logout</button></a>
             </div>
         </div>
 
-        <!-- ============================================================
-        STATS GRID
-        ============================================================ -->
-        <section class="stats-grid">
+        <!-- STATS -->
+        <div class="stats-grid" id="stats-grid">
             <div class="stat-card">
-                <div class="label">Total Devices</div>
-                <div class="value blue" data-stat="total"><%= stats.total || 0 %></div>
+                <div class="number" id="stat-codes">0</div>
+                <div class="label">🔑 Total Codes</div>
             </div>
             <div class="stat-card">
-                <div class="label">Approved</div>
-                <div class="value green" data-stat="approved"><%= stats.approved || 0 %></div>
+                <div class="number" id="stat-svip">0</div>
+                <div class="label" style="color:#4CAF50;">⭐ SVIP Codes</div>
             </div>
             <div class="stat-card">
-                <div class="label">Revoked</div>
-                <div class="value red" data-stat="revoked"><%= stats.revoked || 0 %></div>
+                <div class="number" id="stat-vip">0</div>
+                <div class="label" style="color:#FF9800;">🔶 VIP Codes</div>
             </div>
-            <div class="stat-card">
-                <div class="label">Total Pings</div>
-                <div class="value cyan" data-stat="totalPings"><%= stats.totalPings || 0 %></div>
-            </div>
-            <div class="stat-card">
-                <div class="label">Total Codes</div>
-                <div class="value purple" data-stat="totalCodes"><%= stats.totalCodes || 0 %></div>
-            </div>
-            <div class="stat-card">
-                <div class="label">Active Codes</div>
-                <div class="value green" data-stat="activeCodes"><%= stats.activeCodes || 0 %></div>
-            </div>
-            <div class="stat-card">
-                <div class="label">Pending Requests</div>
-                <div class="value orange" data-stat="pendingRequests"><%= stats.pendingRequests || 0 %></div>
-            </div>
-            <div class="stat-card">
-                <div class="label">Cache Age</div>
-                <div class="value pink" id="cache-age"><%= (stats.cache_age !== undefined ? stats.cache_age : 0) %>s</div>
-            </div>
-        </section>
+        </div>
 
-        <!-- ============================================================
-        DEVICES TABLE
-        ============================================================ -->
-        <section class="section">
-            <div class="section-header">
-                <h2>📱 Devices <span class="count-badge" id="device-count"><%= devices ? devices.length : 0 %></span></h2>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button class="btn-sm danger" id="delete-all-devices-btn">🗑 Delete All</button>
-                </div>
-            </div>
-            <div class="table-wrap">
-                <table id="devices-table">
-                    <thead>
-                        <tr>
-                            <th>Device ID</th>
-                            <th>Code</th>
-                            <th>Status</th>
-                            <th>Profile</th>
-                            <th>Device Name</th>
-                            <th>CPU</th>
-                            <th>GPU</th>
-                            <th>RAM</th>
-                            <th>Last Ping</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <% if (devices && devices.length) { %>
-                            <% devices.forEach(function(device) { %>
-                                <tr>
-                                    <td><span class="text-truncate" title="<%= device.device_id %>"><%= device.device_id %></span></td>
-                                    <td><%= device.code || '—' %></td>
-                                    <td><span class="tag <%= device.status %>"><%= device.status %></span></td>
-                                    <td><%= device.profile_name || '—' %></td>
-                                    <td><%= device.device_name || '—' %></td>
-                                    <td><%= device.cpu_name || '—' %></td>
-                                    <td><%= device.gpu_name || '—' %></td>
-                                    <td><%= device.ram_total_gb || 0 %> GB</td>
-                                    <td><%= device.last_ping ? new Date(device.last_ping).toLocaleString() : 'Never' %></td>
-                                    <td>
-                                        <button class="btn-sm danger revoke-btn" data-device="<%= device.device_id %>">Revoke</button>
-                                    </td>
-                                </tr>
-                            <% }); %>
-                        <% } else { %>
-                            <tr>
-                                <td colspan="10">
-                                    <div class="empty-state">
-                                        <div class="icon">📭</div>
-                                        <h3>No devices found</h3>
-                                        <p>Devices will appear here once they register.</p>
-                                    </div>
-                                </td>
-                            </tr>
-                        <% } %>
-                    </tbody>
-                </table>
-            </div>
-        </section>
+        <!-- TABS -->
+        <div class="tab-buttons">
+            <button class="tab-btn active" onclick="switchTab('codes')">🔑 All Codes</button>
+            <button class="tab-btn" onclick="switchTab('svip')">⭐ SVIP</button>
+            <button class="tab-btn" onclick="switchTab('vip')">🔶 VIP</button>
+            <button class="tab-btn" onclick="switchTab('hwid')">🖥️ HWID Manager</button>
+            <button class="tab-btn" onclick="switchTab('hwidlogs')">📋 HWID Logs</button>
+            <button class="tab-btn" onclick="switchTab('newhwid')">🆕 New HWID</button>
+        </div>
 
-        <!-- ============================================================
-        CODES TABLE
-        ============================================================ -->
-        <section class="section">
-            <div class="section-header">
-                <h2>🔑 Codes <span class="count-badge" id="code-count"><%= codes ? codes.length : 0 %></span></h2>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button class="btn-sm primary" id="generate-code-btn">+ Generate Code</button>
-                    <button class="btn-sm danger" id="delete-all-codes-btn">🗑 Delete All</button>
-                </div>
-            </div>
-            <div class="table-wrap">
-                <table id="codes-table">
-                    <thead>
-                        <tr>
-                            <th>Code</th>
-                            <th>Username</th>
-                            <th>Access</th>
-                            <th>Subscription</th>
-                            <th>Status</th>
-                            <th>Active</th>
-                            <th>HWID Limit</th>
-                            <th>Created</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <% if (codes && codes.length) { %>
-                            <% codes.forEach(function(code) { %>
-                                <tr>
-                                    <td><strong><%= code.code %></strong></td>
-                                    <td><%= code.username || '—' %></td>
-                                    <td><%= code.access_level || '—' %></td>
-                                    <td><%= code.subscription_type || '—' %></td>
-                                    <td><span class="tag <%= code.status %>"><%= code.status %></span></td>
-                                    <td><%= code.is_active ? '✅' : '❌' %></td>
-                                    <td><%= code.max_hwid_limit || 1 %></td>
-                                    <td><%= code.created_at ? new Date(code.created_at).toLocaleDateString() : '—' %></td>
-                                    <td style="display:flex;gap:4px;flex-wrap:wrap;">
-                                        <button class="btn-sm danger deactivate-code-btn" data-code="<%= code.code %>">Deactivate</button>
-                                        <button class="btn-sm success reactivate-code-btn" data-code="<%= code.code %>">Reactivate</button>
-                                        <button class="btn-sm warning hwid-btn" data-code="<%= code.code %>">HWIDs</button>
-                                    </td>
-                                </tr>
-                            <% }); %>
-                        <% } else { %>
-                            <tr>
-                                <td colspan="9">
-                                    <div class="empty-state">
-                                        <div class="icon">🔑</div>
-                                        <h3>No codes found</h3>
-                                        <p>Generate a code to get started.</p>
-                                    </div>
-                                </td>
-                            </tr>
-                        <% } %>
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-        <!-- ============================================================
-        REQUESTS TABLE
-        ============================================================ -->
-        <section class="section">
-            <div class="section-header">
-                <h2>📋 Pending Requests <span class="count-badge" id="request-count"><%= requests ? requests.length : 0 %></span></h2>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <button class="btn-sm danger" id="delete-all-requests-btn">🗑 Delete All</button>
-                </div>
-            </div>
-            <div class="table-wrap">
-                <table id="requests-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Device</th>
-                            <th>Code</th>
-                            <th>Reason</th>
-                            <th>Status</th>
-                            <th>Requested</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <% if (requests && requests.length) { %>
-                            <% requests.forEach(function(req) { %>
-                                <tr>
-                                    <td><%= req.id %></td>
-                                    <td><span class="text-truncate" title="<%= req.device_id %>"><%= req.device_id %></span></td>
-                                    <td><%= req.code || '—' %></td>
-                                    <td><%= req.reason || '—' %></td>
-                                    <td><span class="tag pending"><%= req.status %></span></td>
-                                    <td><%= req.requested_at ? new Date(req.requested_at).toLocaleString() : '—' %></td>
-                                    <td style="display:flex;gap:4px;flex-wrap:wrap;">
-                                        <button class="btn-sm success approve-request-btn" data-id="<%= req.id %>">Approve</button>
-                                        <button class="btn-sm danger reject-request-btn" data-id="<%= req.id %>">Reject</button>
-                                    </td>
-                                </tr>
-                            <% }); %>
-                        <% } else { %>
-                            <tr>
-                                <td colspan="7">
-                                    <div class="empty-state">
-                                        <div class="icon">📭</div>
-                                        <h3>No pending requests</h3>
-                                        <p>All requests have been handled.</p>
-                                    </div>
-                                </td>
-                            </tr>
-                        <% } %>
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-        <!-- ============================================================
-        GENERATE CODE MODAL
-        ============================================================ -->
-        <div id="generate-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:999;align-items:center;justify-content:center;">
-            <div style="background:#141a23;border-radius:16px;padding:32px;max-width:420px;width:90%;border:1px solid #1f2937;">
-                <h2 style="margin-bottom:8px;">Generate Code</h2>
-                <p style="color:#8b95a9;margin-bottom:20px;font-size:14px;">Create a new activation code for a user.</p>
-                <form id="generate-form">
-                    <div style="margin-bottom:12px;">
-                        <label style="display:block;font-size:13px;color:#8b95a9;margin-bottom:4px;">Username *</label>
-                        <input type="text" id="gen-username" placeholder="e.g. johndoe" required style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid #1f2937;background:#0b0e14;color:#e8edf5;font-size:14px;">
+        <!-- ============================================ -->
+        <!-- TAB: ALL CODES -->
+        <!-- ============================================ -->
+        <div class="tab-content active" id="tab-codes">
+            <div class="card">
+                <h3>➕ Generate New Code</h3>
+                <form id="generate-code-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>👤 Username</label>
+                            <input type="text" id="gen-username" placeholder="e.g., john_doe" required>
+                        </div>
+                        <div class="form-group">
+                            <label>🔐 Access Level</label>
+                            <select id="gen-access">
+                                <option value="VIP">🔶 VIP</option>
+                                <option value="SVIP">⭐ SVIP</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>📅 Subscription</label>
+                            <select id="gen-subscription">
+                                <option value="Lifetime">♾️ Lifetime</option>
+                                <option value="3 Months">3 Months</option>
+                                <option value="6 Months">6 Months</option>
+                                <option value="12 Months">12 Months</option>
+                            </select>
+                        </div>
                     </div>
-                    <div style="margin-bottom:12px;">
-                        <label style="display:block;font-size:13px;color:#8b95a9;margin-bottom:4px;">Access Level</label>
-                        <select id="gen-access" style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid #1f2937;background:#0b0e14;color:#e8edf5;font-size:14px;">
-                            <option value="VIP">VIP</option>
-                            <option value="SVIP">SVIP</option>
-                        </select>
+                    <div style="font-size:12px;color:#888;margin-bottom:10px;">
+                        ℹ️ HWID will be <strong style="color:#FF9800;">auto-assigned</strong> when the code is first used
                     </div>
-                    <div style="margin-bottom:20px;">
-                        <label style="display:block;font-size:13px;color:#8b95a9;margin-bottom:4px;">Subscription</label>
-                        <select id="gen-subscription" style="width:100%;padding:10px 14px;border-radius:8px;border:1px solid #1f2937;background:#0b0e14;color:#e8edf5;font-size:14px;">
-                            <option value="Lifetime">Lifetime</option>
-                            <option value="3 Months">3 Months</option>
-                            <option value="6 Months">6 Months</option>
-                            <option value="9 Months">9 Months</option>
-                            <option value="12 Months">12 Months</option>
-                        </select>
-                    </div>
-                    <div style="display:flex;gap:12px;justify-content:flex-end;">
-                        <button type="button" id="modal-close" style="padding:10px 20px;border-radius:8px;border:1px solid #1f2937;background:transparent;color:#c9d1d9;cursor:pointer;">Cancel</button>
-                        <button type="submit" style="padding:10px 24px;border-radius:8px;border:none;background:#1e3a5f;color:#93c5fd;font-weight:600;cursor:pointer;">Generate</button>
-                    </div>
+                    <button type="submit" class="btn-primary">✅ Generate Code</button>
                 </form>
-                <div id="gen-result" style="margin-top:16px;font-size:14px;text-align:center;display:none;"></div>
+                <div id="gen-result" class="mt-10"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3>📋 All Codes</h3>
+                    <div style="display:flex; gap:15px; align-items:center; flex-wrap:wrap;">
+                        <div class="search-box">
+                            <span class="search-icon">🔍</span>
+                            <input type="text" id="code-username-search" placeholder="Search username..." onkeyup="filterCodesByUsername()">
+                            <button class="clear-search" onclick="document.getElementById('code-username-search').value=''; filterCodesByUsername();" title="Clear search">✕</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="scroll-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width:100px;">Code</th>
+                                <th>Username</th>
+                                <th>Access</th>
+                                <th>Subscription</th>
+                                <th>Expires</th>
+                                <th style="width:140px;">HWID Status</th>
+                                <th style="min-width:180px;">Deactivation Reason</th>
+                                <th style="width:280px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="codes-body">
+                            <tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">
+                                <div class="loading-text">
+                                    <span class="spinner"></span> Loading codes...
+                                </div>
+                            </td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
-        <!-- ============================================================
-        HWID MODAL
-        ============================================================ -->
-        <div id="hwid-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:999;align-items:center;justify-content:center;">
-            <div style="background:#141a23;border-radius:16px;padding:32px;max-width:700px;width:90%;max-height:80vh;overflow-y:auto;border:1px solid #1f2937;">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-                    <h2 id="hwid-modal-title">HWIDs for: <span id="hwid-code-display">—</span></h2>
-                    <button id="hwid-modal-close" style="background:transparent;border:none;color:#8b95a9;font-size:24px;cursor:pointer;">&times;</button>
+        <!-- ============================================ -->
+        <!-- TAB: SVIP -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-svip">
+            <div class="card">
+                <div class="card-header">
+                    <h3>⭐ SVIP Codes <span style="color:#4CAF50;font-size:14px;">(Premium Access)</span></h3>
+                    <span class="badge svip" id="svip-count">0 codes</span>
                 </div>
-                <div id="hwid-list">
-                    <p style="color:#8b95a9;text-align:center;padding:20px;">Loading HWIDs...</p>
+                <div class="scroll-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Username</th>
+                                <th>Subscription</th>
+                                <th>Expires</th>
+                                <th style="width:140px;">HWID Status</th>
+                                <th style="min-width:180px;">Deactivation Reason</th>
+                                <th style="width:280px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="svip-body">
+                            <tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">
+                                <div class="loading-text">
+                                    <span class="spinner"></span> Loading SVIP codes...
+                                </div>
+                            </td></tr>
+                        </tbody>
+                    </table>
                 </div>
-                <div style="margin-top:16px;padding-top:16px;border-top:1px solid #1f2937;">
-                    <h4 style="margin-bottom:8px;">Add HWID</h4>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                        <input type="text" id="hwid-add-input" placeholder="64-character HWID" style="flex:1;min-width:200px;padding:10px 14px;border-radius:8px;border:1px solid #1f2937;background:#0b0e14;color:#e8edf5;font-size:14px;font-family:monospace;">
-                        <button id="hwid-add-btn" class="btn-sm primary" style="padding:10px 20px;">Add</button>
+            </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- TAB: VIP -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-vip">
+            <div class="card">
+                <div class="card-header">
+                    <h3>🔶 VIP Codes <span style="color:#FF9800;font-size:14px;">(Standard Access)</span></h3>
+                    <span class="badge vip" id="vip-count">0 codes</span>
+                </div>
+                <div class="scroll-table">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Username</th>
+                                <th>Subscription</th>
+                                <th>Expires</th>
+                                <th style="width:140px;">HWID Status</th>
+                                <th style="min-width:180px;">Deactivation Reason</th>
+                                <th style="width:280px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="vip-body">
+                            <tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">
+                                <div class="loading-text">
+                                    <span class="spinner"></span> Loading VIP codes...
+                                </div>
+                            </td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- TAB: HWID MANAGER -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-hwid">
+            <div class="card">
+                <div class="card-header">
+                    <h3>🖥️ HWID Management</h3>
+                    <span class="text-muted">Manage which computers can use each code</span>
+                </div>
+                
+                <div class="form-row" style="margin-bottom:15px;">
+                    <div class="form-group" style="flex:2;">
+                        <label>Select Code</label>
+                        <select id="hwid-code-select" onchange="loadHwidDetails()">
+                            <option value="">-- Select a code --</option>
+                        </select>
                     </div>
-                    <div id="hwid-add-result" style="margin-top:8px;font-size:13px;display:none;"></div>
+                    <div class="form-group" style="flex:1;">
+                        <label>HWID Limit (1-10)</label>
+                        <div style="display:flex;gap:10px;">
+                            <input type="number" id="hwid-limit-input" min="1" max="10" value="1">
+                            <button onclick="updateHwidLimit()" class="btn-primary" style="padding:8px 15px;">Update</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="hwid-info" style="display:none;">
+                    <div class="hwid-stats-grid">
+                        <div class="hwid-stat-card">
+                            <div class="number" id="hwid-current-count">0</div>
+                            <div class="label">Current HWIDs</div>
+                        </div>
+                        <div class="hwid-stat-card">
+                            <div class="number" id="hwid-max-limit">0</div>
+                            <div class="label">Max Limit</div>
+                        </div>
+                        <div class="hwid-stat-card">
+                            <div class="number" id="hwid-available-slots">0</div>
+                            <div class="label">Available Slots</div>
+                        </div>
+                    </div>
+                    
+                    <div id="hwid-limit-status" style="text-align:center;padding:8px;border-radius:6px;margin-bottom:15px;display:none;"></div>
+                </div>
+
+                <div id="hwid-list-section" style="display:none;">
+                    <h4>📋 Assigned Computers</h4>
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width:40px;">#</th>
+                                    <th style="min-width:180px;">HWID</th>
+                                    <th style="min-width:450px;">Hardware Specs</th>
+                                    <th style="width:100px;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hwid-list-body">
+                                <tr><td colspan="4" style="text-align:center;color:#888;padding:20px;">Select a code to view HWIDs</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- TAB: HWID LOGS -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-hwidlogs">
+            <div class="card">
+                <div class="card-header">
+                    <h3>📋 HWID Activity Logs</h3>
+                    <div class="cleanup-btn-container">
+                        <span class="badge badge-new-count" id="new-hwid-count">0 new</span>
+                        <button onclick="loadHwidLogs()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
+                        <button onclick="cleanupOldLogs()" class="btn-small btn-danger" style="margin-left:10px;">🗑️ Clear All Logs</button>
+                    </div>
+                </div>
+                <div style="font-size:13px;color:#888;margin-bottom:15px;padding:10px;background:rgba(76,175,80,0.1);border-radius:6px;">
+                    ✅ Showing only <strong>unassigned HWIDs</strong> (HWIDs without a code)
+                </div>
+                <div class="card-body">
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width:40px;">#</th>
+                                    <th style="min-width:150px;">🖥️ HWID</th>
+                                    <th style="width:100px;">🔑 Code</th>
+                                    <th style="min-width:350px;">Hardware Specs</th>
+                                    <th style="width:160px;">⏰ Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="hwid-logs-body">
+                                <tr><td colspan="5" style="text-align:center;color:#888;padding:30px;">
+                                    <div class="loading-text">
+                                        <span class="spinner"></span> Loading logs...
+                                    </div>
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- TAB: NEW HWID DETECTION -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-newhwid">
+            <div class="card">
+                <div class="card-header">
+                    <h3>🆕 New HWID Detection</h3>
+                    <div class="cleanup-btn-container">
+                        <span class="badge badge-new-count" id="new-hwid-unique-count">0 new</span>
+                        <button onclick="loadNewHwids()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
+                        <button onclick="cleanupOldLogs()" class="btn-small btn-danger" style="margin-left:10px;">🗑️ Clear All Logs</button>
+                    </div>
+                </div>
+                <div style="font-size:13px;color:#888;margin-bottom:15px;padding:10px;background:rgba(255,152,0,0.1);border-radius:6px;">
+                    ⚠️ These are <strong>unique HWIDs</strong> that have been detected but are <strong>not yet assigned</strong> to any code.
+                    Each HWID appears only once. Assign them to a code or mark as seen.
+                </div>
+                <div class="card-body">
+                    <div class="scroll-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width:40px;">#</th>
+                                    <th style="min-width:180px;">🖥️ HWID</th>
+                                    <th style="min-width:300px;">Hardware Specs</th>
+                                    <th style="width:150px;">First Seen</th>
+                                    <th style="width:200px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="new-hwid-body">
+                                <tr><td colspan="5" style="text-align:center;color:#888;padding:30px;">
+                                    <div class="loading-text">
+                                        <span class="spinner"></span> Loading new HWIDs...
+                                    </div>
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
 
     </div>
 
-    <!-- ============================================================
-    AUTO-REFRESH & DASHBOARD SCRIPT
-    ============================================================ -->
+    <!-- Result Message -->
+    <div id="result-message">
+        <button class="close-msg" onclick="hideMessage()">✕</button>
+        <span id="result-text"></span>
+    </div>
+
     <script>
-        (function() {
-            'use strict';
-
-            // ============================================================
-            // CONFIG
-            // ============================================================
-            const REFRESH_INTERVAL = 5000; // 5 seconds
-            let refreshTimer = null;
-            let isRefreshing = false;
-            let isFirstLoad = true;
-
-            // ============================================================
-            // DOM REFS
-            // ============================================================
-            const $ = (sel) => document.querySelector(sel);
-            const $$ = (sel) => document.querySelectorAll(sel);
-
-            const lastUpdateEl = $('#last-update');
-            const cacheAgeEl = $('#cache-age');
-            const refreshSpinner = $('#refresh-spinner');
-            const refreshIntervalDisplay = $('#refresh-interval-display');
-            const manualRefreshBtn = $('#manual-refresh-btn');
-
-            // ============================================================
-            // UPDATE DASHBOARD
-            // ============================================================
-            function updateDashboard(data) {
-                // Update stats
-                if (data.stats) {
-                    document.querySelectorAll('[data-stat]').forEach(el => {
-                        const key = el.dataset.stat;
-                        if (data.stats[key] !== undefined) {
-                            el.textContent = data.stats[key];
-                        }
-                    });
-                }
-
-                // Update cache age
-                if (data.cache_age !== undefined) {
-                    cacheAgeEl.textContent = data.cache_age + 's';
-                }
-
-                // Update counts
-                const deviceCount = $('#device-count');
-                if (deviceCount && data.devices) {
-                    deviceCount.textContent = data.devices.length;
-                }
-
-                const codeCount = $('#code-count');
-                if (codeCount && data.codes) {
-                    codeCount.textContent = data.codes.length;
-                }
-
-                const requestCount = $('#request-count');
-                if (requestCount && data.requests) {
-                    requestCount.textContent = data.requests.length;
-                }
-
-                // Update devices table
-                const devicesTbody = document.querySelector('#devices-table tbody');
-                if (devicesTbody && data.devices) {
-                    if (data.devices.length === 0) {
-                        devicesTbody.innerHTML = `
-                            <tr>
-                                <td colspan="10">
-                                    <div class="empty-state">
-                                        <div class="icon">📭</div>
-                                        <h3>No devices found</h3>
-                                        <p>Devices will appear here once they register.</p>
-                                    </div>
-                                </td>
-                            </tr>
-                        `;
-                    } else {
-                        devicesTbody.innerHTML = data.devices.map(device => `
-                            <tr>
-                                <td><span class="text-truncate" title="${escapeHtml(device.device_id)}">${escapeHtml(device.device_id)}</span></td>
-                                <td>${device.code || '—'}</td>
-                                <td><span class="tag ${device.status}">${device.status}</span></td>
-                                <td>${escapeHtml(device.profile_name || '—')}</td>
-                                <td>${escapeHtml(device.device_name || '—')}</td>
-                                <td>${escapeHtml(device.cpu_name || '—')}</td>
-                                <td>${escapeHtml(device.gpu_name || '—')}</td>
-                                <td>${device.ram_total_gb || 0} GB</td>
-                                <td>${device.last_ping ? new Date(device.last_ping).toLocaleString() : 'Never'}</td>
-                                <td>
-                                    <button class="btn-sm danger revoke-btn" data-device="${escapeHtml(device.device_id)}">Revoke</button>
-                                </td>
-                            </tr>
-                        `).join('');
-                    }
-                    // Re-bind revoke buttons
-                    document.querySelectorAll('.revoke-btn').forEach(btn => {
-                        btn.addEventListener('click', revokeDevice);
-                    });
-                }
-
-                // Update codes table
-                const codesTbody = document.querySelector('#codes-table tbody');
-                if (codesTbody && data.codes) {
-                    if (data.codes.length === 0) {
-                        codesTbody.innerHTML = `
-                            <tr>
-                                <td colspan="9">
-                                    <div class="empty-state">
-                                        <div class="icon">🔑</div>
-                                        <h3>No codes found</h3>
-                                        <p>Generate a code to get started.</p>
-                                    </div>
-                                </td>
-                            </tr>
-                        `;
-                    } else {
-                        codesTbody.innerHTML = data.codes.map(code => `
-                            <tr>
-                                <td><strong>${escapeHtml(code.code)}</strong></td>
-                                <td>${escapeHtml(code.username || '—')}</td>
-                                <td>${escapeHtml(code.access_level || '—')}</td>
-                                <td>${escapeHtml(code.subscription_type || '—')}</td>
-                                <td><span class="tag ${code.status}">${code.status}</span></td>
-                                <td>${code.is_active ? '✅' : '❌'}</td>
-                                <td>${code.max_hwid_limit || 1}</td>
-                                <td>${code.created_at ? new Date(code.created_at).toLocaleDateString() : '—'}</td>
-                                <td style="display:flex;gap:4px;flex-wrap:wrap;">
-                                    <button class="btn-sm danger deactivate-code-btn" data-code="${escapeHtml(code.code)}">Deactivate</button>
-                                    <button class="btn-sm success reactivate-code-btn" data-code="${escapeHtml(code.code)}">Reactivate</button>
-                                    <button class="btn-sm warning hwid-btn" data-code="${escapeHtml(code.code)}">HWIDs</button>
-                                </td>
-                            </tr>
-                        `).join('');
-                    }
-                    // Re-bind code buttons
-                    document.querySelectorAll('.deactivate-code-btn').forEach(btn => {
-                        btn.addEventListener('click', deactivateCode);
-                    });
-                    document.querySelectorAll('.reactivate-code-btn').forEach(btn => {
-                        btn.addEventListener('click', reactivateCode);
-                    });
-                    document.querySelectorAll('.hwid-btn').forEach(btn => {
-                        btn.addEventListener('click', openHwidModal);
-                    });
-                }
-
-                // Update requests table
-                const requestsTbody = document.querySelector('#requests-table tbody');
-                if (requestsTbody && data.requests) {
-                    if (data.requests.length === 0) {
-                        requestsTbody.innerHTML = `
-                            <tr>
-                                <td colspan="7">
-                                    <div class="empty-state">
-                                        <div class="icon">📭</div>
-                                        <h3>No pending requests</h3>
-                                        <p>All requests have been handled.</p>
-                                    </div>
-                                </td>
-                            </tr>
-                        `;
-                    } else {
-                        requestsTbody.innerHTML = data.requests.map(req => `
-                            <tr>
-                                <td>${req.id}</td>
-                                <td><span class="text-truncate" title="${escapeHtml(req.device_id)}">${escapeHtml(req.device_id)}</span></td>
-                                <td>${req.code || '—'}</td>
-                                <td>${escapeHtml(req.reason || '—')}</td>
-                                <td><span class="tag pending">${req.status}</span></td>
-                                <td>${req.requested_at ? new Date(req.requested_at).toLocaleString() : '—'}</td>
-                                <td style="display:flex;gap:4px;flex-wrap:wrap;">
-                                    <button class="btn-sm success approve-request-btn" data-id="${req.id}">Approve</button>
-                                    <button class="btn-sm danger reject-request-btn" data-id="${req.id}">Reject</button>
-                                </td>
-                            </tr>
-                        `).join('');
-                    }
-                    // Re-bind request buttons
-                    document.querySelectorAll('.approve-request-btn').forEach(btn => {
-                        btn.addEventListener('click', approveRequest);
-                    });
-                    document.querySelectorAll('.reject-request-btn').forEach(btn => {
-                        btn.addEventListener('click', rejectRequest);
-                    });
-                }
-
-                // Update last update timestamp
-                if (lastUpdateEl) {
-                    lastUpdateEl.textContent = 'Last updated: ' + new Date().toLocaleString();
-                }
+        // ============================================
+        // MESSAGE HELPERS
+        // ============================================
+        function showMessage(msg, type = 'success') {
+            const el = document.getElementById('result-message');
+            const text = document.getElementById('result-text');
+            if (!el || !text) return;
+            text.innerHTML = msg;
+            el.className = type;
+            el.style.display = 'block';
+            clearTimeout(window.msgTimeout);
+            window.msgTimeout = setTimeout(() => {
+                hideMessage();
+            }, 4000);
+        }
+        
+        function hideMessage() {
+            const el = document.getElementById('result-message');
+            if (el) {
+                el.style.display = 'none';
+                el.className = '';
             }
+        }
 
-            // ============================================================
-            // HELPER: Escape HTML
-            // ============================================================
-            function escapeHtml(str) {
-                if (!str) return '';
-                return String(str)
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;')
-                    .replace(/"/g, '&quot;')
-                    .replace(/'/g, '&#039;');
+        // ============================================
+        // GO TO HWID MANAGER FOR SPECIFIC CODE
+        // ============================================
+        function goToHwidManager(code) {
+            switchTab('hwid');
+            const select = document.getElementById('hwid-code-select');
+            if (select) {
+                select.value = code;
+                loadHwidDetails();
             }
-
-            // ============================================================
-            // REFRESH DASHBOARD
-            // ============================================================
-            function refreshDashboard() {
-                if (isRefreshing) return;
-                isRefreshing = true;
-
-                if (refreshSpinner) {
-                    refreshSpinner.style.display = 'inline-block';
-                }
-
-                console.log('🔄 Auto-refreshing dashboard...');
-
-                fetch('/api/dashboard-data', {
-                        credentials: 'same-origin',
-                        headers: {
-                            'Accept': 'application/json'
-                        }
-                    })
-                    .then(response => {
-                        if (!response.ok) throw new Error('HTTP ' + response.status);
-                        return response.json();
-                    })
-                    .then(data => {
-                        console.log('✅ Dashboard data refreshed');
-                        updateDashboard(data);
-                        isRefreshing = false;
-                        if (refreshSpinner) {
-                            refreshSpinner.style.display = 'none';
-                        }
-                        if (isFirstLoad) {
-                            isFirstLoad = false;
-                        }
-                    })
-                    .catch(error => {
-                        console.error('❌ Refresh error:', error);
-                        isRefreshing = false;
-                        if (refreshSpinner) {
-                            refreshSpinner.style.display = 'none';
-                        }
-                    });
+            const hwidSection = document.getElementById('tab-hwid');
+            if (hwidSection) {
+                setTimeout(() => {
+                    hwidSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }, 300);
             }
+            showMessage(`🖥️ Loading HWID Manager for code: ${code}`, 'info');
+        }
 
-            // ============================================================
-            // AUTO-REFRESH CONTROLS
-            // ============================================================
-            function startAutoRefresh() {
-                if (refreshTimer) {
-                    clearInterval(refreshTimer);
-                }
-                refreshTimer = setInterval(refreshDashboard, REFRESH_INTERVAL);
-                if (refreshIntervalDisplay) {
-                    refreshIntervalDisplay.textContent = (REFRESH_INTERVAL / 1000);
-                }
-                console.log(`✅ Auto-refresh started (${REFRESH_INTERVAL/1000}s)`);
-            }
-
-            function stopAutoRefresh() {
-                if (refreshTimer) {
-                    clearInterval(refreshTimer);
-                    refreshTimer = null;
-                    console.log('⏹️ Auto-refresh stopped');
-                }
-            }
-
-            // ============================================================
-            // API ACTIONS
-            // ============================================================
-
-            // Revoke Device
-            function revokeDevice(e) {
-                const deviceId = e.target.dataset.device;
-                if (!deviceId) return;
-                if (!confirm(`Revoke device "${deviceId}"?`)) return;
-
-                fetch('/api/device/' + deviceId, { method: 'DELETE' })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert('Device revoked successfully!');
-                            refreshDashboard();
-                        } else {
-                            alert('Error: ' + (data.error || 'Unknown error'));
-                        }
-                    })
-                    .catch(err => {
-                        alert('Error: ' + err.message);
-                    });
-            }
-
-            // Deactivate Code
-            function deactivateCode(e) {
-                const code = e.target.dataset.code;
-                if (!code) return;
-                if (!confirm(`Deactivate code "${code}"? This will remove all HWIDs and devices.`)) return;
-
-                fetch('/api/code/' + code + '/deactivate', { method: 'POST' })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert(data.message || 'Code deactivated!');
-                            refreshDashboard();
-                        } else {
-                            alert('Error: ' + (data.error || 'Unknown error'));
-                        }
-                    })
-                    .catch(err => {
-                        alert('Error: ' + err.message);
-                    });
-            }
-
-            // Reactivate Code
-            function reactivateCode(e) {
-                const code = e.target.dataset.code;
-                if (!code) return;
-                const sub = prompt('Enter subscription type (Lifetime, 3 Months, 6 Months, 9 Months, 12 Months):', 'Lifetime');
-                if (sub === null) return;
-
-                fetch('/api/code/' + code + '/reactivate', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ subscriptionType: sub })
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert(data.message || 'Code reactivated!');
-                            refreshDashboard();
-                        } else {
-                            alert('Error: ' + (data.error || 'Unknown error'));
-                        }
-                    })
-                    .catch(err => {
-                        alert('Error: ' + err.message);
-                    });
-            }
-
-            // Approve Request
-            function approveRequest(e) {
-                const id = e.target.dataset.id;
-                if (!id) return;
-                if (!confirm(`Approve request #${id}?`)) return;
-
-                fetch('/api/request/' + id + '/approve', { method: 'POST' })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert('Request approved!');
-                            refreshDashboard();
-                        } else {
-                            alert('Error: ' + (data.error || 'Unknown error'));
-                        }
-                    })
-                    .catch(err => {
-                        alert('Error: ' + err.message);
-                    });
-            }
-
-            // Reject Request
-            function rejectRequest(e) {
-                const id = e.target.dataset.id;
-                if (!id) return;
-                if (!confirm(`Reject request #${id}?`)) return;
-
-                fetch('/api/request/' + id + '/reject', { method: 'POST' })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert('Request rejected!');
-                            refreshDashboard();
-                        } else {
-                            alert('Error: ' + (data.error || 'Unknown error'));
-                        }
-                    })
-                    .catch(err => {
-                        alert('Error: ' + err.message);
-                    });
-            }
-
-            // ============================================================
-            // GENERATE CODE MODAL
-            // ============================================================
-            const genModal = $('#generate-modal');
-            const genForm = $('#generate-form');
-            const genResult = $('#gen-result');
-
-            $('#generate-code-btn').addEventListener('click', function() {
-                genModal.style.display = 'flex';
-                genResult.style.display = 'none';
-                genResult.textContent = '';
-                document.getElementById('gen-username').focus();
+        // ============================================
+        // COPY FUNCTION
+        // ============================================
+        function copyCodeAndUser(code, username) {
+            const textToCopy = `Code: ${code}\nUsername: ${username || 'N/A'}`;
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                showMessage(`✅ Copied!\nCode: ${code}\nUsername: ${username || 'N/A'}`, 'success');
+            }).catch(() => {
+                const textArea = document.createElement('textarea');
+                textArea.value = textToCopy;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showMessage(`✅ Copied!\nCode: ${code}\nUsername: ${username || 'N/A'}`, 'success');
             });
+        }
 
-            $('#modal-close').addEventListener('click', function() {
-                genModal.style.display = 'none';
-            });
-
-            genModal.addEventListener('click', function(e) {
-                if (e.target === genModal) genModal.style.display = 'none';
-            });
-
-            genForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-                const username = document.getElementById('gen-username').value.trim();
-                const access = document.getElementById('gen-access').value;
-                const subscription = document.getElementById('gen-subscription').value;
-
-                if (!username) {
-                    genResult.textContent = '❌ Username is required.';
-                    genResult.style.display = 'block';
-                    genResult.style.color = '#f87171';
-                    return;
-                }
-
-                genResult.textContent = '⏳ Generating...';
-                genResult.style.display = 'block';
-                genResult.style.color = '#8b95a9';
-
-                fetch('/api/generate-code', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ username, accessLevel: access, subscriptionType: subscription })
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            genResult.innerHTML = '✅ Code generated: <strong>' + data.code +
-                                '</strong><br>Username: ' + data.username +
-                                '<br>Access: ' + data.access +
-                                '<br>Subscription: ' + data.subscription;
-                            genResult.style.color = '#4ade80';
-                            document.getElementById('gen-username').value = '';
-                            refreshDashboard();
-                        } else {
-                            genResult.textContent = '❌ Error: ' + (data.error || 'Unknown error');
-                            genResult.style.color = '#f87171';
-                        }
-                    })
-                    .catch(err => {
-                        genResult.textContent = '❌ Error: ' + err.message;
-                        genResult.style.color = '#f87171';
-                    });
-            });
-
-            // ============================================================
-            // HWID MODAL
-            // ============================================================
-            const hwidModal = $('#hwid-modal');
-            const hwidList = $('#hwid-list');
-            const hwidCodeDisplay = $('#hwid-code-display');
-            const hwidAddInput = $('#hwid-add-input');
-            const hwidAddBtn = $('#hwid-add-btn');
-            const hwidAddResult = $('#hwid-add-result');
-            let currentHwidCode = null;
-
-            function openHwidModal(e) {
-                const code = e.target.dataset.code;
-                if (!code) return;
-                currentHwidCode = code;
-                hwidCodeDisplay.textContent = code;
-                hwidModal.style.display = 'flex';
-                hwidList.innerHTML = '<p style="color:#8b95a9;text-align:center;padding:20px;">Loading HWIDs...</p>';
-                hwidAddResult.style.display = 'none';
-                hwidAddResult.textContent = '';
-                hwidAddInput.value = '';
-
-                fetch('/api/code/' + code + '/hwids')
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            if (data.hwids && data.hwids.length > 0) {
-                                let html = `
-                                    <div style="margin-bottom:12px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-                                        <span style="color:#8b95a9;">HWIDs: ${data.current_count} / ${data.max_hwid_limit}</span>
-                                        <span style="color:#8b95a9;">Available: ${data.available_slots}</span>
-                                    </div>
-                                    <table style="width:100%;font-size:13px;">
-                                        <thead>
-                                            <tr>
-                                                <th>HWID</th>
-                                                <th>Assigned</th>
-                                                <th>Last Used</th>
-                                                <th>Hardware</th>
-                                                <th>Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                `;
-                                data.hwids.forEach(h => {
-                                    const hwSpecs = h.hardware ? 
-                                        `<div style="font-size:11px;color:#8b95a9;">
-                                            ${h.hardware.cpu || '—'} | ${h.hardware.gpu || '—'}<br>
-                                            ${h.hardware.ram_gb || 0}GB | ${h.hardware.device_name || '—'}
-                                            ${h.hardware.wallpaper ? ' | 🖼️ ' + h.hardware.wallpaper : ''}
-                                        </div>` :
-                                        '<span style="color:#8b95a9;font-size:11px;">No hardware specs</span>';
-                                    
-                                    html += `
-                                        <tr>
-                                            <td><code style="font-size:11px;background:#0b0e14;padding:2px 6px;border-radius:4px;">${h.hwid_masked || h.hwid}</code></td>
-                                            <td>${h.assigned_at ? new Date(h.assigned_at).toLocaleString() : '—'}</td>
-                                            <td>${h.last_used ? new Date(h.last_used).toLocaleString() : 'Never'}</td>
-                                            <td>${hwSpecs}</td>
-                                            <td>
-                                                <button class="btn-sm danger remove-hwid-btn" data-code="${currentHwidCode}" data-hwid="${h.hwid}">Remove</button>
-                                            </td>
-                                        </tr>
-                                    `;
-                                });
-                                html += `</tbody></table>`;
-                                hwidList.innerHTML = html;
-
-                                // Re-bind remove buttons
-                                document.querySelectorAll('.remove-hwid-btn').forEach(btn => {
-                                    btn.addEventListener('click', removeHwid);
-                                });
-                            } else {
-                                hwidList.innerHTML = `
-                                    <div class="empty-state">
-                                        <div class="icon">🔑</div>
-                                        <h3>No HWIDs assigned</h3>
-                                        <p>This code has no HWIDs yet.</p>
-                                    </div>
-                                `;
-                            }
-                        } else {
-                            hwidList.innerHTML = `<p style="color:#f87171;text-align:center;padding:20px;">❌ ${data.error || 'Failed to load HWIDs'}</p>`;
-                        }
-                    })
-                    .catch(err => {
-                        hwidList.innerHTML = `<p style="color:#f87171;text-align:center;padding:20px;">❌ Error: ${err.message}</p>`;
-                    });
+        // ============================================
+        // REMOVE HWID FROM CODE
+        // ============================================
+        async function removeHwidFromCode(code, hwid) {
+            if (!hwid) {
+                showMessage('❌ No HWID assigned to this code', 'error');
+                return;
             }
-
-            function removeHwid(e) {
-                const code = e.target.dataset.code;
-                const hwid = e.target.dataset.hwid;
-                if (!code || !hwid) return;
-                if (!confirm(`Remove HWID "${hwid.substring(0, 16)}..." from code "${code}"? This will also delete any associated devices.`)) return;
-
-                fetch('/api/code/' + code + '/hwid/' + hwid, { method: 'DELETE' })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert(data.message || 'HWID removed!');
-                            // Re-open modal to refresh list
-                            openHwidModal({ target: { dataset: { code: code } } });
-                            refreshDashboard();
-                        } else {
-                            alert('Error: ' + (data.error || 'Unknown error'));
-                        }
-                    })
-                    .catch(err => {
-                        alert('Error: ' + err.message);
-                    });
+            if (!confirm(`⚠️ Remove HWID from code ${code}?\n\nThis will also delete all associated profiles.`)) {
+                return;
             }
-
-            $('#hwid-modal-close').addEventListener('click', function() {
-                hwidModal.style.display = 'none';
-            });
-
-            hwidModal.addEventListener('click', function(e) {
-                if (e.target === hwidModal) hwidModal.style.display = 'none';
-            });
-
-            hwidAddBtn.addEventListener('click', function() {
-                const hwid = hwidAddInput.value.trim();
-                if (!hwid) {
-                    hwidAddResult.textContent = '❌ Please enter a HWID.';
-                    hwidAddResult.style.display = 'block';
-                    hwidAddResult.style.color = '#f87171';
-                    return;
-                }
-                if (hwid.length !== 64) {
-                    hwidAddResult.textContent = '❌ HWID must be exactly 64 characters.';
-                    hwidAddResult.style.display = 'block';
-                    hwidAddResult.style.color = '#f87171';
-                    return;
-                }
-
-                hwidAddResult.textContent = '⏳ Adding...';
-                hwidAddResult.style.display = 'block';
-                hwidAddResult.style.color = '#8b95a9';
-
-                fetch('/api/code/' + currentHwidCode + '/hwid', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ hwid: hwid })
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            hwidAddResult.textContent = '✅ HWID added successfully!';
-                            hwidAddResult.style.color = '#4ade80';
-                            hwidAddInput.value = '';
-                            // Refresh list
-                            openHwidModal({ target: { dataset: { code: currentHwidCode } } });
-                            refreshDashboard();
-                        } else {
-                            hwidAddResult.textContent = '❌ Error: ' + (data.error || 'Unknown error');
-                            hwidAddResult.style.color = '#f87171';
-                        }
-                    })
-                    .catch(err => {
-                        hwidAddResult.textContent = '❌ Error: ' + err.message;
-                        hwidAddResult.style.color = '#f87171';
-                    });
-            });
-
-            hwidAddInput.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') hwidAddBtn.click();
-            });
-
-            // ============================================================
-            // BULK DELETE ACTIONS
-            // ============================================================
-            $('#delete-all-devices-btn').addEventListener('click', function() {
-                if (!confirm('⚠️ Delete ALL devices? This cannot be undone!')) return;
-                if (!confirm('Are you sure? This will remove all registered devices.')) return;
-
-                fetch('/api/delete-all-devices', { method: 'POST' })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert(data.message);
-                            refreshDashboard();
-                        } else {
-                            alert('Error: ' + (data.error || 'Unknown error'));
-                        }
-                    })
-                    .catch(err => {
-                        alert('Error: ' + err.message);
-                    });
-            });
-
-            $('#delete-all-codes-btn').addEventListener('click', function() {
-                if (!confirm('⚠️ Delete ALL codes and devices? This cannot be undone!')) return;
-                if (!confirm('Are you sure? This will remove all codes and all devices.')) return;
-
-                fetch('/api/delete-all-codes', { method: 'POST' })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert(data.message);
-                            refreshDashboard();
-                        } else {
-                            alert('Error: ' + (data.error || 'Unknown error'));
-                        }
-                    })
-                    .catch(err => {
-                        alert('Error: ' + err.message);
-                    });
-            });
-
-            $('#delete-all-requests-btn').addEventListener('click', function() {
-                if (!confirm('Delete ALL pending requests?')) return;
-
-                fetch('/api/delete-all-requests', { method: 'POST' })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            alert(data.message);
-                            refreshDashboard();
-                        } else {
-                            alert('Error: ' + (data.error || 'Unknown error'));
-                        }
-                    })
-                    .catch(err => {
-                        alert('Error: ' + err.message);
-                    });
-            });
-
-            // ============================================================
-            // MANUAL REFRESH BUTTON
-            // ============================================================
-            if (manualRefreshBtn) {
-                manualRefreshBtn.addEventListener('click', function() {
-                    refreshDashboard();
-                });
-            }
-
-            // ============================================================
-            // VISIBILITY CHANGE - Stop/Start on tab switch
-            // ============================================================
-            document.addEventListener('visibilitychange', function() {
-                if (document.hidden) {
-                    stopAutoRefresh();
+            try {
+                showMessage('⏳ Removing HWID...', 'loading');
+                const response = await fetch(`/api/code/${code}/hwid/${hwid}`, { method: 'DELETE' });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    await loadAll();
                 } else {
-                    startAutoRefresh();
-                    refreshDashboard(); // Immediate refresh on visibility
+                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // STATE
+        // ============================================
+        let editingCode = null;
+        let allCodes = [];
+        let allDevices = [];
+        let codeHwidsMap = {};
+        let isLoading = false;
+        let loadError = false;
+        let filteredCodes = [];
+        let hwidDetailsCache = {};
+
+        // ============================================
+        // DEACTIVATION REASON MAPPING
+        // ============================================
+        const deactivationReasons = {
+            'auto_deactivated': '⚠️ Auto-deactivated (General)',
+            'auto_deactivated_multiple_hwids': '🚨 Multiple HWIDs detected',
+            'auto_deactivated_limit_exceeded': '🚨 HWID limit exceeded',
+            'auto_deactivated_unauthorized': '🚨 Unauthorized use detected',
+            'inactive': 'Manually deactivated',
+            'expired': '⏰ Subscription expired'
+        };
+
+        function getDeactivationReason(status) {
+            return deactivationReasons[status] || status || 'Unknown reason';
+        }
+
+        // ============================================
+        // FETCH WITH RETRY
+        // ============================================
+        async function fetchWithRetry(url, options = {}, retries = 3) {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.status === 429) {
+                        const waitTime = (i + 1) * 2000;
+                        console.log(`⏳ Rate limited, waiting ${waitTime}ms... (attempt ${i + 1}/${retries})`);
+                        await new Promise(resolve => setTimeout(resolve, waitTime));
+                        continue;
+                    }
+                    return response;
+                } catch (error) {
+                    if (i === retries - 1) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+            throw new Error('Max retries exceeded');
+        }
+
+        // ============================================
+        // TAB SWITCHING
+        // ============================================
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            const tabBtn = document.querySelector(`.tab-btn[onclick="switchTab('${tab}')"]`);
+            if (tabBtn) tabBtn.classList.add('active');
+            const tabContent = document.getElementById(`tab-${tab}`);
+            if (tabContent) tabContent.classList.add('active');
+            
+            if (tab === 'hwid') {
+                populateHwidCodeDropdown();
+            } else if (tab === 'hwidlogs') {
+                loadHwidLogs();
+            } else if (tab === 'newhwid') {
+                loadNewHwids();
+            } else {
+                renderCurrentTab();
+            }
+        }
+
+        function renderCurrentTab() {
+            const activeTab = document.querySelector('.tab-content.active');
+            if (!activeTab) return;
+            const id = activeTab.id;
+            if (id === 'tab-codes') renderAllCodes();
+            else if (id === 'tab-svip') renderSVIP();
+            else if (id === 'tab-vip') renderVIP();
+        }
+
+        // ============================================
+        // REFRESH
+        // ============================================
+        async function refreshData() {
+            showMessage('🔄 Refreshing...', 'loading');
+            try {
+                const response = await fetchWithRetry('/api/force-refresh', { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    hwidDetailsCache = {};
+                    await loadAll();
+                    showMessage('✅ Data refreshed!', 'success');
+                } else {
+                    showMessage('❌ Refresh failed', 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error refreshing: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // LOAD ALL DATA
+        // ============================================
+        async function loadAll() {
+            if (isLoading) return;
+            isLoading = true;
+            loadError = false;
+            
+            try {
+                const response = await fetchWithRetry('/api/dashboard-data');
+                if (!response.ok) {
+                    throw new Error('Server returned ' + response.status);
+                }
+                const data = await response.json();
+                
+                const stats = data.stats || {};
+                document.getElementById('stat-codes').textContent = stats.totalCodes || 0;
+                
+                const codes = data.codes || [];
+                const svipCount = codes.filter(c => c.access_level === 'SVIP').length;
+                const vipCount = codes.filter(c => c.access_level === 'VIP').length;
+                document.getElementById('stat-svip').textContent = svipCount;
+                document.getElementById('stat-vip').textContent = vipCount;
+                
+                allCodes = codes;
+                filteredCodes = [...codes];
+                allDevices = data.devices || [];
+                
+                await loadHwidStatusForCodes();
+                populateHwidCodeDropdown();
+                renderCurrentTab();
+                
+                // Update new HWID count
+                try {
+                    const newResponse = await fetchWithRetry('/api/hwid-new?limit=1');
+                    const newData = await newResponse.json();
+                    if (newData.success) {
+                        const countEl = document.getElementById('new-hwid-unique-count');
+                        if (countEl) {
+                            countEl.textContent = (newData.total || 0) + ' new';
+                            countEl.className = 'badge badge-new-count' + ((newData.total || 0) === 0 ? ' zero' : '');
+                        }
+                    }
+                } catch (e) {}
+                
+                isLoading = false;
+                
+            } catch (error) {
+                console.error('Load data error:', error);
+                loadError = true;
+                isLoading = false;
+                document.getElementById('codes-body').innerHTML = `
+                    <tr><td colspan="8" style="text-align:center;padding:30px;">
+                        <div style="color:#f44336;">
+                            <strong>❌ Error loading data</strong><br>
+                            <span style="font-size:12px;color:#888;">${error.message}</span><br>
+                            <button onclick="loadAll()" class="btn-refresh" style="margin-top:10px;">🔄 Retry</button>
+                        </div>
+                    </td></tr>
+                `;
+                showMessage('❌ Error loading data: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // FILTER CODES BY USERNAME
+        // ============================================
+        function filterCodesByUsername() {
+            const search = document.getElementById('code-username-search').value.toLowerCase().trim();
+            if (!search) {
+                filteredCodes = [...allCodes];
+            } else {
+                filteredCodes = allCodes.filter(c => {
+                    const username = (c.username || '').toLowerCase();
+                    return username.includes(search);
+                });
+            }
+            renderAllCodes();
+        }
+
+        // ============================================
+        // LOAD HWID STATUS - BATCHED
+        // ============================================
+        async function loadHwidStatusForCodes() {
+            codeHwidsMap = {};
+            const promises = allCodes.map(async (code) => {
+                try {
+                    const response = await fetchWithRetry(`/api/code/${code.code}/hwid-limit`);
+                    const data = await response.json();
+                    return { code: code.code, data: data };
+                } catch (error) {
+                    return { code: code.code, data: { current_hwid_count: 0, max_hwid_limit: 1 } };
                 }
             });
-
-            // ============================================================
-            // INITIALIZE
-            // ============================================================
-            document.addEventListener('DOMContentLoaded', function() {
-                startAutoRefresh();
-
-                // Bind initial buttons
-                document.querySelectorAll('.revoke-btn').forEach(btn => {
-                    btn.addEventListener('click', revokeDevice);
-                });
-                document.querySelectorAll('.deactivate-code-btn').forEach(btn => {
-                    btn.addEventListener('click', deactivateCode);
-                });
-                document.querySelectorAll('.reactivate-code-btn').forEach(btn => {
-                    btn.addEventListener('click', reactivateCode);
-                });
-                document.querySelectorAll('.hwid-btn').forEach(btn => {
-                    btn.addEventListener('click', openHwidModal);
-                });
-                document.querySelectorAll('.approve-request-btn').forEach(btn => {
-                    btn.addEventListener('click', approveRequest);
-                });
-                document.querySelectorAll('.reject-request-btn').forEach(btn => {
-                    btn.addEventListener('click', rejectRequest);
-                });
-
-                // Initial refresh after 1 second
-                setTimeout(refreshDashboard, 1000);
+            const results = await Promise.all(promises);
+            results.forEach(result => {
+                codeHwidsMap[result.code] = {
+                    count: result.data.current_hwid_count || 0,
+                    limit: result.data.max_hwid_limit || 1
+                };
             });
+        }
 
-            // ============================================================
-            // EXPOSE FOR DEBUGGING
-            // ============================================================
-            window.__dashboard = {
-                refresh: refreshDashboard,
-                startAutoRefresh: startAutoRefresh,
-                stopAutoRefresh: stopAutoRefresh,
-                update: updateDashboard
-            };
+        // ============================================
+        // RENDER ALL CODES
+        // ============================================
+        function renderAllCodes() {
+            const tbody = document.getElementById('codes-body');
+            if (loadError) return;
+            
+            if (!filteredCodes || filteredCodes.length === 0) {
+                const search = document.getElementById('code-username-search').value.trim();
+                const msg = search ? `No codes found for username: "${search}"` : 'No codes found. Generate one above!';
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">${msg}</td></tr>`;
+                return;
+            }
+            
+            tbody.innerHTML = filteredCodes.map(c => {
+                const isEditing = editingCode === c.code;
+                const accessClass = c.access_level === 'SVIP' ? 'svip' : 'vip';
+                const accessLabel = c.access_level === 'SVIP' ? '⭐ SVIP' : '🔶 VIP';
+                const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
+                const username = c.username || '';
+                
+                const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
+                const hasHwid = hwidInfo.count > 0;
+                const isFull = hwidInfo.count >= hwidInfo.limit;
+                const hwidDisplay = `${hwidInfo.count}/${hwidInfo.limit}`;
+                
+                let hwidClass = 'no-hwid';
+                if (isFull && hasHwid) hwidClass = 'full';
+                else if (hasHwid) hwidClass = 'has-hwid';
+                
+                const deactivationDisplay = !c.is_active ? 
+                    `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
+                    '<span class="text-muted">—</span>';
+                
+                const codeHwid = c.hwid || null;
+                const hasHwidAssigned = codeHwid && codeHwid.length === 64;
+                
+                // HWID Status HTML
+                let hwidStatusHtml = `<span class="hwid-status-badge-sm no-hwid">0/0</span>`;
+                if (hasHwidAssigned) {
+                    let statusClass = 'has-hwid';
+                    if (isFull) statusClass = 'full';
+                    hwidStatusHtml = `<span class="hwid-status-badge-sm ${statusClass}">${hwidDisplay}</span>`;
+                } else if (hasHwid) {
+                    hwidStatusHtml = `<span class="hwid-status-badge-sm has-hwid">${hwidDisplay}</span>`;
+                }
+                
+                if (isEditing) {
+                    return `
+                        <tr class="editing">
+                            <td><strong class="code-font">${c.code}</strong></td>
+                            <td><input class="edit-input" id="edit-username-${c.code}" value="${c.username || ''}" placeholder="Username"></td>
+                            <td>
+                                <select class="edit-select" id="edit-access-${c.code}">
+                                    <option value="VIP" ${c.access_level === 'VIP' ? 'selected' : ''}>🔶 VIP</option>
+                                    <option value="SVIP" ${c.access_level === 'SVIP' ? 'selected' : ''}>⭐ SVIP</option>
+                                </select>
+                            </td>
+                            <td>
+                                <select class="edit-select" id="edit-subscription-${c.code}">
+                                    <option value="Lifetime" ${c.subscription_type === 'Lifetime' ? 'selected' : ''}>♾️ Lifetime</option>
+                                    <option value="3 Months" ${c.subscription_type === '3 Months' ? 'selected' : ''}>3 Months</option>
+                                    <option value="6 Months" ${c.subscription_type === '6 Months' ? 'selected' : ''}>6 Months</option>
+                                    <option value="12 Months" ${c.subscription_type === '12 Months' ? 'selected' : ''}>12 Months</option>
+                                </select>
+                            </td>
+                            <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : 'Never'}</td>
+                            <td>
+                                <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;">
+                            </td>
+                            <td>${deactivationDisplay}</td>
+                            <td>
+                                <div class="action-buttons">
+                                    <button onclick="saveEdit('${c.code}')" class="btn-small btn-save">💾 Save</button>
+                                    <button onclick="cancelEdit()" class="btn-small btn-cancel">✖ Cancel</button>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }
+                
+                return `
+                    <tr>
+                        <td><strong class="code-font">${c.code}</strong></td>
+                        <td>${username || '<span class="text-muted">N/A</span>'}</td>
+                        <td><span class="badge ${accessClass}">${accessLabel}</span></td>
+                        <td>${c.subscription_type || 'Lifetime'}</td>
+                        <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
+                        <td>${hwidStatusHtml}</td>
+                        <td>${deactivationDisplay}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋 Copy</button>
+                                <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
+                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
+                                <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
+                                    ${c.is_active ? '🔒' : '🔓'}
+                                </button>
+                                ${hasHwidAssigned ? `<button onclick="removeHwidFromCode('${c.code}', '${codeHwid}')" class="btn-remove-hwid-code" title="Remove HWID from this code">🗑️ HWID</button>` : ''}
+                                <button onclick="deleteCode('${c.code}')" class="btn-small btn-danger">🗑️</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
 
-            console.log('✅ Dashboard initialized');
-            console.log('📊 Auto-refresh:', REFRESH_INTERVAL / 1000 + 's');
-            console.log('🔧 Use window.__dashboard for manual control');
+        // ============================================
+        // RENDER SVIP
+        // ============================================
+        function renderSVIP() {
+            const svipCodes = allCodes.filter(c => c.access_level === 'SVIP');
+            const tbody = document.getElementById('svip-body');
+            document.getElementById('svip-count').textContent = svipCodes.length + ' codes';
+            
+            if (svipCodes.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">No SVIP codes found</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = svipCodes.map(c => {
+                const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
+                const username = c.username || '';
+                
+                const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
+                const hasHwid = hwidInfo.count > 0;
+                const isFull = hwidInfo.count >= hwidInfo.limit;
+                const hwidDisplay = `${hwidInfo.count}/${hwidInfo.limit}`;
+                
+                let hwidClass = 'no-hwid';
+                if (isFull && hasHwid) hwidClass = 'full';
+                else if (hasHwid) hwidClass = 'has-hwid';
+                
+                const deactivationDisplay = !c.is_active ? 
+                    `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
+                    '<span class="text-muted">—</span>';
+                
+                const codeHwid = c.hwid || null;
+                const hasHwidAssigned = codeHwid && codeHwid.length === 64;
+                
+                let hwidStatusHtml = `<span class="hwid-status-badge-sm no-hwid">0/0</span>`;
+                if (hasHwidAssigned) {
+                    let statusClass = 'has-hwid';
+                    if (isFull) statusClass = 'full';
+                    hwidStatusHtml = `<span class="hwid-status-badge-sm ${statusClass}">${hwidDisplay}</span>`;
+                } else if (hasHwid) {
+                    hwidStatusHtml = `<span class="hwid-status-badge-sm has-hwid">${hwidDisplay}</span>`;
+                }
+                
+                return `
+                    <tr>
+                        <td><strong class="code-font">${c.code}</strong></td>
+                        <td>${username || '<span class="text-muted">N/A</span>'}</td>
+                        <td>${c.subscription_type || 'Lifetime'}</td>
+                        <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
+                        <td>${hwidStatusHtml}</td>
+                        <td>${deactivationDisplay}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
+                                <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
+                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
+                                <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
+                                    ${c.is_active ? '🔒' : '🔓'}
+                                </button>
+                                ${hasHwidAssigned ? `<button onclick="removeHwidFromCode('${c.code}', '${codeHwid}')" class="btn-remove-hwid-code" title="Remove HWID">🗑️ HWID</button>` : ''}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
 
-        })();
+        // ============================================
+        // RENDER VIP
+        // ============================================
+        function renderVIP() {
+            const vipCodes = allCodes.filter(c => c.access_level === 'VIP');
+            const tbody = document.getElementById('vip-body');
+            document.getElementById('vip-count').textContent = vipCodes.length + ' codes';
+            
+            if (vipCodes.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">No VIP codes found</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = vipCodes.map(c => {
+                const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
+                const username = c.username || '';
+                
+                const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
+                const hasHwid = hwidInfo.count > 0;
+                const isFull = hwidInfo.count >= hwidInfo.limit;
+                const hwidDisplay = `${hwidInfo.count}/${hwidInfo.limit}`;
+                
+                let hwidClass = 'no-hwid';
+                if (isFull && hasHwid) hwidClass = 'full';
+                else if (hasHwid) hwidClass = 'has-hwid';
+                
+                const deactivationDisplay = !c.is_active ? 
+                    `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
+                    '<span class="text-muted">—</span>';
+                
+                const codeHwid = c.hwid || null;
+                const hasHwidAssigned = codeHwid && codeHwid.length === 64;
+                
+                let hwidStatusHtml = `<span class="hwid-status-badge-sm no-hwid">0/0</span>`;
+                if (hasHwidAssigned) {
+                    let statusClass = 'has-hwid';
+                    if (isFull) statusClass = 'full';
+                    hwidStatusHtml = `<span class="hwid-status-badge-sm ${statusClass}">${hwidDisplay}</span>`;
+                } else if (hasHwid) {
+                    hwidStatusHtml = `<span class="hwid-status-badge-sm has-hwid">${hwidDisplay}</span>`;
+                }
+                
+                return `
+                    <tr>
+                        <td><strong class="code-font">${c.code}</strong></td>
+                        <td>${username || '<span class="text-muted">N/A</span>'}</td>
+                        <td>${c.subscription_type || 'Lifetime'}</td>
+                        <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
+                        <td>${hwidStatusHtml}</td>
+                        <td>${deactivationDisplay}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
+                                <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
+                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
+                                <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
+                                    ${c.is_active ? '🔒' : '🔓'}
+                                </button>
+                                ${hasHwidAssigned ? `<button onclick="removeHwidFromCode('${c.code}', '${codeHwid}')" class="btn-remove-hwid-code" title="Remove HWID">🗑️ HWID</button>` : ''}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // ============================================
+        // EDIT FUNCTIONS
+        // ============================================
+        function startEdit(code) {
+            editingCode = code;
+            renderAllCodes();
+            const row = document.querySelector(`tr.editing`);
+            if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        function cancelEdit() {
+            editingCode = null;
+            renderAllCodes();
+        }
+
+        async function saveEdit(code) {
+            const username = document.getElementById(`edit-username-${code}`).value.trim();
+            const accessLevel = document.getElementById(`edit-access-${code}`).value;
+            const subscriptionType = document.getElementById(`edit-subscription-${code}`).value;
+            const hwidLimit = parseInt(document.getElementById(`edit-hwid-limit-${code}`).value) || 1;
+            
+            try {
+                showMessage('💾 Saving...', 'loading');
+                const currentCode = allCodes.find(c => c.code === code);
+                
+                if (currentCode && username && currentCode.username !== username) {
+                    const response = await fetchWithRetry(`/api/code/${code}/username`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username })
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                        showMessage('❌ ' + (result.error || 'Failed to update username'), 'error');
+                        return;
+                    }
+                }
+                
+                if (currentCode && currentCode.access_level !== accessLevel) {
+                    const response = await fetchWithRetry(`/api/code/${code}/access`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ accessLevel })
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                        showMessage('❌ ' + (result.error || 'Failed to update access'), 'error');
+                        return;
+                    }
+                }
+                
+                if (currentCode && currentCode.subscription_type !== subscriptionType) {
+                    const response = await fetchWithRetry(`/api/code/${code}/subscription`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ subscriptionType })
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                        showMessage('❌ ' + (result.error || 'Failed to update subscription'), 'error');
+                        return;
+                    }
+                }
+
+                if (currentCode && currentCode.max_hwid_limit !== hwidLimit) {
+                    const response = await fetchWithRetry(`/api/code/${code}/hwid-limit`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ limit: hwidLimit })
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                        showMessage('❌ ' + (result.error || 'Failed to update HWID limit'), 'error');
+                        return;
+                    }
+                }
+                
+                editingCode = null;
+                showMessage('✅ Changes saved!', 'success');
+                await loadAll();
+                
+            } catch (error) {
+                showMessage('❌ Error saving: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // TOGGLE STATUS
+        // ============================================
+        async function toggleStatus(code) {
+            const codeInfo = allCodes.find(c => c.code === code);
+            if (!codeInfo) return;
+            
+            const confirmMsg = codeInfo.is_active ? 
+                `⚠️ Deactivate code ${code}?\n\nThis will remove all HWIDs and devices.` :
+                `🔓 Reactivate code ${code}?\n\nThis will remove all existing HWIDs. User will need to run Python again.`;
+            
+            if (!confirm(confirmMsg)) return;
+            
+            try {
+                let response;
+                if (codeInfo.is_active) {
+                    response = await fetchWithRetry(`/api/code/${code}/deactivate`, { method: 'POST' });
+                } else {
+                    response = await fetchWithRetry(`/api/code/${code}/reactivate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ subscriptionType: codeInfo.subscription_type || 'Lifetime' })
+                    });
+                }
+                const result = await response.json();
+                if (result.success) {
+                    let msg = `✅ Code ${code} ${codeInfo.is_active ? 'deactivated' : 'reactivated'}!`;
+                    if (result.hwids_removed !== undefined && result.hwids_removed > 0) {
+                        msg += ` ${result.hwids_removed} HWID(s) removed.`;
+                    }
+                    if (result.devices_removed !== undefined && result.devices_removed > 0) {
+                        msg += ` ${result.devices_removed} device(s) removed.`;
+                    }
+                    showMessage(msg, 'success');
+                    hwidDetailsCache = {};
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to toggle status'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // DELETE CODE
+        // ============================================
+        async function deleteCode(code) {
+            if (!confirm(`⚠️ Permanently delete code ${code}?`)) return;
+            try {
+                const response = await fetchWithRetry(`/api/code/${code}`, { method: 'DELETE' });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    hwidDetailsCache = {};
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to delete code'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // GENERATE CODE
+        // ============================================
+        document.getElementById('generate-code-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const username = document.getElementById('gen-username').value.trim();
+            const accessLevel = document.getElementById('gen-access').value;
+            const subscriptionType = document.getElementById('gen-subscription').value;
+            
+            if (!username) {
+                showMessage('❌ Username is required!', 'error');
+                return;
+            }
+            
+            showMessage('⏳ Generating...', 'loading');
+            try {
+                const response = await fetchWithRetry('/api/generate-code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, accessLevel, subscriptionType })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage(`✅ Code ${result.code} generated for ${result.username}`, 'success');
+                    document.getElementById('gen-username').value = '';
+                    hwidDetailsCache = {};
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        });
+
+        // ============================================
+        // HWID MANAGEMENT FUNCTIONS
+        // ============================================
+
+        function populateHwidCodeDropdown() {
+            const select = document.getElementById('hwid-code-select');
+            const currentValue = select.value;
+            select.innerHTML = '<option value="">-- Select a code --</option>';
+            allCodes.forEach(c => {
+                const option = document.createElement('option');
+                option.value = c.code;
+                const statusText = c.is_active ? '' : ' (Inactive)';
+                option.textContent = `${c.code} - ${c.username || 'N/A'}${statusText}`;
+                if (c.code === currentValue) option.selected = true;
+                select.appendChild(option);
+            });
+            if (currentValue) {
+                loadHwidDetails();
+            }
+        }
+
+        async function loadHwidDetails() {
+            const code = document.getElementById('hwid-code-select').value;
+            if (!code) {
+                document.getElementById('hwid-info').style.display = 'none';
+                document.getElementById('hwid-list-section').style.display = 'none';
+                return;
+            }
+            
+            // Check cache
+            if (hwidDetailsCache[code] && (Date.now() - hwidDetailsCache[code].timestamp < 30000)) {
+                console.log('📦 Using cached HWID details for:', code);
+                const cached = hwidDetailsCache[code];
+                updateHwidStats(cached);
+                renderHwidList(cached.hwidData);
+                return;
+            }
+            
+            try {
+                document.getElementById('hwid-info').style.display = 'block';
+                document.getElementById('hwid-list-section').style.display = 'block';
+                document.getElementById('hwid-list-body').innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading...</div></td></tr>';
+                
+                const [limitResponse, hwidResponse] = await Promise.all([
+                    fetchWithRetry(`/api/code/${code}/hwid-limit`),
+                    fetchWithRetry(`/api/code/${code}/hwids`)
+                ]);
+                
+                const limitData = await limitResponse.json();
+                const hwidData = await hwidResponse.json();
+                
+                // Save to cache
+                hwidDetailsCache[code] = {
+                    timestamp: Date.now(),
+                    limitData: limitData,
+                    hwidData: hwidData
+                };
+                
+                updateHwidStats({ limitData, hwidData });
+                renderHwidList(hwidData);
+                
+            } catch (error) {
+                console.error('Load HWID details error:', error);
+                document.getElementById('hwid-list-body').innerHTML = `<tr><td colspan="4" style="text-align:center;color:#f44336;padding:20px;">❌ Error loading HWIDs: ${error.message}</td></tr>`;
+                showMessage('❌ Error loading HWID details', 'error');
+            }
+        }
+
+        function updateHwidStats(data) {
+            const currentCount = data.hwidData.hwids ? data.hwidData.hwids.length : 0;
+            const maxLimit = data.limitData.max_hwid_limit || 1;
+            const availableSlots = maxLimit - currentCount;
+            
+            document.getElementById('hwid-current-count').textContent = currentCount;
+            document.getElementById('hwid-max-limit').textContent = maxLimit;
+            document.getElementById('hwid-available-slots').textContent = availableSlots < 0 ? 0 : availableSlots;
+            document.getElementById('hwid-limit-input').value = maxLimit;
+            
+            const statusEl = document.getElementById('hwid-limit-status');
+            if (availableSlots <= 0) {
+                statusEl.style.display = 'block';
+                statusEl.style.background = 'rgba(244,67,54,0.15)';
+                statusEl.style.color = '#f44336';
+                statusEl.style.border = '1px solid #f44336';
+                statusEl.innerHTML = `⚠️ HWID LIMIT REACHED! (${currentCount}/${maxLimit}) - New devices will AUTO-DEACTIVATE this code!`;
+            } else if (availableSlots <= 2) {
+                statusEl.style.display = 'block';
+                statusEl.style.background = 'rgba(255,152,0,0.15)';
+                statusEl.style.color = '#FF9800';
+                statusEl.style.border = '1px solid #FF9800';
+                statusEl.innerHTML = `⚠️ Only ${availableSlots} slot(s) remaining (${currentCount}/${maxLimit})`;
+            } else {
+                statusEl.style.display = 'none';
+            }
+        }
+
+        // ============================================
+        // RENDER HWID LIST
+        // ============================================
+        function renderHwidList(hwidData) {
+            const tbody = document.getElementById('hwid-list-body');
+            const hwids = (hwidData && hwidData.hwids && Array.isArray(hwidData.hwids)) ? hwidData.hwids : [];
+            
+            if (!hwids || hwids.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;">No HWIDs assigned to this code</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = hwids.map((h, index) => {
+                const hwidFull = h.hwid || '';
+                const hwidMasked = h.hwid_masked || (hwidFull ? hwidFull.substring(0, 16) + '...' : 'N/A');
+                const hardware = h.hardware || {};
+                
+                const cpu = hardware.cpu || 'N/A';
+                const gpu = hardware.gpu || 'N/A';
+                const ram = hardware.ram_gb ? hardware.ram_gb + ' GB' : 'N/A';
+                const storage = hardware.storage_gb ? hardware.storage_gb + ' GB' : 'N/A';
+                const deviceName = hardware.device_name || 'N/A';
+                const profile = hardware.profile_name || 'N/A';
+                
+                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A';
+                
+                return `
+                    <tr>
+                        <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
+                        <td>
+                            <code style="font-size:11px;font-weight:bold;color:#4CAF50;word-break:break-all;" title="${hwidFull}">${hwidMasked}</code>
+                        </td>
+                        <td style="font-size:11px;line-height:1.8;">
+                            ${hasSpecs ? `
+                                <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
+                                <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
+                                <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
+                                <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
+                                <div><span class="hwid-spec-detail device">💻 Device: ${deviceName}</span></div>
+                                <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
+                            ` : `
+                                <div style="color:#888;font-style:italic;">No hardware specs available. Please register a device first.</div>
+                            `}
+                        </td>
+                        <td style="text-align:center;">
+                            <button onclick="removeHwid('${hwidFull}')" class="btn-remove-hwid" id="remove-btn-${index}">
+                                🗑️ Remove
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function removeHwid(hwid) {
+            const code = document.getElementById('hwid-code-select').value;
+            if (!code || !hwid) {
+                showMessage('❌ Invalid code or HWID', 'error');
+                return;
+            }
+            if (!confirm(`⚠️ Remove this HWID from code ${code}?`)) {
+                return;
+            }
+            
+            document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
+                btn.disabled = true;
+                btn.textContent = '⏳';
+            });
+            
+            try {
+                const response = await fetchWithRetry(`/api/code/${code}/hwid/${hwid}`, { method: 'DELETE' });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    hwidDetailsCache = {};
+                    await loadHwidDetails();
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to remove HWID'), 'error');
+                    document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
+                        btn.disabled = false;
+                        btn.textContent = '🗑️ Remove';
+                    });
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+                document.querySelectorAll('.btn-remove-hwid').forEach(btn => {
+                    btn.disabled = false;
+                    btn.textContent = '🗑️ Remove';
+                });
+            }
+        }
+
+        async function updateHwidLimit() {
+            const code = document.getElementById('hwid-code-select').value;
+            const limit = parseInt(document.getElementById('hwid-limit-input').value);
+            
+            if (!code) {
+                showMessage('❌ Please select a code first', 'error');
+                return;
+            }
+            if (!limit || limit < 1 || limit > 10) {
+                showMessage('❌ Limit must be between 1 and 10', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetchWithRetry(`/api/code/${code}/hwid-limit`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ limit })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    hwidDetailsCache = {};
+                    loadHwidDetails();
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to update limit'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // HWID LOGS
+        // ============================================
+        async function loadHwidLogs() {
+            const tbody = document.getElementById('hwid-logs-body');
+            if (!tbody) return;
+            
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading logs...</div></td></tr>';
+            
+            try {
+                const response = await fetchWithRetry('/api/hwid-logs?limit=200');
+                if (!response.ok) {
+                    throw new Error('Server returned ' + response.status);
+                }
+                const data = await response.json();
+                
+                if (data.success) {
+                    const countEl = document.getElementById('new-hwid-count');
+                    if (countEl) {
+                        const newCount = data.new_count || 0;
+                        countEl.textContent = newCount + ' new';
+                        countEl.className = 'badge badge-new-count' + (newCount === 0 ? ' zero' : '');
+                    }
+                    
+                    const logs = data.logs || [];
+                    if (logs.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#4CAF50;padding:30px;">✅ No unassigned HWIDs found - all HWIDs are assigned to codes!</td></tr>';
+                    } else {
+                        renderHwidLogs(logs);
+                    }
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load logs') + '</td></tr>';
+                }
+            } catch (error) {
+                console.error('Load HWID logs error:', error);
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
+            }
+        }
+
+        function renderHwidLogs(logs) {
+            const tbody = document.getElementById('hwid-logs-body');
+            if (!tbody) return;
+            
+            if (!logs || logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#4CAF50;padding:30px;">✅ No unassigned HWID logs found</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = logs.map((log, index) => {
+                const time = new Date(log.created_at).toLocaleString();
+                const isNew = log.status === 'new';
+                const hwid = log.hwid || '';
+                const hwidDisplay = hwid ? hwid.substring(0, 16) + '...' : 'N/A';
+                
+                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A';
+                
+                if (log.details) {
+                    const cpuMatch = log.details.match(/CPU:\s*([^,|]+)/i);
+                    const gpuMatch = log.details.match(/GPU:\s*([^,|]+)/i);
+                    const ramMatch = log.details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                    const storageMatch = log.details.match(/Storage:\s*([^,|]+)\s*GB/i);
+                    const deviceMatch = log.details.match(/Device:\s*([^,|]+)/i);
+                    const profileMatch = log.details.match(/Profile:\s*([^,|]+)/i);
+                    
+                    if (cpuMatch) cpu = cpuMatch[1].trim();
+                    if (gpuMatch) gpu = gpuMatch[1].trim();
+                    if (ramMatch) ram = ramMatch[1].trim() + ' GB';
+                    if (storageMatch) storage = storageMatch[1].trim() + ' GB';
+                    if (deviceMatch) device = deviceMatch[1].trim();
+                    if (profileMatch) profile = profileMatch[1].trim();
+                }
+                
+                if (log.browser_profile && profile === 'N/A') {
+                    profile = log.browser_profile;
+                }
+                
+                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A';
+                const hardwareHtml = hasSpecs ? `
+                    <div style="font-size:10px;line-height:1.6;">
+                        ${cpu !== 'N/A' ? `<span class="hwid-spec-item cpu">🔧 ${cpu}</span>` : ''}
+                        ${gpu !== 'N/A' ? `<span class="hwid-spec-item gpu">🎮 ${gpu}</span>` : ''}
+                        ${ram !== 'N/A' ? `<span class="hwid-spec-item ram">💾 ${ram}</span>` : ''}
+                        ${storage !== 'N/A' ? `<span class="hwid-spec-item storage">💿 ${storage}</span>` : ''}
+                        ${device !== 'N/A' ? `<span class="hwid-spec-item device">💻 ${device}</span>` : ''}
+                        ${profile !== 'N/A' ? `<span class="hwid-spec-item profile">👤 ${profile}</span>` : ''}
+                        <span class="hwid-spec-item unregistered">🔓 UNASSIGNED</span>
+                    </div>
+                ` : `
+                    <div style="color:#888;font-size:11px;font-style:italic;">No hardware specs available</div>
+                    <span class="hwid-spec-item unregistered">🔓 UNASSIGNED</span>
+                `;
+                
+                return `
+                    <tr style="${isNew ? 'background:rgba(244,67,54,0.08);' : ''}">
+                        <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
+                        <td>
+                            <span style="font-weight:bold;color:#FF9800;">
+                                🖥️ ${hwidDisplay}
+                            </span>
+                            ${isNew ? ' 🔴' : ''}
+                        </td>
+                        <td><span class="text-muted" style="font-size:10px;">No code assigned</span></td>
+                        <td>${hardwareHtml}</td>
+                        <td><small>${time}</small></td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // ============================================
+        // NEW HWID FUNCTIONS
+        // ============================================
+
+        async function loadNewHwids() {
+            const tbody = document.getElementById('new-hwid-body');
+            if (!tbody) return;
+            
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading new HWIDs...</div></td></tr>';
+            
+            try {
+                const response = await fetchWithRetry('/api/hwid-new?limit=100');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const countEl = document.getElementById('new-hwid-unique-count');
+                    if (countEl) {
+                        const count = data.total || 0;
+                        countEl.textContent = count + ' new';
+                        countEl.className = 'badge badge-new-count' + (count === 0 ? ' zero' : '');
+                    }
+                    
+                    const hwids = data.hwids || [];
+                    if (hwids.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#4CAF50;padding:30px;">✅ No new unique HWIDs found - all HWIDs are assigned to codes!</td></tr>';
+                    } else {
+                        renderNewHwids(hwids);
+                    }
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load new HWIDs') + '</td></tr>';
+                }
+            } catch (error) {
+                console.error('Load new HWIDs error:', error);
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
+            }
+        }
+
+        function renderNewHwids(hwids) {
+            const tbody = document.getElementById('new-hwid-body');
+            if (!tbody) return;
+            
+            tbody.innerHTML = hwids.map((item, index) => {
+                const hwid = item.hwid || '';
+                const hwidDisplay = hwid ? hwid.substring(0, 16) + '...' + hwid.substring(48) : 'N/A';
+                const time = item.created_at ? new Date(item.created_at).toLocaleString() : 'N/A';
+                
+                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A';
+                
+                if (item.details) {
+                    const cpuMatch = item.details.match(/CPU:\s*([^,|]+)/i);
+                    const gpuMatch = item.details.match(/GPU:\s*([^,|]+)/i);
+                    const ramMatch = item.details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                    const storageMatch = item.details.match(/Storage:\s*([^,|]+)\s*GB/i);
+                    const deviceMatch = item.details.match(/Device:\s*([^,|]+)/i);
+                    const profileMatch = item.details.match(/Profile:\s*([^,|]+)/i);
+                    
+                    if (cpuMatch) cpu = cpuMatch[1].trim();
+                    if (gpuMatch) gpu = gpuMatch[1].trim();
+                    if (ramMatch) ram = ramMatch[1].trim() + ' GB';
+                    if (storageMatch) storage = storageMatch[1].trim() + ' GB';
+                    if (deviceMatch) device = deviceMatch[1].trim();
+                    if (profileMatch) profile = profileMatch[1].trim();
+                }
+                
+                if (item.browser_profile && profile === 'N/A') {
+                    profile = item.browser_profile;
+                }
+                
+                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A';
+                
+                const codeOptions = allCodes
+                    .filter(c => c.is_active)
+                    .map(c => `<option value="${c.code}">${c.code} - ${c.username || 'N/A'}</option>`)
+                    .join('');
+                
+                return `
+                    <tr>
+                        <td style="text-align:center;font-weight:bold;color:#FF9800;">${index + 1}</td>
+                        <td>
+                            <code style="font-size:11px;font-weight:bold;color:#FF9800;word-break:break-all;" title="${hwid}">${hwidDisplay}</code>
+                        </td>
+                        <td style="font-size:11px;line-height:1.8;">
+                            ${hasSpecs ? `
+                                <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
+                                <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
+                                <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
+                                <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
+                                <div><span class="hwid-spec-detail device">💻 Device: ${device}</span></div>
+                                <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
+                            ` : `
+                                <div style="color:#888;font-style:italic;">No hardware specs available</div>
+                            `}
+                        </td>
+                        <td><small>${time}</small></td>
+                        <td>
+                            <div class="action-buttons" style="flex-direction:column;gap:5px;align-items:stretch;">
+                                <div style="display:flex;gap:4px;">
+                                    <select class="edit-select" id="assign-code-${index}" style="flex:1;font-size:11px;padding:4px;">
+                                        <option value="">-- Select Code --</option>
+                                        ${codeOptions}
+                                    </select>
+                                    <button onclick="assignNewHwid('${hwid}', ${index})" class="btn-small btn-success">Assign</button>
+                                </div>
+                                <button onclick="markNewHwidSeen('${hwid}', ${index})" class="btn-small btn-warning" style="font-size:10px;">👁️ Mark as Seen</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function assignNewHwid(hwid, index) {
+            const select = document.getElementById(`assign-code-${index}`);
+            const code = select.value;
+            
+            if (!code) {
+                showMessage('❌ Please select a code first', 'error');
+                return;
+            }
+            if (!confirm(`Assign HWID to code ${code}?`)) return;
+            
+            try {
+                showMessage('⏳ Assigning...', 'loading');
+                const response = await fetchWithRetry('/api/hwid-new/assign', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hwid, code })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage(`✅ ${result.message}`, 'success');
+                    await loadNewHwids();
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to assign'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        async function markNewHwidSeen(hwid, index) {
+            try {
+                const response = await fetchWithRetry('/api/hwid-new/mark-seen', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hwid })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage(`✅ HWID marked as seen`, 'success');
+                    const row = document.querySelector(`#new-hwid-body tr:nth-child(${index + 1})`);
+                    if (row) row.remove();
+                    const countEl = document.getElementById('new-hwid-unique-count');
+                    if (countEl) {
+                        const current = parseInt(countEl.textContent) || 0;
+                        countEl.textContent = Math.max(0, current - 1) + ' new';
+                    }
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to mark as seen'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // CLEANUP OLD LOGS
+        // ============================================
+        async function cleanupOldLogs() {
+            if (!confirm('🧹 Delete ALL HWID activity logs?\n\nThis will permanently delete ALL HWID logs from the database.\n\nAre you sure?')) {
+                return;
+            }
+            try {
+                showMessage('⏳ Deleting all logs...', 'loading');
+                const response = await fetchWithRetry('/api/cleanup-logs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ delete_all: true })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage(`✅ ${result.message} (${result.deleted} logs deleted)`, 'success');
+                    await loadNewHwids();
+                    await loadHwidLogs();
+                    const countElements = document.querySelectorAll('.badge-new-count');
+                    countElements.forEach(el => {
+                        el.textContent = '0 new';
+                        el.className = 'badge badge-new-count zero';
+                    });
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to delete logs'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // INIT
+        // ============================================
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAll();
+            setInterval(function() {
+                if (!isLoading) {
+                    loadAll();
+                }
+            }, 60000);
+            setInterval(function() {
+                hwidDetailsCache = {};
+            }, 120000);
+        });
     </script>
-
 </body>
 </html>
