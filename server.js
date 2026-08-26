@@ -1,4 +1,4 @@
-// server.js - Complete Optimized Version with Performance Fixes & Registered Owner Support
+// server.js - COMPLETE OPTIMIZED FOR 100-200 USERS
 
 require('dotenv').config();
 const express = require('express');
@@ -21,12 +21,12 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 app.set('trust proxy', 1);
 
 // ============================================
-// SECURITY & COMPRESSION
+// SECURITY & COMPRESSION - OPTIMIZED
 // ============================================
 
 app.use(compression({
-  level: 6,
-  threshold: 1024,
+  level: 4,  // Balanced compression
+  threshold: 2048,  // Only compress > 2KB
   filter: (req, res) => {
     if (req.headers['x-no-compression']) {
       return false;
@@ -101,13 +101,16 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '10mb' }));  // Reduced from 50mb to 10mb
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// ============================================
+// SESSION - OPTIMIZED
+// ============================================
 app.use(session({
     secret: process.env.SESSION_SECRET || 'default-secret-change-me',
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false,  // Don't save empty sessions
     cookie: {
         secure: false,
         maxAge: 24 * 60 * 60 * 1000,
@@ -116,22 +119,22 @@ app.use(session({
 }));
 
 // ============================================
-// REQUEST TIMEOUT
+// REQUEST TIMEOUT - OPTIMIZED
 // ============================================
 app.use((req, res, next) => {
-    req.setTimeout(30000, () => {
+    req.setTimeout(60000, () => {  // Increased to 60 seconds
         res.status(408).json({ error: 'Request timeout' });
     });
     next();
 });
 
 // ============================================
-// RATE LIMIT - INCREASED FOR 50+ USERS
+// RATE LIMIT - OPTIMIZED FOR 100-200 USERS
 // ============================================
 
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: parseInt(process.env.GENERAL_RATE_LIMIT_MAX) || 500,
+    max: parseInt(process.env.GENERAL_RATE_LIMIT_MAX) || 2000,
     message: { 
         error: 'Too many requests, please try again later.',
         retryAfter: 15 * 60
@@ -157,14 +160,14 @@ app.use('/api/', limiter);
 
 const registerLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: parseInt(process.env.REGISTER_RATE_LIMIT_MAX) || 10,
+    max: parseInt(process.env.REGISTER_RATE_LIMIT_MAX) || 50,
     message: { error: 'Too many registration attempts. Please wait.' }
 });
 app.use('/api/register', registerLimiter);
 
 const apiLimiter = rateLimit({
     windowMs: 60 * 1000,
-    max: parseInt(process.env.API_RATE_LIMIT_MAX) || 100,
+    max: parseInt(process.env.API_RATE_LIMIT_MAX) || 300,
     message: { error: 'Too many API requests. Please wait.' }
 });
 app.use('/api/codes', apiLimiter);
@@ -172,7 +175,10 @@ app.use('/api/device/', apiLimiter);
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
-app.use(express.static('public'));
+app.use(express.static('public', {
+    maxAge: '1d',  // Cache static files
+    etag: true
+}));
 
 // ============================================
 // MIDDLEWARE
@@ -193,7 +199,7 @@ function isApiAuthenticated(req, res, next) {
 }
 
 // ============================================
-// HEALTH CHECK
+// HEALTH CHECK - OPTIMIZED
 // ============================================
 
 app.get('/api/health', async (req, res) => {
@@ -239,8 +245,8 @@ app.get('/api/pool-status', isApiAuthenticated, (req, res) => {
             total: status.total || 0,
             idle: status.idle || 0,
             waiting: status.waiting || 0,
-            max: status.max || 10,
-            min: status.min || 3,
+            max: status.max || 30,
+            min: status.min || 10,
             used: status.used || 0,
             utilization: status.max ? Math.round((status.used / status.max) * 100) : 0
         },
@@ -253,7 +259,7 @@ app.get('/api/pool-status', isApiAuthenticated, (req, res) => {
         queue: {
             active: db.activeQueries || 0,
             queued: db.queryQueue?.length || 0,
-            maxConcurrent: db.maxConcurrentQueries || 8
+            maxConcurrent: db.maxConcurrentQueries || 25
         },
         uptime: process.uptime(),
         timestamp: new Date().toISOString()
@@ -273,7 +279,7 @@ app.get('/api/connection-stats', isApiAuthenticated, (req, res) => {
             total: poolStatus.total || 0,
             idle: poolStatus.idle || 0,
             waiting: poolStatus.waiting || 0,
-            max: poolStatus.max || 10,
+            max: poolStatus.max || 30,
             used: poolStatus.used || 0,
             utilization: poolStatus.max ? Math.round((poolStatus.used / poolStatus.max) * 100) : 0
         },
@@ -286,7 +292,7 @@ app.get('/api/connection-stats', isApiAuthenticated, (req, res) => {
         queue: {
             active: db.activeQueries || 0,
             queued: db.queryQueue?.length || 0,
-            maxConcurrent: db.maxConcurrentQueries || 8
+            maxConcurrent: db.maxConcurrentQueries || 25
         },
         timestamp: new Date().toISOString()
     });
@@ -415,7 +421,7 @@ app.get('/dashboard', isAuthenticated, async (req, res) => {
             codes: data.codes || [],
             requests: data.requests || [],
             autoRefresh: true,
-            refreshInterval: 5000
+            refreshInterval: 15000  // 15 seconds
         });
     } catch (error) {
         console.error('Dashboard error:', error);
@@ -427,7 +433,7 @@ app.get('/dashboard', isAuthenticated, async (req, res) => {
             codes: cached.codes || [],
             requests: cached.requests || [],
             autoRefresh: true,
-            refreshInterval: 5000,
+            refreshInterval: 15000,
             error: 'Failed to load data'
         });
     }
@@ -453,7 +459,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - FIXED WITH REGISTERED OWNER
+// REGISTER DEVICE - OPTIMIZED
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -587,9 +593,6 @@ app.post('/api/register', async (req, res) => {
             }
         }
 
-        // ============================================
-        // FIX: Extract registered_owner from hardware
-        // ============================================
         const cpuName = parsedHardware.cpu || parsedHardware.cpu_name || 'Unknown';
         const gpuName = parsedHardware.gpu || parsedHardware.gpu_name || 'Unknown';
         const ramTotal = parsedHardware.ram_gb || parsedHardware.ram_total_gb || 0;
@@ -663,7 +666,6 @@ app.post('/api/register', async (req, res) => {
         }
 
         console.log('✅ Registration successful for device:', deviceId);
-        console.log('👔 Registered Owner:', registeredOwner);
         res.json(responseData);
         
     } catch (error) {
@@ -696,9 +698,10 @@ app.get('/api/wallpaper/:deviceId', async (req, res) => {
             const sharp = require('sharp');
             const imageBuffer = Buffer.from(device.wallpaper_base64, 'base64');
             
+            // OPTIMIZED: Smaller size for faster loading
             const compressed = await sharp(imageBuffer)
-                .resize(300, 225, { fit: 'inside', withoutEnlargement: true })
-                .jpeg({ quality: 60 })
+                .resize(200, 150, { fit: 'inside', withoutEnlargement: true })
+                .jpeg({ quality: 50 })
                 .toBuffer();
             
             res.setHeader('Content-Type', 'image/jpeg');
@@ -724,7 +727,7 @@ app.get('/api/wallpaper/:deviceId', async (req, res) => {
 });
 
 // ============================================
-// STATUS CHECK - WITH REGISTERED OWNER
+// STATUS CHECK - OPTIMIZED
 // ============================================
 
 app.get('/api/status/:deviceId', async (req, res) => {
@@ -1124,7 +1127,7 @@ app.get('/api/codes', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// DASHBOARD DATA
+// DASHBOARD DATA - OPTIMIZED
 // ============================================
 
 app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
@@ -1150,9 +1153,9 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
             requests: data.requests || [],
             username: req.session.username,
             cache_age: Math.floor((Date.now() - data.lastUpdate) / 1000),
-            cache_ttl: db.cacheTTL || 5,
+            cache_ttl: db.cacheTTL || 60,
             autoRefresh: true,
-            refreshInterval: 5000
+            refreshInterval: 15000
         });
     } catch (error) {
         console.error('Dashboard data error:', error);
@@ -1166,7 +1169,7 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
             cache_age: 0,
             error: 'Using cached data',
             autoRefresh: true,
-            refreshInterval: 5000
+            refreshInterval: 15000
         });
     }
 });
@@ -1968,7 +1971,7 @@ app.get('/api/hwid-logs/new-count', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// NEW HWID DETECTION
+// NEW HWID DETECTION - OPTIMIZED
 // ============================================
 
 app.get('/api/hwid-new', isApiAuthenticated, async (req, res) => {
@@ -2316,19 +2319,19 @@ app.post('/api/monitor', async (req, res) => {
 async function autoDeleteOldLogs() {
     try {
         const result = await db.run(
-            "DELETE FROM hwid_logs WHERE created_at < NOW() - INTERVAL '7 days'"
+            "DELETE FROM hwid_logs WHERE created_at < NOW() - INTERVAL '30 days'"
         );
         
         if (result.changes > 0) {
-            console.log(`🧹 Auto-deleted ${result.changes} old HWID logs (older than 7 days)`);
+            console.log(`🧹 Auto-deleted ${result.changes} old HWID logs (older than 30 days)`);
         }
         
         const usageResult = await db.run(
-            "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '30 days'"
+            "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '60 days'"
         );
         
         if (usageResult.changes > 0) {
-            console.log(`🧹 Auto-deleted ${usageResult.changes} old usage logs (older than 30 days)`);
+            console.log(`🧹 Auto-deleted ${usageResult.changes} old usage logs (older than 60 days)`);
         }
         
         return result.changes + usageResult.changes;
@@ -2338,9 +2341,10 @@ async function autoDeleteOldLogs() {
     }
 }
 
+// Auto-cleanup every 6 hours (less frequent)
 setInterval(async () => {
     await autoDeleteOldLogs();
-}, 60 * 60 * 1000);
+}, 6 * 60 * 60 * 1000);
 
 setTimeout(async () => {
     await autoDeleteOldLogs();
@@ -2363,7 +2367,7 @@ app.post('/api/cleanup-logs', isApiAuthenticated, async (req, res) => {
             console.log(`🧹 Manually deleted ALL ${deleted} HWID logs`);
             
             const usageResult = await db.run(
-                "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '30 days'"
+                "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '60 days'"
             );
             if (usageResult.changes > 0) {
                 message += ` and ${usageResult.changes} old usage logs`;
@@ -2376,13 +2380,13 @@ app.post('/api/cleanup-logs', isApiAuthenticated, async (req, res) => {
             });
         } else {
             const result = await db.run(
-                "DELETE FROM hwid_logs WHERE created_at < NOW() - INTERVAL '7 days'"
+                "DELETE FROM hwid_logs WHERE created_at < NOW() - INTERVAL '30 days'"
             );
             deleted = result.changes || 0;
-            message = `Cleaned up ${deleted} old HWID logs (older than 7 days)`;
+            message = `Cleaned up ${deleted} old HWID logs (older than 30 days)`;
             
             const usageResult = await db.run(
-                "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '30 days'"
+                "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '60 days'"
             );
             if (usageResult.changes > 0) {
                 message += ` and ${usageResult.changes} old usage logs`;
@@ -2478,22 +2482,25 @@ createDefaultAdmin().then(() => {
         console.log('='.repeat(60));
         console.log(`📊 Database Pool: max=${db.pool.options.max}, min=${db.pool.options.min}`);
         console.log(`⏱️  Cache TTL: ${db.cacheTTL}s`);
-        console.log(`📈 Max Concurrent Queries: ${db.maxConcurrentQueries || 8}`);
+        console.log(`📈 Max Concurrent Queries: ${db.maxConcurrentQueries || 25}`);
         console.log('='.repeat(60));
         console.log('✅ CORS: Chrome Extensions allowed');
         console.log('✅ Supabase Pro Plan Optimized');
         console.log(`✅ Rate Limits: Register=${registerLimiter.max}/min, API=${apiLimiter.max}/min`);
         console.log('='.repeat(60));
         console.log('⚡ OPTIMIZATIONS ENABLED:');
-        console.log('   ✅ Auto-Refresh Dashboard (5s)');
-        console.log('   ✅ Cache TTL: 5 seconds');
-        console.log('   ✅ Dashboard Limit: 50 items');
+        console.log('   ✅ Auto-Refresh Dashboard (15s)');
+        console.log('   ✅ Cache TTL: 60 seconds');
+        console.log('   ✅ Dashboard Limit: 100 items');
         console.log('   ✅ HWID Logs: Pagination (50/page)');
         console.log('   ✅ Parallel Queries');
         console.log('   ✅ Batch Updates');
         console.log('   ✅ Hardware Specs with Registered Owner');
         console.log('   ✅ Device Info by HWID');
-        console.log('   ✅ Auto-Cleanup HWID Logs (hourly)');
+        console.log('   ✅ Auto-Cleanup HWID Logs (30 days)');
+        console.log('   ✅ Connection Pool: 30 connections');
+        console.log('   ✅ Concurrent Queries: 25');
+        console.log('   ✅ Rate Limits: 50 regs/min, 300 API/min');
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');
