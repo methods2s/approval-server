@@ -119,7 +119,6 @@
         .hwid-spec-detail.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
         .hwid-spec-detail.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
         .hwid-spec-detail.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
-        .hwid-spec-detail.storage { background: rgba(33,150,243,0.15); color: #2196F3; }
         .hwid-spec-detail.device { background: rgba(255,87,34,0.15); color: #FF5722; }
         .hwid-spec-detail.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
         .hwid-spec-detail.owner { background: rgba(255,87,34,0.15); color: #FF5722; }
@@ -375,7 +374,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID MANAGER -->
+        <!-- TAB: HWID MANAGER - FIXED -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwid">
             <div class="card">
@@ -839,7 +838,7 @@
         }
 
         // ============================================
-        // FETCH WITH RETRY - FIXED: include credentials
+        // FETCH WITH RETRY - FIXED 429
         // ============================================
         async function fetchWithRetry(url, options = {}, retries = 3) {
             const defaultOptions = {
@@ -859,6 +858,9 @@
                 }
             };
             
+            // Add exponential backoff for 429
+            let delay = 1000;
+            
             for (let i = 0; i < retries; i++) {
                 try {
                     const response = await fetch(url, mergedOptions);
@@ -870,7 +872,7 @@
                     }
                     
                     if (response.status === 429) {
-                        const waitTime = (i + 1) * 2000;
+                        const waitTime = delay * (i + 1);
                         console.log(`⏳ Rate limited, waiting ${waitTime}ms... (attempt ${i + 1}/${retries})`);
                         await new Promise(resolve => setTimeout(resolve, waitTime));
                         continue;
@@ -878,10 +880,32 @@
                     return response;
                 } catch (error) {
                     if (i === retries - 1) throw error;
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2;
                 }
             }
             throw new Error('Max retries exceeded');
+        }
+
+        // ============================================
+        // FETCH WITH BATCH - FIXED 429
+        // ============================================
+        async function fetchBatch(urls, options = {}) {
+            // Process sequentially with delay to avoid 429
+            const results = [];
+            for (const url of urls) {
+                try {
+                    const response = await fetchWithRetry(url, options, 2);
+                    const data = await response.json();
+                    results.push(data);
+                    // Wait between requests to avoid rate limiting
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                } catch (error) {
+                    console.error('Batch fetch error:', error);
+                    results.push(null);
+                }
+            }
+            return results;
         }
 
         // ============================================
@@ -1054,28 +1078,42 @@
         }
 
         // ============================================
-        // LOAD HWID STATUS
+        // LOAD HWID STATUS - FIXED 429
         // ============================================
         async function loadHwidStatusForCodes() {
             codeHwidsMap = {};
-            const promises = allCodes.map(async (code) => {
-                try {
-                    const response = await fetchWithRetry(`/api/code/${code.code}/hwid-limit`, {
-                        credentials: 'same-origin'
-                    });
-                    const data = await response.json();
-                    return { code: code.code, data: data };
-                } catch (error) {
-                    return { code: code.code, data: { current_hwid_count: 0, max_hwid_limit: 1 } };
+            
+            // Process in smaller batches to avoid 429
+            const batchSize = 3;
+            const codes = allCodes.slice(0, 50); // Limit to 50 codes
+            
+            for (let i = 0; i < codes.length; i += batchSize) {
+                const batch = codes.slice(i, i + batchSize);
+                const promises = batch.map(async (code) => {
+                    try {
+                        const response = await fetchWithRetry(`/api/code/${code.code}/hwid-limit`, {
+                            credentials: 'same-origin'
+                        }, 2);
+                        const data = await response.json();
+                        return { code: code.code, data: data };
+                    } catch (error) {
+                        return { code: code.code, data: { current_hwid_count: 0, max_hwid_limit: 1 } };
+                    }
+                });
+                
+                const results = await Promise.all(promises);
+                results.forEach(result => {
+                    codeHwidsMap[result.code] = {
+                        count: result.data.current_hwid_count || 0,
+                        limit: result.data.max_hwid_limit || 1
+                    };
+                });
+                
+                // Wait between batches
+                if (i + batchSize < codes.length) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
-            });
-            const results = await Promise.all(promises);
-            results.forEach(result => {
-                codeHwidsMap[result.code] = {
-                    count: result.data.current_hwid_count || 0,
-                    limit: result.data.max_hwid_limit || 1
-                };
-            });
+            }
         }
 
         // ============================================
@@ -1445,7 +1483,7 @@
         });
 
         // ============================================
-        // HWID MANAGEMENT FUNCTIONS
+        // HWID MANAGEMENT FUNCTIONS - FIXED 429
         // ============================================
 
         function populateHwidCodeDropdown() {
@@ -1478,9 +1516,10 @@
                 document.getElementById('hwid-list-section').style.display = 'block';
                 document.getElementById('hwid-list-body').innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading HWIDs...</div></td></tr>';
                 
+                // Fetch with delay to avoid 429
                 const [limitResponse, hwidResponse] = await Promise.all([
-                    fetchWithRetry(`/api/code/${code}/hwid-limit`, { credentials: 'same-origin' }),
-                    fetchWithRetry(`/api/code/${code}/hwids`, { credentials: 'same-origin' })
+                    fetchWithRetry(`/api/code/${code}/hwid-limit`, { credentials: 'same-origin' }, 2),
+                    fetchWithRetry(`/api/code/${code}/hwids`, { credentials: 'same-origin' }, 2)
                 ]);
                 
                 if (!limitResponse.ok || !hwidResponse.ok) {
@@ -1555,7 +1594,6 @@
                 const cpu = hardware.cpu || 'N/A';
                 const gpu = hardware.gpu || 'N/A';
                 const ram = hardware.ram_gb ? hardware.ram_gb + ' GB' : 'N/A';
-                const storage = hardware.storage_gb ? hardware.storage_gb + ' GB' : 'N/A';
                 const deviceName = hardware.device_name || 'N/A';
                 const profile = hardware.profile_name || 'N/A';
                 const registeredOwner = hardware.registered_owner || 'N/A';
@@ -1573,7 +1611,6 @@
                                 <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
                                 <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
                                 <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
-                                <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
                                 <div><span class="hwid-spec-detail device">💻 Device: ${deviceName}</span></div>
                                 <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
                                 <div><span class="hwid-spec-detail owner">👔 Owner: ${registeredOwner}</span></div>
@@ -1723,13 +1760,12 @@
                 const hwid = log.hwid || '';
                 const hwidDisplay = hwid ? hwid.substring(0, 16) + '...' : 'N/A';
                 
-                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A', owner = 'N/A';
+                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', device = 'N/A', profile = 'N/A', owner = 'N/A';
                 
                 if (log.details) {
                     const cpuMatch = log.details.match(/CPU:\s*([^,|]+)/i);
                     const gpuMatch = log.details.match(/GPU:\s*([^,|]+)/i);
                     const ramMatch = log.details.match(/RAM:\s*([^,|]+)\s*GB/i);
-                    const storageMatch = log.details.match(/Storage:\s*([^,|]+)\s*GB/i);
                     const deviceMatch = log.details.match(/Device:\s*([^,|]+)/i);
                     const profileMatch = log.details.match(/Profile:\s*([^,|]+)/i);
                     const ownerMatch = log.details.match(/Owner:\s*([^,|]+)/i);
@@ -1737,7 +1773,6 @@
                     if (cpuMatch) cpu = cpuMatch[1].trim();
                     if (gpuMatch) gpu = gpuMatch[1].trim();
                     if (ramMatch) ram = ramMatch[1].trim() + ' GB';
-                    if (storageMatch) storage = storageMatch[1].trim() + ' GB';
                     if (deviceMatch) device = deviceMatch[1].trim();
                     if (profileMatch) profile = profileMatch[1].trim();
                     if (ownerMatch) owner = ownerMatch[1].trim();
@@ -1747,13 +1782,12 @@
                     profile = log.browser_profile;
                 }
                 
-                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A';
+                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A';
                 const hardwareHtml = hasSpecs ? `
                     <div style="font-size:10px;line-height:1.6;">
                         ${cpu !== 'N/A' ? `<span class="hwid-spec-item cpu">🔧 ${cpu}</span>` : ''}
                         ${gpu !== 'N/A' ? `<span class="hwid-spec-item gpu">🎮 ${gpu}</span>` : ''}
                         ${ram !== 'N/A' ? `<span class="hwid-spec-item ram">💾 ${ram}</span>` : ''}
-                        ${storage !== 'N/A' ? `<span class="hwid-spec-item storage">💿 ${storage}</span>` : ''}
                         ${device !== 'N/A' ? `<span class="hwid-spec-item device">💻 ${device}</span>` : ''}
                         ${profile !== 'N/A' ? `<span class="hwid-spec-item profile">👤 ${profile}</span>` : ''}
                         ${owner !== 'N/A' ? `<span class="hwid-spec-item owner">👔 ${owner}</span>` : ''}
@@ -1829,13 +1863,12 @@
                 const hwidDisplay = hwid ? hwid.substring(0, 16) + '...' + hwid.substring(48) : 'N/A';
                 const time = item.created_at ? new Date(item.created_at).toLocaleString() : 'N/A';
                 
-                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A', owner = 'N/A';
+                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', device = 'N/A', profile = 'N/A', owner = 'N/A';
                 
                 if (item.details) {
                     const cpuMatch = item.details.match(/CPU:\s*([^,|]+)/i);
                     const gpuMatch = item.details.match(/GPU:\s*([^,|]+)/i);
                     const ramMatch = item.details.match(/RAM:\s*([^,|]+)\s*GB/i);
-                    const storageMatch = item.details.match(/Storage:\s*([^,|]+)\s*GB/i);
                     const deviceMatch = item.details.match(/Device:\s*([^,|]+)/i);
                     const profileMatch = item.details.match(/Profile:\s*([^,|]+)/i);
                     const ownerMatch = item.details.match(/Owner:\s*([^,|]+)/i);
@@ -1843,7 +1876,6 @@
                     if (cpuMatch) cpu = cpuMatch[1].trim();
                     if (gpuMatch) gpu = gpuMatch[1].trim();
                     if (ramMatch) ram = ramMatch[1].trim() + ' GB';
-                    if (storageMatch) storage = storageMatch[1].trim() + ' GB';
                     if (deviceMatch) device = deviceMatch[1].trim();
                     if (profileMatch) profile = profileMatch[1].trim();
                     if (ownerMatch) owner = ownerMatch[1].trim();
@@ -1853,7 +1885,7 @@
                     profile = item.browser_profile;
                 }
                 
-                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A' || storage !== 'N/A';
+                const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A';
                 
                 const codeOptions = allCodes
                     .filter(c => c.is_active)
@@ -1871,7 +1903,6 @@
                                 <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
                                 <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
                                 <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
-                                <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
                                 <div><span class="hwid-spec-detail device">💻 Device: ${device}</span></div>
                                 <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
                                 <div><span class="hwid-spec-detail owner">👔 Owner: ${owner}</span></div>
@@ -1993,12 +2024,12 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadAll();
             
-            // Auto-refresh every 5 seconds
+            // Auto-refresh every 10 seconds (reduced to avoid 429)
             setInterval(function() {
                 if (!isLoading) {
                     loadAll();
                 }
-            }, 5000);
+            }, 10000);
             
             // Clear HWID cache every 2 minutes
             setInterval(function() {
