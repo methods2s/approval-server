@@ -1,4 +1,4 @@
-// database-pg.js - Complete with registered_owner column fix
+// database-pg.js - Complete with registered_owner fix
 
 const { Pool } = require('pg');
 
@@ -461,16 +461,12 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // INIT TABLES - FIXED: with ALTER TABLE for registered_owner
+  // INIT TABLES - FIXED
   // ============================================
 
   async initTables() {
     try {
       console.log('🔧 Creating/verifying tables...');
-      
-      // ============================================
-      // 1. CREATE TABLES IF NOT EXISTS
-      // ============================================
       
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS codes (
@@ -505,10 +501,6 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
-      // 2. DEVICES TABLE - WITH registered_owner
-      // ============================================
-      
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -542,9 +534,8 @@ class DeviceDatabase {
       `);
 
       // ============================================
-      // 3. ALTER TABLE - ADD registered_owner if missing
+      // FIX: ALTER TABLE for registered_owner
       // ============================================
-      
       try {
         await this.queryWithRetry(`
           ALTER TABLE devices ADD COLUMN IF NOT EXISTS registered_owner TEXT
@@ -554,10 +545,6 @@ class DeviceDatabase {
         console.log('ℹ️ registered_owner column already exists or error:', err.message);
       }
 
-      // ============================================
-      // 4. CREATE INDEXES
-      // ============================================
-      
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
@@ -573,10 +560,6 @@ class DeviceDatabase {
       } catch (err) {
         console.log('ℹ️ Index on registered_owner skipped:', err.message);
       }
-
-      // ============================================
-      // 5. OTHER TABLES
-      // ============================================
 
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS requests (
