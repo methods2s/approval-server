@@ -41,7 +41,7 @@ app.use(helmet({
 }));
 
 // ============================================
-// CORS - Chrome Extensions Allowed
+// CORS - FIXED
 // ============================================
 
 const corsOptions = {
@@ -50,24 +50,11 @@ const corsOptions = {
     if (origin.startsWith('chrome-extension://')) {
       return callback(null, true);
     }
-    if (process.env.NODE_ENV === 'development') {
-      return callback(null, true);
-    }
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'https://wantmatures-approval-server.onrender.com',
-      'https://*.onrender.com'
-    ];
-    if (allowedOrigins.includes(origin) || origin.includes('onrender.com')) {
-      callback(null, true);
-    } else {
-      callback(null, true);
-    }
+    callback(null, true); // Allow all origins for testing
   },
-  credentials: true,
+  credentials: true, // IMPORTANTE for session cookies
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin', 'Access-Control-Allow-Origin']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin', 'Access-Control-Allow-Origin', 'Cookie']
 };
 
 app.use(cors(corsOptions));
@@ -86,9 +73,9 @@ app.use((req, res, next) => {
   }
   
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin, Access-Control-Allow-Origin');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin, Access-Control-Allow-Origin, Cookie');
   res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Expose-Headers', 'Content-Length, X-JSON');
+  res.header('Access-Control-Expose-Headers', 'Content-Length, X-JSON, Set-Cookie');
   res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.header('Pragma', 'no-cache');
   res.header('Expires', '0');
@@ -104,14 +91,18 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// ============================================
+// SESSION - FIXED
+// ============================================
 app.use(session({
     secret: process.env.SESSION_SECRET || 'default-secret-change-me',
     resave: false,
-    saveUninitialized: true,
+    saveUninitialized: false,
     cookie: {
-        secure: false,
+        secure: false, // false for localhost, true for Render (HTTPS)
         maxAge: 24 * 60 * 60 * 1000,
-        sameSite: 'lax'
+        sameSite: 'lax',
+        httpOnly: true
     }
 }));
 
@@ -365,7 +356,7 @@ app.get('/real_automation.js', (req, res) => {
 });
 
 // ============================================
-// LOGIN ROUTES
+// LOGIN ROUTES - FIXED
 // ============================================
 
 app.get('/login', (req, res) => {
@@ -388,10 +379,19 @@ app.post('/login', async (req, res) => {
     if (username === adminUsername && password === adminPassword) {
         req.session.isAuthenticated = true;
         req.session.username = username;
-        return res.redirect('/dashboard');
+        
+        // Save session before redirect
+        req.session.save(function(err) {
+            if (err) {
+                console.error('❌ Session save error:', err);
+                return res.render('login', { error: 'Login failed, please try again' });
+            }
+            console.log('✅ Login successful for:', username);
+            res.redirect('/dashboard');
+        });
+    } else {
+        res.render('login', { error: 'Invalid username or password' });
     }
-    
-    res.render('login', { error: 'Invalid username or password' });
 });
 
 app.get('/logout', (req, res) => {
@@ -453,7 +453,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - FIXED WITH REGISTERED OWNER
+// REGISTER DEVICE - WITH REGISTERED OWNER
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -587,9 +587,7 @@ app.post('/api/register', async (req, res) => {
             }
         }
 
-        // ============================================
-        // FIX: Extract registered_owner from hardware
-        // ============================================
+        // Extract registered_owner from hardware
         const cpuName = parsedHardware.cpu || parsedHardware.cpu_name || 'Unknown';
         const gpuName = parsedHardware.gpu || parsedHardware.gpu_name || 'Unknown';
         const ramTotal = parsedHardware.ram_gb || parsedHardware.ram_total_gb || 0;
