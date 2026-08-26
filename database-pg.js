@@ -9,9 +9,6 @@ class DeviceDatabase {
       sslmode: 'require'
     };
     
-    // ============================================
-    // OPTIMIZED: Bigger pool for 100-200 users
-    // ============================================
     let connectionConfig = {
       connectionString: process.env.DATABASE_URL,
       ssl: sslConfig,
@@ -52,21 +49,12 @@ class DeviceDatabase {
       hasInitialData: false
     };
     
-    // ============================================
-    // OPTIMIZED: Longer cache TTL (60 seconds)
-    // ============================================
     this.cacheTTL = parseInt(process.env.CACHE_TTL) || 60;
-    
     this.queryQueue = [];
     this.activeQueries = 0;
-    
-    // ============================================
-    // OPTIMIZED: More concurrent queries (25)
-    // ============================================
     this.maxConcurrentQueries = parseInt(process.env.MAX_CONCURRENT_QUERIES) || 25;
-    
     this.recentQueries = new Map();
-    this.queryDedupeWindow = 5000;  // 5 seconds dedupe
+    this.queryDedupeWindow = 5000;
     
     this.pool.on('connect', () => {});
     this.pool.on('acquire', () => {});
@@ -236,10 +224,6 @@ class DeviceDatabase {
     return result.rows;
   }
 
-  // ============================================
-  // HIGH PRIORITY METHODS
-  // ============================================
-
   async getCodeInfo(code) {
     try {
       const result = await this.queuedQuery('SELECT * FROM codes WHERE code = $1', [code], 10);
@@ -273,10 +257,6 @@ class DeviceDatabase {
       return false;
     }
   }
-
-  // ============================================
-  // GET DASHBOARD DATA - OPTIMIZED
-  // ============================================
 
   async getDashboardData() {
     if (this.cache.hasInitialData && this.cache.lastUpdate > Date.now() - this.cacheTTL * 1000) {
@@ -338,10 +318,6 @@ class DeviceDatabase {
       return this.cache;
     }
   }
-
-  // ============================================
-  // HWID LOGS - WITH PAGINATION
-  // ============================================
 
   async getHwidLogsWithAssignment(limit = 50, status = null, offset = 0) {
     try {
@@ -405,15 +381,11 @@ class DeviceDatabase {
     }
   }
 
-  // ============================================
-  // GET HARDWARE SPECS - CACHED
-  // ============================================
-
   async getHardwareSpecs(deviceId) {
     try {
       const cacheKey = `hw_${deviceId}`;
       if (this.cache.hardwareSpecs[cacheKey] && 
-          Date.now() - this.cache.hardwareSpecs[cacheKey].timestamp < 120000) { // 2 minutes cache
+          Date.now() - this.cache.hardwareSpecs[cacheKey].timestamp < 120000) {
         return this.cache.hardwareSpecs[cacheKey].data;
       }
       
@@ -436,10 +408,6 @@ class DeviceDatabase {
       return null;
     }
   }
-
-  // ============================================
-  // BATCH UPDATE - OPTIMIZED
-  // ============================================
 
   async batchUpdateDevices(updates) {
     if (!updates || updates.length === 0) return { success: true, updated: 0 };
@@ -471,7 +439,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // INIT TABLES - WITH OPTIMIZED INDEXES (NO WALLPAPER)
+  // INIT TABLES - NO WALLPAPER
   // ============================================
 
   async initTables() {
@@ -496,7 +464,10 @@ class DeviceDatabase {
           hwid TEXT,
           fingerprint TEXT,
           machine_info JSONB,
-          max_hwid_limit INTEGER DEFAULT 1
+          max_hwid_limit INTEGER DEFAULT 1,
+          trigger_hwid TEXT,
+          trigger_reason TEXT,
+          triggered_at TIMESTAMP
         )
       `);
 
@@ -511,9 +482,6 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
-      // DEVICES TABLE - NO WALLPAPER COLUMNS
-      // ============================================
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -563,8 +531,18 @@ class DeviceDatabase {
         console.log('ℹ️ Wallpaper columns already removed or error:', err.message);
       }
 
+      // Add trigger columns to codes table
+      try {
+        await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS trigger_hwid TEXT`);
+        await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS trigger_reason TEXT`);
+        await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS triggered_at TIMESTAMP`);
+        console.log('✅ Trigger columns added to codes table');
+      } catch (err) {
+        console.log('ℹ️ Trigger columns already exist or error:', err.message);
+      }
+
       // ============================================
-      // OPTIMIZED: All necessary indexes
+      // INDEXES
       // ============================================
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
@@ -576,6 +554,7 @@ class DeviceDatabase {
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid_created ON hwid_logs(hwid, created_at DESC)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_status_active ON codes(status, is_active)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_registered_owner ON devices(registered_owner)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_trigger_hwid ON codes(trigger_hwid)`);
 
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS requests (
@@ -635,7 +614,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // REGISTER DEVICE - OPTIMIZED (NO WALLPAPER)
+  // REGISTER DEVICE - NO WALLPAPER
   // ============================================
 
   async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null, hardware = null) {
@@ -682,12 +661,13 @@ class DeviceDatabase {
         const assignResult = await this.assignHwidToCode(code, hwid, true);
         if (!assignResult.success) {
           if (assignResult.auto_deactivate) {
-            const deactivateResult = await this.autoDeactivateCode(code, 'hwid_limit_exceeded_auto_assign');
+            const deactivateResult = await this.autoDeactivateCode(code, 'hwid_limit_exceeded_auto_assign', hwid, null);
             return {
               success: false,
               error: `HWID limit reached. Code auto-deactivated.`,
               auto_deactivated: true,
-              devices_revoked: deactivateResult.devices_revoked || 0
+              devices_revoked: deactivateResult.devices_revoked || 0,
+              new_hwid: hwid
             };
           }
           return { success: false, error: assignResult.error };
@@ -710,7 +690,6 @@ class DeviceDatabase {
         };
       }
 
-      // Parse hardware specs (NO WALLPAPER)
       let cpuName = 'Unknown', gpuName = 'Unknown', ramTotal = 0, storageTotal = 0, deviceName = 'Unknown', profileName = 'Default';
       let registeredOwner = 'Unknown';
 
@@ -823,10 +802,6 @@ class DeviceDatabase {
     }
   }
 
-  // ============================================
-  // GET DEVICES - OPTIMIZED WITH PAGINATION (NO WALLPAPER)
-  // ============================================
-
   async getDevices(status = null, limit = 100, offset = 0) {
     try {
       let query = 'SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, registered_owner, cpu_name, gpu_name, ram_total_gb, storage_total_gb FROM devices';
@@ -846,10 +821,6 @@ class DeviceDatabase {
       return this.cache.devices || [];
     }
   }
-
-  // ============================================
-  // GET DEVICES BY CODE (NO WALLPAPER)
-  // ============================================
 
   async getDevicesByCode(code) {
     try {
@@ -945,6 +916,10 @@ class DeviceDatabase {
     }
   }
 
+  // ============================================
+  // ASSIGN HWID TO CODE - WITH TRIGGER LOGGING
+  // ============================================
+
   async assignHwidToCode(code, hwid, autoAssign = false) {
     try {
       if (!hwid || hwid.length !== 64) {
@@ -987,13 +962,42 @@ class DeviceDatabase {
             max_limit: limit
           };
         }
+        
+        // LOG THE NEW HWID BEFORE AUTO-DEACTIVATION
+        // This ensures the new HWID appears in Auto-Deactivated tab
+        const codeInfo = await this.getCodeInfo(code);
+        
+        // Try to get hardware details from devices table
+        const device = await this.get(
+          'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
+          [hwid]
+        );
+        
+        let details = `🚨 HWID limit reached (${currentCount}/${limit}) - TRIGGERED AUTO-DEACTIVATION`;
+        if (device) {
+          details += ` | CPU: ${device.cpu_name || 'N/A'} | GPU: ${device.gpu_name || 'N/A'} | RAM: ${device.ram_total_gb || 0}GB | Storage: ${device.storage_total_gb || 0}GB | Device: ${device.device_name || 'N/A'} | Profile: ${device.profile_name || 'N/A'} | Owner: ${device.registered_owner || 'N/A'}`;
+        }
+        
+        await this.logHwidActivity(
+          hwid,
+          code,
+          'system',
+          'auto_deactivation_trigger',
+          'new',
+          details,
+          null,
+          null,
+          null
+        );
+        
         return {
           success: false,
           error: `HWID limit reached (${limit}). Auto-deactivating code.`,
           limit_reached: true,
           current_count: currentCount,
           max_limit: limit,
-          auto_deactivate: true
+          auto_deactivate: true,
+          new_hwid: hwid
         };
       }
 
@@ -1109,68 +1113,95 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // AUTO-DEACTIVATE CODE
+  // AUTO-DEACTIVATE CODE - WITH TRIGGER HWID
   // ============================================
 
-  async autoDeactivateCode(code, reason = 'unauthorized_use') {
+  async autoDeactivateCode(code, reason = 'unauthorized_use', newHwid = null, newHwidDetails = null) {
     try {
-        let status = 'auto_deactivated';
-        if (reason === 'multiple_hwids_detected') {
-            status = 'auto_deactivated_multiple_hwids';
-        } else if (reason === 'hwid_limit_exceeded' || reason === 'hwid_limit_exceeded_auto_assign') {
-            status = 'auto_deactivated_limit_exceeded';
-        } else if (reason === 'unauthorized_use') {
-            status = 'auto_deactivated_unauthorized';
+      let status = 'auto_deactivated';
+      if (reason === 'multiple_hwids_detected') {
+        status = 'auto_deactivated_multiple_hwids';
+      } else if (reason === 'hwid_limit_exceeded' || reason === 'hwid_limit_exceeded_auto_assign') {
+        status = 'auto_deactivated_limit_exceeded';
+      } else if (reason === 'unauthorized_use') {
+        status = 'auto_deactivated_unauthorized';
+      }
+      
+      // Save the new HWID before deactivating
+      if (newHwid) {
+        let details = `🚨 This HWID triggered the auto-deactivation of code ${code} due to: ${reason}`;
+        if (newHwidDetails) {
+          details += ` | CPU: ${newHwidDetails.cpu || 'N/A'} | GPU: ${newHwidDetails.gpu || 'N/A'} | RAM: ${newHwidDetails.ram || 0}GB | Storage: ${newHwidDetails.storage || 0}GB | Device: ${newHwidDetails.device || 'N/A'} | Profile: ${newHwidDetails.profile || 'N/A'} | Owner: ${newHwidDetails.owner || 'N/A'}`;
         }
         
+        await this.logHwidActivity(
+          newHwid,
+          code,
+          'system',
+          'auto_deactivation_trigger',
+          'trigger_new_hwid',
+          details,
+          null,
+          null,
+          null
+        );
+        
+        // Save trigger HWID in codes table
         await this.run(
-            'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
-            [status, code]
+          'UPDATE codes SET trigger_hwid = $1, trigger_reason = $2, triggered_at = CURRENT_TIMESTAMP WHERE code = $3',
+          [newHwid, reason, code]
         );
-        
-        await this.run(
-            'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE code = $2',
-            ['revoked', code]
-        );
-        
-        const countResult = await this.get(
-            'SELECT COUNT(*) as count FROM devices WHERE code = $1',
-            [code]
-        );
-        const deviceCount = countResult ? parseInt(countResult.count) : 0;
-        
-        await this.run(
-            'DELETE FROM code_hwids WHERE code = $1',
-            [code]
-        );
-        
-        await this.run(
-            'UPDATE codes SET hwid = NULL WHERE code = $1',
-            [code]
-        );
-        
-        await this.logUsage(
-            'system', 
-            code, 
-            'auto_deactivated_' + reason, 
-            `🔒 Code ${code} auto-deactivated due to ${reason}. ${deviceCount} devices revoked.`
-        );
-        
-        await this.refreshCache();
-        
-        return {
-            success: true,
-            code: code,
-            devices_revoked: deviceCount,
-            reason: reason,
-            status: status
-        };
+      }
+      
+      await this.run(
+        'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
+        [status, code]
+      );
+      
+      await this.run(
+        'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE code = $2',
+        ['revoked', code]
+      );
+      
+      const countResult = await this.get(
+        'SELECT COUNT(*) as count FROM devices WHERE code = $1',
+        [code]
+      );
+      const deviceCount = countResult ? parseInt(countResult.count) : 0;
+      
+      await this.run(
+        'DELETE FROM code_hwids WHERE code = $1',
+        [code]
+      );
+      
+      await this.run(
+        'UPDATE codes SET hwid = NULL WHERE code = $1',
+        [code]
+      );
+      
+      await this.logUsage(
+        'system', 
+        code, 
+        'auto_deactivated_' + reason, 
+        `🔒 Code ${code} auto-deactivated due to ${reason}. ${deviceCount} devices revoked. New HWID: ${newHwid || 'N/A'}`
+      );
+      
+      await this.refreshCache();
+      
+      return {
+        success: true,
+        code: code,
+        devices_revoked: deviceCount,
+        reason: reason,
+        status: status,
+        new_hwid: newHwid
+      };
     } catch (error) {
-        console.error('Auto-deactivate code error:', error);
-        return {
-            success: false,
-            error: error.message
-        };
+      console.error('Auto-deactivate code error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 
@@ -1192,6 +1223,9 @@ class DeviceDatabase {
           c.expires_at,
           c.max_hwid_limit,
           c.hwid as code_hwid,
+          c.trigger_hwid,
+          c.trigger_reason,
+          c.triggered_at,
           (
             SELECT COUNT(*) FROM code_hwids WHERE code = c.code
           ) as hwid_count,
@@ -1235,9 +1269,26 @@ class DeviceDatabase {
               LIMIT 20
             )
             FROM hwid_logs l 
-            WHERE l.code = c.code 
-            AND (l.status = 'new' OR l.status = 'seen')
-          ) as recent_hwid_logs
+            WHERE (l.code = c.code OR l.hwid = c.trigger_hwid)
+            AND (l.status = 'new' OR l.status = 'seen' OR l.action = 'auto_deactivation_trigger')
+            ORDER BY l.created_at DESC
+            LIMIT 20
+          ) as recent_hwid_logs,
+          (
+            SELECT json_build_object(
+              'hwid', l.hwid,
+              'action', l.action,
+              'status', l.status,
+              'details', l.details,
+              'created_at', l.created_at,
+              'browser_profile', l.browser_profile
+            )
+            FROM hwid_logs l 
+            WHERE l.hwid = c.trigger_hwid 
+            AND l.action = 'auto_deactivation_trigger'
+            ORDER BY l.created_at DESC 
+            LIMIT 1
+          ) as trigger_log
         FROM codes c
         WHERE c.status IN ('auto_deactivated_limit_exceeded', 'auto_deactivated')
         AND c.is_active = false
@@ -1358,7 +1409,7 @@ class DeviceDatabase {
   async getAllCodes() {
     try {
       const result = await this.all(
-        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit
+        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit, trigger_hwid, trigger_reason, triggered_at
          FROM codes ORDER BY created_at DESC LIMIT 500`
       );
       return result || [];
@@ -1414,7 +1465,7 @@ class DeviceDatabase {
       await this.run('DELETE FROM devices WHERE code = $1', [code]);
       
       const result = await this.run(
-        'UPDATE codes SET is_active = false, status = $1, hwid = NULL WHERE code = $2',
+        'UPDATE codes SET is_active = false, status = $1, hwid = NULL, trigger_hwid = NULL, trigger_reason = NULL, triggered_at = NULL WHERE code = $2',
         ['inactive', code]
       );
       
@@ -1444,7 +1495,7 @@ class DeviceDatabase {
           [code]
         );
         await this.run(
-          'UPDATE codes SET hwid = NULL WHERE code = $1',
+          'UPDATE codes SET hwid = NULL, trigger_hwid = NULL, trigger_reason = NULL, triggered_at = NULL WHERE code = $1',
           [code]
         );
       }
@@ -1458,7 +1509,10 @@ class DeviceDatabase {
              status = 'active', 
              subscription_type = $1,
              subscription_started_at = $2,
-             expires_at = $3
+             expires_at = $3,
+             trigger_hwid = NULL,
+             trigger_reason = NULL,
+             triggered_at = NULL
          WHERE code = $4`,
         [subscriptionType, now, expiresAt, code]
       );

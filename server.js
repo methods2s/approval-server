@@ -25,8 +25,8 @@ app.set('trust proxy', 1);
 // ============================================
 
 app.use(compression({
-  level: 4,  // Balanced compression
-  threshold: 2048,  // Only compress > 2KB
+  level: 4,
+  threshold: 2048,
   filter: (req, res) => {
     if (req.headers['x-no-compression']) {
       return false;
@@ -149,7 +149,9 @@ const limiter = rateLimit({
             '/api/hwid-logs',
             '/api/hwid-log',
             '/api/hwid-new',
-            '/api/device/'
+            '/api/device/',
+            '/api/auto-deactivated-codes',
+            '/api/auto-deactivated-code/'
         ];
         return skipPaths.some(path => req.path.startsWith(path));
     }
@@ -538,7 +540,7 @@ app.post('/api/register', async (req, res) => {
             if (!assignResult.success) {
                 if (assignResult.auto_deactivate) {
                     console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
-                    const deactivateResult = await db.autoDeactivateCode(code.toUpperCase(), 'hwid_limit_exceeded_auto_assign');
+                    const deactivateResult = await db.autoDeactivateCode(code.toUpperCase(), 'hwid_limit_exceeded_auto_assign', hwid, null);
                     
                     return res.status(403).json({
                         error: `🚨 HWID LIMIT EXCEEDED! Code ${code} has been AUTO-DEACTIVATED.`,
@@ -546,7 +548,8 @@ app.post('/api/register', async (req, res) => {
                         code: code,
                         devices_revoked: deactivateResult.devices_revoked || 0,
                         max_hwid_limit: assignResult.max_limit,
-                        current_hwid_count: assignResult.current_count
+                        current_hwid_count: assignResult.current_count,
+                        new_hwid: hwid
                     });
                 }
                 
@@ -923,7 +926,7 @@ app.post('/api/auto-deactivate', async (req, res) => {
         );
         
         await db.run(
-            'UPDATE codes SET hwid = NULL WHERE code = $1',
+            'UPDATE codes SET hwid = NULL, trigger_hwid = NULL, trigger_reason = NULL, triggered_at = NULL WHERE code = $1',
             [code]
         );
         
@@ -1028,7 +1031,6 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
         
         const data = await db.getDashboardData();
         
-        // Remove any wallpaper fields (just in case)
         const devicesWithoutWallpaper = (data.devices || []).map(device => ({
             device_id: device.device_id,
             status: device.status,
@@ -1273,7 +1275,7 @@ app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
             }
             
             await db.run(
-                'UPDATE codes SET hwid = NULL WHERE code = $1',
+                'UPDATE codes SET hwid = NULL, trigger_hwid = NULL, trigger_reason = NULL, triggered_at = NULL WHERE code = $1',
                 [code]
             );
             
@@ -1294,7 +1296,10 @@ app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
                  status = 'active',
                  subscription_type = $1,
                  subscription_started_at = $2,
-                 expires_at = $3
+                 expires_at = $3,
+                 trigger_hwid = NULL,
+                 trigger_reason = NULL,
+                 triggered_at = NULL
              WHERE code = $4`,
             [subscriptionType, now, expiresAt, code]
         );
@@ -2097,6 +2102,9 @@ app.get('/api/auto-deactivated-code/:code', isApiAuthenticated, async (req, res)
                 c.expires_at,
                 c.max_hwid_limit,
                 c.hwid as code_hwid,
+                c.trigger_hwid,
+                c.trigger_reason,
+                c.triggered_at,
                 (
                     SELECT COUNT(*) FROM code_hwids WHERE code = c.code
                 ) as hwid_count,
@@ -2144,6 +2152,7 @@ app.get('/api/auto-deactivated-code/:code', isApiAuthenticated, async (req, res)
                     FROM hwid_logs l 
                     WHERE l.code = c.code 
                     OR l.hwid IN (SELECT hwid FROM code_hwids WHERE code = c.code)
+                    OR l.hwid = c.trigger_hwid
                     ORDER BY l.created_at DESC
                     LIMIT 30
                 ) as recent_logs
@@ -2347,7 +2356,7 @@ async function autoDeleteOldLogs() {
     }
 }
 
-// Auto-cleanup every 6 hours (less frequent)
+// Auto-cleanup every 6 hours
 setInterval(async () => {
     await autoDeleteOldLogs();
 }, 6 * 60 * 60 * 1000);
@@ -2508,6 +2517,7 @@ createDefaultAdmin().then(() => {
         console.log('   ✅ Concurrent Queries: 25');
         console.log('   ✅ Rate Limits: 50 regs/min, 300 API/min');
         console.log('   ✅ NO WALLPAPER - Clean & Fast');
+        console.log('   ✅ Auto-Deactivated Tab with Trigger HWID');
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');
