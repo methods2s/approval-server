@@ -167,6 +167,13 @@
         .section-header-with-search .search-box { flex: 1; min-width: 200px; max-width: 400px; }
         .section-header-with-search .search-box input { min-width: 150px; }
         
+        /* Error banner */
+        .error-banner { background: rgba(244,67,54,0.15); border: 1px solid #f44336; border-radius: 8px; padding: 15px 20px; margin-bottom: 20px; display: none; color: #f44336; }
+        .error-banner .error-icon { font-size: 20px; margin-right: 10px; }
+        .error-banner .error-text { font-size: 14px; }
+        .error-banner .retry-btn { background: #f44336; color: #fff; border: none; border-radius: 4px; padding: 4px 15px; cursor: pointer; margin-left: 15px; }
+        .error-banner .retry-btn:hover { background: #d32f2f; }
+        
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
             .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -188,6 +195,13 @@
                 <button class="refresh-btn" onclick="refreshData()">🔄 Refresh</button>
                 <a href="/logout"><button class="logout-btn">🚪 Logout</button></a>
             </div>
+        </div>
+
+        <!-- ERROR BANNER -->
+        <div class="error-banner" id="error-banner">
+            <span class="error-icon">❌</span>
+            <span class="error-text" id="error-text">Failed to load data. Please try again.</span>
+            <button class="retry-btn" onclick="refreshData()">🔄 Retry</button>
         </div>
 
         <!-- STATS -->
@@ -541,6 +555,20 @@
         }
 
         // ============================================
+        // SHOW/HIDE ERROR BANNER
+        // ============================================
+        function showErrorBanner(msg) {
+            const banner = document.getElementById('error-banner');
+            const text = document.getElementById('error-text');
+            text.textContent = msg;
+            banner.style.display = 'block';
+        }
+        
+        function hideErrorBanner() {
+            document.getElementById('error-banner').style.display = 'none';
+        }
+
+        // ============================================
         // GO TO HWID MANAGER
         // ============================================
         function goToHwidManager(code) {
@@ -590,7 +618,7 @@
             }
             try {
                 showMessage('⏳ Removing HWID...', 'loading');
-                const response = await fetch(`/api/code/${code}/hwid/${hwid}`, { method: 'DELETE' });
+                const response = await fetchWithRetry(`/api/code/${code}/hwid/${hwid}`, { method: 'DELETE' });
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
@@ -812,12 +840,38 @@
         }
 
         // ============================================
-        // FETCH WITH RETRY
+        // FETCH WITH RETRY - FIXED: include credentials
         // ============================================
         async function fetchWithRetry(url, options = {}, retries = 3) {
+            // Always include credentials for session/cookie
+            const defaultOptions = {
+                credentials: 'same-origin',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            };
+            
+            const mergedOptions = {
+                ...defaultOptions,
+                ...options,
+                headers: {
+                    ...defaultOptions.headers,
+                    ...(options.headers || {})
+                }
+            };
+            
             for (let i = 0; i < retries; i++) {
                 try {
-                    const response = await fetch(url, options);
+                    const response = await fetch(url, mergedOptions);
+                    
+                    // If 401, redirect to login
+                    if (response.status === 401) {
+                        showErrorBanner('❌ Session expired. Please refresh the page or login again.');
+                        window.location.href = '/login';
+                        throw new Error('Unauthorized');
+                    }
+                    
                     if (response.status === 429) {
                         const waitTime = (i + 1) * 2000;
                         console.log(`⏳ Rate limited, waiting ${waitTime}ms... (attempt ${i + 1}/${retries})`);
@@ -846,6 +900,7 @@
             
             if (tab === 'hwid') {
                 populateHwidCodeDropdown();
+                loadHwidDetails();
             } else if (tab === 'hwidlogs') {
                 loadHwidLogs();
             } else if (tab === 'newhwid') {
@@ -908,9 +963,13 @@
         // REFRESH
         // ============================================
         async function refreshData() {
+            hideErrorBanner();
             showMessage('🔄 Refreshing...', 'loading');
             try {
-                const response = await fetchWithRetry('/api/force-refresh', { method: 'POST' });
+                const response = await fetchWithRetry('/api/force-refresh', { 
+                    method: 'POST',
+                    credentials: 'same-origin'
+                });
                 const result = await response.json();
                 if (result.success) {
                     hwidDetailsCache = {};
@@ -921,6 +980,7 @@
                 }
             } catch (error) {
                 showMessage('❌ Error refreshing: ' + error.message, 'error');
+                showErrorBanner('❌ Error refreshing data: ' + error.message);
             }
         }
 
@@ -951,9 +1011,12 @@
             if (isLoading) return;
             isLoading = true;
             loadError = false;
+            hideErrorBanner();
             
             try {
-                const response = await fetchWithRetry('/api/dashboard-data');
+                const response = await fetchWithRetry('/api/dashboard-data', {
+                    credentials: 'same-origin'
+                });
                 if (!response.ok) {
                     throw new Error('Server returned ' + response.status);
                 }
@@ -969,7 +1032,9 @@
                 updateStats();
                 
                 try {
-                    const newResponse = await fetchWithRetry('/api/hwid-new?limit=1');
+                    const newResponse = await fetchWithRetry('/api/hwid-new?limit=1', {
+                        credentials: 'same-origin'
+                    });
                     const newData = await newResponse.json();
                     if (newData.success) {
                         const countEl = document.getElementById('new-hwid-unique-count');
@@ -987,6 +1052,7 @@
                 loadError = true;
                 isLoading = false;
                 showMessage('❌ Error loading data: ' + error.message, 'error');
+                showErrorBanner('❌ Failed to load data: ' + error.message);
             }
         }
 
@@ -997,7 +1063,9 @@
             codeHwidsMap = {};
             const promises = allCodes.map(async (code) => {
                 try {
-                    const response = await fetchWithRetry(`/api/code/${code.code}/hwid-limit`);
+                    const response = await fetchWithRetry(`/api/code/${code.code}/hwid-limit`, {
+                        credentials: 'same-origin'
+                    });
                     const data = await response.json();
                     return { code: code.code, data: data };
                 } catch (error) {
@@ -1225,7 +1293,8 @@
                     const response = await fetchWithRetry(`/api/code/${code}/username`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ username })
+                        body: JSON.stringify({ username }),
+                        credentials: 'same-origin'
                     });
                     const result = await response.json();
                     if (!result.success) {
@@ -1238,7 +1307,8 @@
                     const response = await fetchWithRetry(`/api/code/${code}/subscription`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ subscriptionType })
+                        body: JSON.stringify({ subscriptionType }),
+                        credentials: 'same-origin'
                     });
                     const result = await response.json();
                     if (!result.success) {
@@ -1251,7 +1321,8 @@
                     const response = await fetchWithRetry(`/api/code/${code}/hwid-limit`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ limit: hwidLimit })
+                        body: JSON.stringify({ limit: hwidLimit }),
+                        credentials: 'same-origin'
                     });
                     const result = await response.json();
                     if (!result.success) {
@@ -1270,8 +1341,7 @@
         }
 
         // ============================================
-        // TOGGLE STATUS
-        // ============================================
+        // TOGGLE STATUS        // ============================================
         async function toggleStatus(code) {
             const codeInfo = allCodes.find(c => c.code === code);
             if (!codeInfo) return;
@@ -1285,12 +1355,16 @@
             try {
                 let response;
                 if (codeInfo.is_active) {
-                    response = await fetchWithRetry(`/api/code/${code}/deactivate`, { method: 'POST' });
+                    response = await fetchWithRetry(`/api/code/${code}/deactivate`, { 
+                        method: 'POST',
+                        credentials: 'same-origin'
+                    });
                 } else {
                     response = await fetchWithRetry(`/api/code/${code}/reactivate`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ subscriptionType: codeInfo.subscription_type || 'Lifetime' })
+                        body: JSON.stringify({ subscriptionType: codeInfo.subscription_type || 'Lifetime' }),
+                        credentials: 'same-origin'
                     });
                 }
                 const result = await response.json();
@@ -1319,7 +1393,10 @@
         async function deleteCode(code) {
             if (!confirm(`⚠️ Permanently delete code ${code}?`)) return;
             try {
-                const response = await fetchWithRetry(`/api/code/${code}`, { method: 'DELETE' });
+                const response = await fetchWithRetry(`/api/code/${code}`, { 
+                    method: 'DELETE',
+                    credentials: 'same-origin'
+                });
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
@@ -1352,7 +1429,8 @@
                 const response = await fetchWithRetry('/api/generate-code', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, accessLevel, subscriptionType })
+                    body: JSON.stringify({ username, accessLevel, subscriptionType }),
+                    credentials: 'same-origin'
                 });
                 const result = await response.json();
                 if (result.success) {
@@ -1384,9 +1462,6 @@
                 if (c.code === currentValue) option.selected = true;
                 select.appendChild(option);
             });
-            if (currentValue) {
-                loadHwidDetails();
-            }
         }
 
         async function loadHwidDetails() {
@@ -1407,8 +1482,8 @@
                 document.getElementById('hwid-list-body').innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading HWIDs...</div></td></tr>';
                 
                 const [limitResponse, hwidResponse] = await Promise.all([
-                    fetchWithRetry(`/api/code/${code}/hwid-limit`),
-                    fetchWithRetry(`/api/code/${code}/hwids`)
+                    fetchWithRetry(`/api/code/${code}/hwid-limit`, { credentials: 'same-origin' }),
+                    fetchWithRetry(`/api/code/${code}/hwids`, { credentials: 'same-origin' })
                 ]);
                 
                 if (!limitResponse.ok || !hwidResponse.ok) {
@@ -1432,7 +1507,7 @@
             } catch (error) {
                 console.error('Load HWID details error:', error);
                 document.getElementById('hwid-list-body').innerHTML = `<tr><td colspan="4" style="text-align:center;color:#f44336;padding:20px;">❌ Error loading HWIDs: ${error.message}</td></tr>`;
-                showMessage('❌ Error loading HWID details', 'error');
+                showMessage('❌ Error loading HWID details: ' + error.message, 'error');
             }
         }
 
@@ -1535,7 +1610,10 @@
             });
             
             try {
-                const response = await fetchWithRetry(`/api/code/${code}/hwid/${hwid}`, { method: 'DELETE' });
+                const response = await fetchWithRetry(`/api/code/${code}/hwid/${hwid}`, { 
+                    method: 'DELETE',
+                    credentials: 'same-origin'
+                });
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
@@ -1575,7 +1653,8 @@
                 const response = await fetchWithRetry(`/api/code/${code}/hwid-limit`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ limit })
+                    body: JSON.stringify({ limit }),
+                    credentials: 'same-origin'
                 });
                 const result = await response.json();
                 if (result.success) {
@@ -1601,7 +1680,9 @@
             tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading logs...</div></td></tr>';
             
             try {
-                const response = await fetchWithRetry('/api/hwid-logs?limit=200');
+                const response = await fetchWithRetry('/api/hwid-logs?limit=200', {
+                    credentials: 'same-origin'
+                });
                 if (!response.ok) {
                     throw new Error('Server returned ' + response.status);
                 }
@@ -1714,7 +1795,9 @@
             tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading new HWIDs...</div></td></tr>';
             
             try {
-                const response = await fetchWithRetry('/api/hwid-new?limit=100');
+                const response = await fetchWithRetry('/api/hwid-new?limit=100', {
+                    credentials: 'same-origin'
+                });
                 const data = await response.json();
                 
                 if (data.success) {
@@ -1832,7 +1915,8 @@
                 const response = await fetchWithRetry('/api/hwid-new/assign', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ hwid, code })
+                    body: JSON.stringify({ hwid, code }),
+                    credentials: 'same-origin'
                 });
                 const result = await response.json();
                 if (result.success) {
@@ -1852,7 +1936,8 @@
                 const response = await fetchWithRetry('/api/hwid-new/mark-seen', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ hwid })
+                    body: JSON.stringify({ hwid }),
+                    credentials: 'same-origin'
                 });
                 const result = await response.json();
                 if (result.success) {
@@ -1884,7 +1969,8 @@
                 const response = await fetchWithRetry('/api/cleanup-logs', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ delete_all: true })
+                    body: JSON.stringify({ delete_all: true }),
+                    credentials: 'same-origin'
                 });
                 const result = await response.json();
                 if (result.success) {
@@ -1908,6 +1994,7 @@
         // INIT
         // ============================================
         document.addEventListener('DOMContentLoaded', function() {
+            // Load data immediately
             loadAll();
             
             // Auto-refresh every 5 seconds
@@ -1921,6 +2008,13 @@
             setInterval(function() {
                 hwidDetailsCache = {};
             }, 120000);
+        });
+        
+        // Also load when tab becomes visible
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden && !isLoading) {
+                loadAll();
+            }
         });
     </script>
 </body>
