@@ -1,4 +1,4 @@
-// server.js - Complete Optimized with Auto-Refresh & HWID Specs Fix
+// server.js - Complete Optimized Version with Performance Fixes & Registered Owner Support
 
 require('dotenv').config();
 const express = require('express');
@@ -414,8 +414,8 @@ app.get('/dashboard', isAuthenticated, async (req, res) => {
             stats: data.stats || {},
             codes: data.codes || [],
             requests: data.requests || [],
-            autoRefresh: true,  // Enable auto-refresh
-            refreshInterval: 5000  // 5 seconds
+            autoRefresh: true,
+            refreshInterval: 5000
         });
     } catch (error) {
         console.error('Dashboard error:', error);
@@ -587,12 +587,13 @@ app.post('/api/register', async (req, res) => {
             }
         }
 
-        const cpuName = parsedHardware.cpu || 'Unknown';
-        const gpuName = parsedHardware.gpu || 'Unknown';
-        const ramTotal = parsedHardware.ram_gb || 0;
-        const storageTotal = parsedHardware.storage_gb || 0;
+        const cpuName = parsedHardware.cpu || parsedHardware.cpu_name || 'Unknown';
+        const gpuName = parsedHardware.gpu || parsedHardware.gpu_name || 'Unknown';
+        const ramTotal = parsedHardware.ram_gb || parsedHardware.ram_total_gb || 0;
+        const storageTotal = parsedHardware.storage_gb || parsedHardware.storage_total_gb || 0;
         const deviceName = parsedHardware.device_name || 'Unknown';
         const profileName = browser_profile || parsedHardware.profile_name || 'Default';
+        const registeredOwner = parsedHardware.registered_owner || 'Unknown';
 
         let parsedBrowserInfo = {};
         try {
@@ -635,13 +636,15 @@ app.post('/api/register', async (req, res) => {
             status_code: updatedCodeInfo.status,
             hwid_verified: true,
             browser_profile: profileName,
+            registered_owner: registeredOwner,
             hardware: {
                 cpu: cpuName,
                 gpu: gpuName,
                 ram_gb: ramTotal,
                 storage_gb: storageTotal,
                 device_name: deviceName,
-                profile_name: profileName
+                profile_name: profileName,
+                registered_owner: registeredOwner
             },
             message: `✅ Profile registered with hardware specs`
         };
@@ -717,7 +720,7 @@ app.get('/api/wallpaper/:deviceId', async (req, res) => {
 });
 
 // ============================================
-// STATUS CHECK - OPTIMIZED
+// STATUS CHECK - OPTIMIZED WITH REGISTERED OWNER
 // ============================================
 
 app.get('/api/status/:deviceId', async (req, res) => {
@@ -740,7 +743,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
                 subscription_expires_at: null,
                 status_code: null,
                 wallpaper: null,
-                hardware: null
+                hardware: null,
+                registered_owner: null
             });
         }
 
@@ -770,7 +774,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
                     ram_gb: device.ram_total_gb,
                     storage_gb: device.storage_total_gb,
                     device_name: device.device_name,
-                    profile_name: device.profile_name
+                    profile_name: device.profile_name,
+                    registered_owner: device.registered_owner || 'Unknown'
                 }
             });
         }
@@ -817,7 +822,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
                     ram_gb: device.ram_total_gb,
                     storage_gb: device.storage_total_gb,
                     device_name: device.device_name,
-                    profile_name: device.profile_name
+                    profile_name: device.profile_name,
+                    registered_owner: device.registered_owner || 'Unknown'
                 }
             });
         }
@@ -853,7 +859,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
                         ram_gb: device.ram_total_gb,
                         storage_gb: device.storage_total_gb,
                         device_name: device.device_name,
-                        profile_name: device.profile_name
+                        profile_name: device.profile_name,
+                        registered_owner: device.registered_owner || 'Unknown'
                     }
                 });
             }
@@ -886,7 +893,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
                     ram_gb: device.ram_total_gb,
                     storage_gb: device.storage_total_gb,
                     device_name: device.device_name,
-                    profile_name: device.profile_name
+                    profile_name: device.profile_name,
+                    registered_owner: device.registered_owner || 'Unknown'
                 }
             });
         }
@@ -917,7 +925,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
                 ram_gb: device.ram_total_gb,
                 storage_gb: device.storage_total_gb,
                 device_name: device.device_name,
-                profile_name: device.profile_name
+                profile_name: device.profile_name,
+                registered_owner: device.registered_owner || 'Unknown'
             },
             device: {
                 id: device.device_id,
@@ -939,7 +948,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
             subscription_expires_at: null,
             status_code: null,
             wallpaper: null,
-            hardware: null
+            hardware: null,
+            registered_owner: null
         });
     }
 });
@@ -1119,7 +1129,6 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
         
         const data = await db.getDashboardData();
         
-        // OPTIMIZED: Remove wallpaper_base64 from response
         const devicesWithoutWallpaper = (data.devices || []).map(device => ({
             ...device,
             wallpaper_base64: null,
@@ -1487,7 +1496,7 @@ app.post('/api/device/batch-update', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// GET HARDWARE SPECS - FIXED
+// GET HARDWARE SPECS - WITH REGISTERED OWNER
 // ============================================
 
 app.get('/api/device/:deviceId/hardware', isApiAuthenticated, async (req, res) => {
@@ -1505,13 +1514,13 @@ app.get('/api/device/:deviceId/hardware', isApiAuthenticated, async (req, res) =
                     ram_gb: specs.ram_total_gb || 0,
                     storage_gb: specs.storage_total_gb || 0,
                     device_name: specs.device_name || 'Unknown',
-                    profile_name: specs.profile_name || 'Unknown'
+                    profile_name: specs.profile_name || 'Unknown',
+                    registered_owner: specs.registered_owner || 'Unknown'
                 }
             });
         } else {
-            // Try to get from devices table directly
             const device = await db.get(
-                'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name FROM devices WHERE device_id = $1',
+                'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner FROM devices WHERE device_id = $1',
                 [deviceId]
             );
             
@@ -1524,7 +1533,8 @@ app.get('/api/device/:deviceId/hardware', isApiAuthenticated, async (req, res) =
                         ram_gb: device.ram_total_gb || 0,
                         storage_gb: device.storage_total_gb || 0,
                         device_name: device.device_name || 'Unknown',
-                        profile_name: device.profile_name || 'Unknown'
+                        profile_name: device.profile_name || 'Unknown',
+                        registered_owner: device.registered_owner || 'Unknown'
                     }
                 });
             } else {
@@ -1545,7 +1555,7 @@ app.get('/api/device/:deviceId/hardware', isApiAuthenticated, async (req, res) =
 });
 
 // ============================================
-// GET DEVICE BY HWID - FIXED FOR HWID MANAGER
+// GET DEVICE BY HWID - WITH REGISTERED OWNER
 // ============================================
 
 app.get('/api/device/hwid/:hwid', isApiAuthenticated, async (req, res) => {
@@ -1553,7 +1563,7 @@ app.get('/api/device/hwid/:hwid', isApiAuthenticated, async (req, res) => {
     
     try {
         const device = await db.get(
-            'SELECT device_id, cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, wallpaper_name, status, code, created_at, last_ping FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
+            'SELECT device_id, cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner, wallpaper_name, status, code, created_at, last_ping FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
             [hwid]
         );
         
@@ -1568,6 +1578,7 @@ app.get('/api/device/hwid/:hwid', isApiAuthenticated, async (req, res) => {
                     storage_gb: device.storage_total_gb || 0,
                     device_name: device.device_name || 'Unknown',
                     profile_name: device.profile_name || 'Unknown',
+                    registered_owner: device.registered_owner || 'Unknown',
                     wallpaper: device.wallpaper_name || null,
                     status: device.status || 'unknown',
                     code: device.code || null,
@@ -1599,19 +1610,16 @@ app.get('/api/hwid/:hwid/details', isApiAuthenticated, async (req, res) => {
     const { hwid } = req.params;
     
     try {
-        // Get HWID info
         const hwidInfo = await db.get(
             'SELECT * FROM hwid_logs WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
             [hwid]
         );
         
-        // Get associated device
         const device = await db.get(
-            'SELECT device_id, cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, wallpaper_name, status, code, created_at, last_ping FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
+            'SELECT device_id, cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner, wallpaper_name, status, code, created_at, last_ping FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
             [hwid]
         );
         
-        // Check if assigned to a code
         const codeHwid = await db.get(
             'SELECT code FROM code_hwids WHERE hwid = $1',
             [hwid]
@@ -1630,6 +1638,7 @@ app.get('/api/hwid/:hwid/details', isApiAuthenticated, async (req, res) => {
                 storage_gb: device.storage_total_gb || 0,
                 device_name: device.device_name || 'Unknown',
                 profile_name: device.profile_name || 'Unknown',
+                registered_owner: device.registered_owner || 'Unknown',
                 wallpaper: device.wallpaper_name || null,
                 status: device.status || 'unknown',
                 code: device.code || null,
@@ -1656,7 +1665,7 @@ app.get('/api/hwid/:hwid/hardware', isApiAuthenticated, async (req, res) => {
     
     try {
         const device = await db.get(
-            'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, wallpaper_name FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
+            'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner, wallpaper_name FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
             [hwid]
         );
         
@@ -1670,6 +1679,7 @@ app.get('/api/hwid/:hwid/hardware', isApiAuthenticated, async (req, res) => {
                     storage_gb: device.storage_total_gb || 0,
                     device_name: device.device_name || 'Unknown',
                     profile_name: device.profile_name || 'Unknown',
+                    registered_owner: device.registered_owner || 'Unknown',
                     wallpaper: device.wallpaper_name || null
                 }
             });
@@ -1702,27 +1712,11 @@ app.get('/api/code/:code/hwids', isApiAuthenticated, async (req, res) => {
         
         const hwidArray = Array.isArray(hwids) ? hwids : [];
         
-        // Get hardware specs for each HWID
-        const hwidsWithSpecs = await Promise.all(hwidArray.map(async (h) => {
-            const device = await db.get(
-                'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, wallpaper_name FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
-                [h.hwid]
-            );
-            
-            return {
-                ...h,
-                hwid_masked: h.hwid ? h.hwid.substring(0, 16) + '...' + h.hwid.substring(48) : null,
-                hwid_full: h.hwid,
-                hardware: device ? {
-                    cpu: device.cpu_name || 'Unknown',
-                    gpu: device.gpu_name || 'Unknown',
-                    ram_gb: device.ram_total_gb || 0,
-                    storage_gb: device.storage_total_gb || 0,
-                    device_name: device.device_name || 'Unknown',
-                    profile_name: device.profile_name || 'Unknown',
-                    wallpaper: device.wallpaper_name || null
-                } : null
-            };
+        const hwidsWithSpecs = hwidArray.map(h => ({
+            ...h,
+            hwid_masked: h.hwid ? h.hwid.substring(0, 16) + '...' + h.hwid.substring(48) : null,
+            hwid_full: h.hwid,
+            hardware: h.hardware || null
         }));
         
         res.json({
@@ -2312,7 +2306,7 @@ app.post('/api/monitor', async (req, res) => {
 });
 
 // ============================================
-// AUTO-DELETE OLD LOGS
+// AUTO-DELETE OLD LOGS - FIXED
 // ============================================
 
 async function autoDeleteOldLogs() {
@@ -2340,10 +2334,12 @@ async function autoDeleteOldLogs() {
     }
 }
 
+// Auto-cleanup every hour
 setInterval(async () => {
     await autoDeleteOldLogs();
 }, 60 * 60 * 1000);
 
+// Also run on startup
 setTimeout(async () => {
     await autoDeleteOldLogs();
 }, 5000);
@@ -2493,8 +2489,9 @@ createDefaultAdmin().then(() => {
         console.log('   ✅ HWID Logs: Pagination (50/page)');
         console.log('   ✅ Parallel Queries');
         console.log('   ✅ Batch Updates');
-        console.log('   ✅ Hardware Specs in HWID Manager');
+        console.log('   ✅ Hardware Specs with Registered Owner');
         console.log('   ✅ Device Info by HWID');
+        console.log('   ✅ Auto-Cleanup HWID Logs (hourly)');
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');

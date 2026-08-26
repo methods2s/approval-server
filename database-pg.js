@@ -1,4 +1,4 @@
-// database-pg.js - Performance Optimized Version
+// database-pg.js - Complete Optimized for 50+ Users with Registered Owner
 
 const { Pool } = require('pg');
 
@@ -43,13 +43,13 @@ class DeviceDatabase {
       stats: { total: 0, approved: 0, revoked: 0, totalPings: 0, totalCodes: 0, activeCodes: 0, pendingRequests: 0 },
       devices: [],
       requests: [],
-      hwidLogs: [],  // NEW: Cache for HWID logs
-      hardwareSpecs: {},  // NEW: Cache for hardware specs
+      hwidLogs: [],
+      hardwareSpecs: {},
       lastUpdate: 0,
       hasInitialData: false
     };
     
-    this.cacheTTL = parseInt(process.env.CACHE_TTL) || 5;  // REDUCED: 5 seconds
+    this.cacheTTL = parseInt(process.env.CACHE_TTL) || 5;
     
     this.queryQueue = [];
     this.activeQueries = 0;
@@ -264,7 +264,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET DASHBOARD DATA - OPTIMIZED
+  // GET DASHBOARD DATA
   // ============================================
 
   async getDashboardData() {
@@ -273,7 +273,6 @@ class DeviceDatabase {
     }
 
     try {
-      // OPTIMIZED: Single query for stats
       const stats = await this.queuedQuery(`
         SELECT 
           COUNT(*) as total,
@@ -283,22 +282,19 @@ class DeviceDatabase {
         FROM devices
       `, [], 5);
       
-      // OPTIMIZED: Parallel queries
       const [totalCodes, activeCodes, pendingRequests] = await Promise.all([
         this.queuedQuery('SELECT COUNT(*) as count FROM codes', [], 5),
         this.queuedQuery("SELECT COUNT(*) as count FROM codes WHERE is_active = true AND status = 'active'", [], 5),
         this.queuedQuery("SELECT COUNT(*) as count FROM requests WHERE status = 'pending'", [], 5)
       ]);
       
-      // OPTIMIZED: Reduced limit from 200 to 50
       const codes = await this.queuedQuery(
         'SELECT code, username, access_level, subscription_type, status, is_active, created_at, max_hwid_limit FROM codes ORDER BY created_at DESC LIMIT 50',
         [], 3
       );
       
-      // OPTIMIZED: Reduced limit from 200 to 50, excluded wallpaper_base64
       const devices = await this.queuedQuery(
-        `SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, cpu_name, gpu_name, ram_total_gb, storage_total_gb, wallpaper_name, wallpaper_width, wallpaper_height, wallpaper_size_kb, 
+        `SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, registered_owner, cpu_name, gpu_name, ram_total_gb, storage_total_gb, wallpaper_name, wallpaper_width, wallpaper_height, wallpaper_size_kb, 
         EXISTS(SELECT 1 FROM devices d2 WHERE d2.wallpaper_base64 IS NOT NULL AND d2.device_id = devices.device_id) as has_wallpaper
         FROM devices ORDER BY created_at DESC LIMIT 50`,
         [], 3
@@ -334,7 +330,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // HWID LOGS - OPTIMIZED WITH PAGINATION
+  // HWID LOGS - WITH PAGINATION
   // ============================================
 
   async getHwidLogsWithAssignment(limit = 50, status = null, offset = 0) {
@@ -400,20 +396,19 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET HARDWARE SPECS - OPTIMIZED
+  // GET HARDWARE SPECS
   // ============================================
 
   async getHardwareSpecs(deviceId) {
     try {
-      // Check cache first
       const cacheKey = `hw_${deviceId}`;
       if (this.cache.hardwareSpecs[cacheKey] && 
-          Date.now() - this.cache.hardwareSpecs[cacheKey].timestamp < 60000) { // 1 minute cache
+          Date.now() - this.cache.hardwareSpecs[cacheKey].timestamp < 60000) {
         return this.cache.hardwareSpecs[cacheKey].data;
       }
       
       const result = await this.get(
-        `SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, profile_name, device_name 
+        `SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, profile_name, device_name, registered_owner 
          FROM devices WHERE device_id = $1`,
         [deviceId]
       );
@@ -433,14 +428,13 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // BATCH UPDATE - OPTIMIZED
+  // BATCH UPDATE
   // ============================================
 
   async batchUpdateDevices(updates) {
     if (!updates || updates.length === 0) return { success: true, updated: 0 };
     
     try {
-      // Use single query for batch updates
       const values = updates.map((u, i) => 
         `($${i * 2 + 1}, $${i * 2 + 2})`
       ).join(',');
@@ -467,7 +461,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // INIT TABLES - WITH INDEXES
+  // INIT TABLES - WITH REGISTERED OWNER
   // ============================================
 
   async initTables() {
@@ -507,18 +501,16 @@ class DeviceDatabase {
         )
       `);
 
-      // OPTIMIZED: Added more indexes
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
-      
-      // NEW: Performance indexes
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_code_status ON devices(code, status)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status_created ON hwid_logs(status, created_at DESC)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid_created ON hwid_logs(hwid, created_at DESC)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_status_active ON codes(status, is_active)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_registered_owner ON devices(registered_owner)`);
 
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS devices (
@@ -543,6 +535,7 @@ class DeviceDatabase {
           storage_total_gb DECIMAL,
           profile_name TEXT,
           device_name TEXT,
+          registered_owner TEXT,
           wallpaper_name TEXT,
           wallpaper_size_kb DECIMAL,
           wallpaper_width INTEGER,
@@ -600,7 +593,7 @@ class DeviceDatabase {
         )
       `);
 
-      console.log('✅ Tables created/verified');
+      console.log('✅ Tables created/verified with registered_owner column');
       await this.refreshCache();
       
     } catch (error) {
@@ -609,7 +602,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // REGISTER DEVICE - OPTIMIZED
+  // REGISTER DEVICE - WITH REGISTERED OWNER
   // ============================================
 
   async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null, hardware = null, wallpaper = null) {
@@ -685,16 +678,18 @@ class DeviceDatabase {
       }
 
       let cpuName = 'Unknown', gpuName = 'Unknown', ramTotal = 0, storageTotal = 0, deviceName = 'Unknown', profileName = 'Default';
+      let registeredOwner = 'Unknown';
       let wallpaperName = null, wallpaperSizeKb = 0, wallpaperWidth = 0, wallpaperHeight = 0, wallpaperBase64 = null;
 
       if (hardware) {
         const hw = typeof hardware === 'string' ? JSON.parse(hardware) : hardware;
-        cpuName = hw.cpu || 'Unknown';
-        gpuName = hw.gpu || 'Unknown';
-        ramTotal = hw.ram_gb || 0;
-        storageTotal = hw.storage_gb || 0;
+        cpuName = hw.cpu || hw.cpu_name || 'Unknown';
+        gpuName = hw.gpu || hw.gpu_name || 'Unknown';
+        ramTotal = hw.ram_gb || hw.ram_total_gb || 0;
+        storageTotal = hw.storage_gb || hw.storage_total_gb || 0;
         deviceName = hw.device_name || 'Unknown';
         profileName = hw.profile_name || 'Default';
+        registeredOwner = hw.registered_owner || 'Unknown';
       }
 
       if (wallpaper) {
@@ -725,14 +720,15 @@ class DeviceDatabase {
             storage_total_gb = $10,
             profile_name = $11,
             device_name = $12,
-            wallpaper_name = $13,
-            wallpaper_size_kb = $14,
-            wallpaper_width = $15,
-            wallpaper_height = $16,
-            wallpaper_base64 = $17,
+            registered_owner = $13,
+            wallpaper_name = $14,
+            wallpaper_size_kb = $15,
+            wallpaper_width = $16,
+            wallpaper_height = $17,
+            wallpaper_base64 = $18,
             approved_at = CURRENT_TIMESTAMP,
             revoked_at = NULL
-          WHERE device_id = $18`,
+          WHERE device_id = $19`,
           [
             userAgent || '',
             ip || '',
@@ -746,6 +742,7 @@ class DeviceDatabase {
             storageTotal,
             profileName,
             deviceName,
+            registeredOwner,
             wallpaperName,
             wallpaperSizeKb,
             wallpaperWidth,
@@ -760,11 +757,11 @@ class DeviceDatabase {
             device_id, user_agent, ip_address, browser_info, code, hwid,
             status, approved_at, browser_profile,
             cpu_name, gpu_name, ram_total_gb, storage_total_gb,
-            profile_name, device_name,
+            profile_name, device_name, registered_owner,
             wallpaper_name, wallpaper_size_kb, wallpaper_width, wallpaper_height, wallpaper_base64
           ) VALUES ($1, $2, $3, $4, $5, $6, 'approved', CURRENT_TIMESTAMP, $7,
-            $8, $9, $10, $11, $12, $13,
-            $14, $15, $16, $17, $18)`,
+            $8, $9, $10, $11, $12, $13, $14,
+            $15, $16, $17, $18, $19)`,
           [
             deviceId,
             userAgent || '',
@@ -779,6 +776,7 @@ class DeviceDatabase {
             storageTotal,
             profileName,
             deviceName,
+            registeredOwner,
             wallpaperName,
             wallpaperSizeKb,
             wallpaperWidth,
@@ -791,7 +789,7 @@ class DeviceDatabase {
       await this.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code]);
       
       await this.logUsage(deviceId, code, 'register', 
-        `Device registered | Profile: ${profileName}`
+        `Device registered | Profile: ${profileName} | Owner: ${registeredOwner}`
       );
       
       await this.refreshCache();
@@ -809,6 +807,7 @@ class DeviceDatabase {
         subscription_expires_at: updatedCodeInfo.expires_at,
         status_code: updatedCodeInfo.status,
         hwid_auto_assigned: !isAuthorized,
+        registered_owner: registeredOwner,
         wallpaper: {
           name: wallpaperName,
           size_kb: wallpaperSizeKb,
@@ -825,12 +824,12 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET DEVICES - OPTIMIZED
+  // GET DEVICES
   // ============================================
 
   async getDevices(status = null, limit = 50, offset = 0) {
     try {
-      let query = 'SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, cpu_name, gpu_name, ram_total_gb, storage_total_gb, wallpaper_name, wallpaper_width, wallpaper_height, wallpaper_size_kb FROM devices';
+      let query = 'SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, registered_owner, cpu_name, gpu_name, ram_total_gb, storage_total_gb, wallpaper_name, wallpaper_width, wallpaper_height, wallpaper_size_kb FROM devices';
       const params = [];
       
       if (status) {
@@ -851,7 +850,7 @@ class DeviceDatabase {
   async getDevicesByCode(code) {
     try {
       const result = await this.queuedQuery(
-        'SELECT device_id, status, last_ping, created_at, profile_name, device_name FROM devices WHERE code = $1 ORDER BY created_at DESC LIMIT 50', 
+        'SELECT device_id, status, last_ping, created_at, profile_name, device_name, registered_owner FROM devices WHERE code = $1 ORDER BY created_at DESC LIMIT 50', 
         [code],
         7
       );
@@ -902,7 +901,28 @@ class DeviceDatabase {
         'SELECT hwid, assigned_at, last_used FROM code_hwids WHERE code = $1 ORDER BY assigned_at DESC',
         [code]
       );
-      return Array.isArray(result) ? result : [];
+      
+      const hwidsWithSpecs = await Promise.all(result.map(async (h) => {
+        const device = await this.get(
+          'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner, wallpaper_name FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
+          [h.hwid]
+        );
+        return {
+          ...h,
+          hardware: device ? {
+            cpu: device.cpu_name || 'Unknown',
+            gpu: device.gpu_name || 'Unknown',
+            ram_gb: device.ram_total_gb || 0,
+            storage_gb: device.storage_total_gb || 0,
+            device_name: device.device_name || 'Unknown',
+            profile_name: device.profile_name || 'Unknown',
+            registered_owner: device.registered_owner || 'Unknown',
+            wallpaper: device.wallpaper_name || null
+          } : null
+        };
+      }));
+      
+      return hwidsWithSpecs;
     } catch (error) {
       console.error('Get code HWIDs error:', error);
       return [];
@@ -1086,7 +1106,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // AUTO-DEACTIVATE CODE - OPTIMIZED
+  // AUTO-DEACTIVATE CODE
   // ============================================
 
   async autoDeactivateCode(code, reason = 'unauthorized_use') {
@@ -1100,26 +1120,22 @@ class DeviceDatabase {
             status = 'auto_deactivated_unauthorized';
         }
         
-        // OPTIMIZED: Single query for deactivation
         await this.run(
             'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
             [status, code]
         );
         
-        // OPTIMIZED: Batch update devices
         await this.run(
             'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE code = $2',
             ['revoked', code]
         );
         
-        // Get count of revoked devices for response
         const countResult = await this.get(
             'SELECT COUNT(*) as count FROM devices WHERE code = $1',
             [code]
         );
         const deviceCount = countResult ? parseInt(countResult.count) : 0;
         
-        // OPTIMIZED: Delete all HWIDs in one query
         await this.run(
             'DELETE FROM code_hwids WHERE code = $1',
             [code]
@@ -1308,14 +1324,12 @@ class DeviceDatabase {
 
   async deactivateCode(code) {
     try {
-      // OPTIMIZED: Get device count first
       const countResult = await this.get(
         'SELECT COUNT(*) as count FROM devices WHERE code = $1',
         [code]
       );
       const deviceCount = countResult ? parseInt(countResult.count) : 0;
       
-      // OPTIMIZED: Batch operations
       await this.run('DELETE FROM code_hwids WHERE code = $1', [code]);
       await this.run('DELETE FROM devices WHERE code = $1', [code]);
       
@@ -1551,7 +1565,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // NEW HWID METHODS - OPTIMIZED
+  // NEW HWID METHODS
   // ============================================
 
   async getNewUniqueHwids(limit = 50, offset = 0) {
@@ -1640,6 +1654,7 @@ class DeviceDatabase {
         subscription_started_at: codeInfo ? codeInfo.subscription_started_at : null,
         subscription_expires_at: codeInfo ? codeInfo.expires_at : null,
         status_code: codeInfo ? codeInfo.status : null,
+        registered_owner: device.registered_owner || 'Unknown',
         wallpaper: device.wallpaper_name ? {
           name: device.wallpaper_name,
           size_kb: device.wallpaper_size_kb,
@@ -1757,7 +1772,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // STATS - OPTIMIZED
+  // STATS
   // ============================================
 
   async getStats() {
@@ -1834,7 +1849,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // REQUEST MANAGEMENT - FIXED
+  // REQUEST MANAGEMENT
   // ============================================
 
   async getPendingRequests() {
@@ -1877,7 +1892,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // CACHE - OPTIMIZED
+  // CACHE
   // ============================================
 
   async refreshCache() {
