@@ -453,7 +453,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - OPTIMIZED
+// REGISTER DEVICE - FIXED WITH REGISTERED OWNER
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -587,6 +587,9 @@ app.post('/api/register', async (req, res) => {
             }
         }
 
+        // ============================================
+        // FIX: Extract registered_owner from hardware
+        // ============================================
         const cpuName = parsedHardware.cpu || parsedHardware.cpu_name || 'Unknown';
         const gpuName = parsedHardware.gpu || parsedHardware.gpu_name || 'Unknown';
         const ramTotal = parsedHardware.ram_gb || parsedHardware.ram_total_gb || 0;
@@ -660,6 +663,7 @@ app.post('/api/register', async (req, res) => {
         }
 
         console.log('✅ Registration successful for device:', deviceId);
+        console.log('👔 Registered Owner:', registeredOwner);
         res.json(responseData);
         
     } catch (error) {
@@ -720,7 +724,7 @@ app.get('/api/wallpaper/:deviceId', async (req, res) => {
 });
 
 // ============================================
-// STATUS CHECK - OPTIMIZED WITH REGISTERED OWNER
+// STATUS CHECK - WITH REGISTERED OWNER
 // ============================================
 
 app.get('/api/status/:deviceId', async (req, res) => {
@@ -1120,7 +1124,7 @@ app.get('/api/codes', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// DASHBOARD DATA - OPTIMIZED
+// DASHBOARD DATA
 // ============================================
 
 app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
@@ -1555,7 +1559,7 @@ app.get('/api/device/:deviceId/hardware', isApiAuthenticated, async (req, res) =
 });
 
 // ============================================
-// GET DEVICE BY HWID - WITH REGISTERED OWNER
+// GET DEVICE BY HWID
 // ============================================
 
 app.get('/api/device/hwid/:hwid', isApiAuthenticated, async (req, res) => {
@@ -1964,7 +1968,7 @@ app.get('/api/hwid-logs/new-count', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// NEW HWID DETECTION - OPTIMIZED
+// NEW HWID DETECTION
 // ============================================
 
 app.get('/api/hwid-new', isApiAuthenticated, async (req, res) => {
@@ -2306,7 +2310,7 @@ app.post('/api/monitor', async (req, res) => {
 });
 
 // ============================================
-// AUTO-DELETE OLD LOGS - FIXED
+// AUTO-DELETE OLD LOGS
 // ============================================
 
 async function autoDeleteOldLogs() {
@@ -2334,12 +2338,10 @@ async function autoDeleteOldLogs() {
     }
 }
 
-// Auto-cleanup every hour
 setInterval(async () => {
     await autoDeleteOldLogs();
 }, 60 * 60 * 1000);
 
-// Also run on startup
 setTimeout(async () => {
     await autoDeleteOldLogs();
 }, 5000);
