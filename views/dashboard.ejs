@@ -64,6 +64,9 @@
         .btn-batch-deactivate { background: #f44336; color: #fff; border: none; border-radius: 4px; padding: 8px 20px; cursor: pointer; font-size: 13px; font-weight: bold; transition: all 0.2s; }
         .btn-batch-deactivate:hover { background: #d32f2f; transform: scale(1.02); }
         .btn-batch-deactivate:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
+        .btn-batch-reactivate { background: #4CAF50; color: #fff; border: none; border-radius: 4px; padding: 8px 20px; cursor: pointer; font-size: 13px; font-weight: bold; transition: all 0.2s; }
+        .btn-batch-reactivate:hover { background: #388E3C; transform: scale(1.02); }
+        .btn-batch-reactivate:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
         
         .scroll-table { overflow-x: auto; max-height: 500px; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -79,11 +82,6 @@
         .badge.svip { background: rgba(76,175,80,0.2); color: #4CAF50; }
         .badge.auto-deactivated { background: rgba(244,67,54,0.2); color: #f44336; }
         .badge.approved { background: rgba(76,175,80,0.2); color: #4CAF50; }
-        
-        .badge-hwid-status { padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: bold; }
-        .badge-hwid-status.has-hwid { background: rgba(76,175,80,0.2); color: #4CAF50; }
-        .badge-hwid-status.no-hwid { background: rgba(244,67,54,0.2); color: #f44336; }
-        .badge-hwid-status.full { background: rgba(255,152,0,0.2); color: #FF9800; }
         
         .edit-input { width: 100%; padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; min-width: 60px; }
         .edit-input:focus { outline: none; border-color: #4CAF50; }
@@ -171,6 +169,17 @@
         .error-banner .error-text { font-size: 14px; }
         .error-banner .retry-btn { background: #f44336; color: #fff; border: none; border-radius: 4px; padding: 4px 15px; cursor: pointer; margin-left: 15px; }
         .error-banner .retry-btn:hover { background: #d32f2f; }
+        
+        .loading-shimmer {
+            animation: shimmer 1.5s ease-in-out infinite;
+            background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.05) 75%);
+            background-size: 200% 100%;
+            border-radius: 4px;
+        }
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
         
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
@@ -271,20 +280,14 @@
                 <div id="gen-result" class="mt-10"></div>
             </div>
 
-            <!-- BATCH ACTIONS -->
+            <!-- BATCH ACTIONS - REMOVED SVIP & VIP buttons -->
             <div class="batch-actions">
                 <span class="label">⚡ Batch Actions:</span>
                 <button onclick="batchDeactivateAll()" class="btn-batch-deactivate" id="batch-deactivate-btn">
-                    🚨 Deactivate ALL Codes
+                    🚨 Deactivate ALL Codes (Removes HWIDs)
                 </button>
-                <button onclick="batchDeactivateSVIP()" class="btn-batch-deactivate" id="batch-deactivate-svip-btn" style="background:#FF9800;">
-                    ⭐ Deactivate ALL SVIP
-                </button>
-                <button onclick="batchDeactivateVIP()" class="btn-batch-deactivate" id="batch-deactivate-vip-btn" style="background:#FF9800;">
-                    🔶 Deactivate ALL VIP
-                </button>
-                <button onclick="batchReactivateAll()" class="btn-batch-deactivate" id="batch-reactivate-btn" style="background:#4CAF50;">
-                    🔓 Reactivate ALL
+                <button onclick="batchReactivateAll()" class="btn-batch-reactivate" id="batch-reactivate-btn">
+                    🔓 Reactivate ALL (Removes HWIDs)
                 </button>
             </div>
 
@@ -304,7 +307,6 @@
                                 <input type="text" id="svip-search" placeholder="Search username..." onkeyup="filterSVIP()">
                                 <button class="clear-search" onclick="document.getElementById('svip-search').value=''; filterSVIP();" title="Clear search">✕</button>
                             </div>
-                            <button onclick="batchDeactivateSVIP()" class="btn-small btn-danger" style="padding:4px 12px;">Deactivate All</button>
                         </div>
                     </div>
                     <div class="scroll-table">
@@ -346,7 +348,6 @@
                                 <input type="text" id="vip-search" placeholder="Search username..." onkeyup="filterVIP()">
                                 <button class="clear-search" onclick="document.getElementById('vip-search').value=''; filterVIP();" title="Clear search">✕</button>
                             </div>
-                            <button onclick="batchDeactivateVIP()" class="btn-small btn-danger" style="padding:4px 12px;">Deactivate All</button>
                         </div>
                     </div>
                     <div class="scroll-table">
@@ -630,9 +631,8 @@
         }
 
         // ============================================
-        // BATCH DEACTIVATE FUNCTIONS
+        // BATCH DEACTIVATE ALL - REMOVES HWIDs
         // ============================================
-
         async function batchDeactivateAll() {
             const totalCodes = allCodes.length;
             if (totalCodes === 0) {
@@ -650,7 +650,7 @@
             const btn = document.getElementById('batch-deactivate-btn');
             btn.disabled = true;
             btn.textContent = '⏳ Processing...';
-            showMessage(`⏳ Deactivating ${totalCodes} codes...`, 'loading');
+            showMessage(`⏳ Deactivating ${totalCodes} codes and removing HWIDs...`, 'loading');
             
             let successCount = 0;
             let failCount = 0;
@@ -661,6 +661,7 @@
                     const result = await response.json();
                     if (result.success) {
                         successCount++;
+                        console.log(`✅ Deactivated ${code.code} - HWIDs removed`);
                     } else {
                         failCount++;
                         console.error('Failed to deactivate:', code.code, result.error);
@@ -673,94 +674,15 @@
             }
             
             btn.disabled = false;
-            btn.textContent = '🚨 Deactivate ALL Codes';
-            showMessage(`✅ ${successCount} codes deactivated, ${failCount} failed`, successCount > 0 ? 'success' : 'error');
+            btn.textContent = '🚨 Deactivate ALL Codes (Removes HWIDs)';
+            showMessage(`✅ ${successCount} codes deactivated with HWIDs removed, ${failCount} failed`, successCount > 0 ? 'success' : 'error');
             hwidDetailsCache = {};
             await loadAll();
         }
 
-        async function batchDeactivateSVIP() {
-            const svipCodes = allCodes.filter(c => c.access_level === 'SVIP');
-            if (svipCodes.length === 0) {
-                showMessage('❌ No SVIP codes to deactivate', 'error');
-                return;
-            }
-            
-            if (!confirm(`⚠️ Deactivate ALL ${svipCodes.length} SVIP codes?\n\nThis will remove ALL HWIDs and devices from ALL SVIP codes.`)) {
-                return;
-            }
-            
-            const btn = document.getElementById('batch-deactivate-svip-btn');
-            btn.disabled = true;
-            btn.textContent = '⏳ Processing...';
-            showMessage(`⏳ Deactivating ${svipCodes.length} SVIP codes...`, 'loading');
-            
-            let successCount = 0;
-            let failCount = 0;
-            
-            for (const code of svipCodes) {
-                try {
-                    const response = await fetch(`/api/code/${code.code}/deactivate`, { method: 'POST' });
-                    const result = await response.json();
-                    if (result.success) {
-                        successCount++;
-                    } else {
-                        failCount++;
-                    }
-                } catch (error) {
-                    failCount++;
-                }
-                btn.textContent = `⏳ ${successCount + failCount}/${svipCodes.length}`;
-            }
-            
-            btn.disabled = false;
-            btn.textContent = '⭐ Deactivate ALL SVIP';
-            showMessage(`✅ ${successCount} SVIP codes deactivated, ${failCount} failed`, successCount > 0 ? 'success' : 'error');
-            hwidDetailsCache = {};
-            await loadAll();
-        }
-
-        async function batchDeactivateVIP() {
-            const vipCodes = allCodes.filter(c => c.access_level === 'VIP');
-            if (vipCodes.length === 0) {
-                showMessage('❌ No VIP codes to deactivate', 'error');
-                return;
-            }
-            
-            if (!confirm(`⚠️ Deactivate ALL ${vipCodes.length} VIP codes?\n\nThis will remove ALL HWIDs and devices from ALL VIP codes.`)) {
-                return;
-            }
-            
-            const btn = document.getElementById('batch-deactivate-vip-btn');
-            btn.disabled = true;
-            btn.textContent = '⏳ Processing...';
-            showMessage(`⏳ Deactivating ${vipCodes.length} VIP codes...`, 'loading');
-            
-            let successCount = 0;
-            let failCount = 0;
-            
-            for (const code of vipCodes) {
-                try {
-                    const response = await fetch(`/api/code/${code.code}/deactivate`, { method: 'POST' });
-                    const result = await response.json();
-                    if (result.success) {
-                        successCount++;
-                    } else {
-                        failCount++;
-                    }
-                } catch (error) {
-                    failCount++;
-                }
-                btn.textContent = `⏳ ${successCount + failCount}/${vipCodes.length}`;
-            }
-            
-            btn.disabled = false;
-            btn.textContent = '🔶 Deactivate ALL VIP';
-            showMessage(`✅ ${successCount} VIP codes deactivated, ${failCount} failed`, successCount > 0 ? 'success' : 'error');
-            hwidDetailsCache = {};
-            await loadAll();
-        }
-
+        // ============================================
+        // BATCH REACTIVATE ALL - REMOVES HWIDs
+        // ============================================
         async function batchReactivateAll() {
             const inactiveCodes = allCodes.filter(c => !c.is_active);
             if (inactiveCodes.length === 0) {
@@ -775,7 +697,7 @@
             const btn = document.getElementById('batch-reactivate-btn');
             btn.disabled = true;
             btn.textContent = '⏳ Processing...';
-            showMessage(`⏳ Reactivating ${inactiveCodes.length} codes...`, 'loading');
+            showMessage(`⏳ Reactivating ${inactiveCodes.length} codes and removing HWIDs...`, 'loading');
             
             let successCount = 0;
             let failCount = 0;
@@ -790,18 +712,21 @@
                     const result = await response.json();
                     if (result.success) {
                         successCount++;
+                        console.log(`✅ Reactivated ${code.code} - HWIDs removed`);
                     } else {
                         failCount++;
+                        console.error('Failed to reactivate:', code.code, result.error);
                     }
                 } catch (error) {
                     failCount++;
+                    console.error('Error reactivating:', code.code, error.message);
                 }
                 btn.textContent = `⏳ ${successCount + failCount}/${inactiveCodes.length}`;
             }
             
             btn.disabled = false;
-            btn.textContent = '🔓 Reactivate ALL';
-            showMessage(`✅ ${successCount} codes reactivated, ${failCount} failed`, successCount > 0 ? 'success' : 'error');
+            btn.textContent = '🔓 Reactivate ALL (Removes HWIDs)';
+            showMessage(`✅ ${successCount} codes reactivated with HWIDs removed, ${failCount} failed`, successCount > 0 ? 'success' : 'error');
             hwidDetailsCache = {};
             await loadAll();
         }
@@ -838,9 +763,9 @@
         }
 
         // ============================================
-        // FETCH WITH RETRY - FIXED with fallback
+        // FAST FETCH - Single call for everything
         // ============================================
-        async function fetchWithRetry(url, options = {}, maxRetries = 2) {
+        async function fastFetch(url, options = {}) {
             const defaultOptions = {
                 credentials: 'same-origin',
                 headers: {
@@ -858,63 +783,25 @@
                 }
             };
             
-            // Try once with short timeout, then with longer timeout
-            for (let attempt = 0; attempt < maxRetries; attempt++) {
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), attempt === 0 ? 8000 : 15000);
-                    
-                    mergedOptions.signal = controller.signal;
-                    
-                    const response = await fetch(url, mergedOptions);
-                    clearTimeout(timeoutId);
-                    
-                    if (response.status === 401) {
-                        showErrorBanner('❌ Session expired. Please refresh the page or login again.');
-                        window.location.href = '/login';
-                        throw new Error('Unauthorized');
-                    }
-                    
-                    if (response.status === 429) {
-                        const waitTime = 3000 * (attempt + 1);
-                        console.log(`⏳ Rate limited, waiting ${waitTime}ms... (attempt ${attempt + 1}/${maxRetries})`);
-                        await new Promise(resolve => setTimeout(resolve, waitTime));
-                        continue;
-                    }
-                    
-                    return response;
-                } catch (error) {
-                    if (error.name === 'AbortError') {
-                        console.log(`⏳ Request timed out, retrying... (attempt ${attempt + 1}/${maxRetries})`);
-                        if (attempt === maxRetries - 1) {
-                            // Last attempt failed - throw
-                            throw new Error('Request timeout');
-                        }
-                        continue;
-                    }
-                    if (attempt === maxRetries - 1) throw error;
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-            }
-            throw new Error('Max retries exceeded');
-        }
-
-        // ============================================
-        // FETCH WITH FALLBACK - USE CACHED DATA
-        // ============================================
-        async function fetchWithFallback(url, options = {}, fallbackData = null) {
             try {
-                const response = await fetchWithRetry(url, options, 2);
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
+                mergedOptions.signal = controller.signal;
+                
+                const response = await fetch(url, mergedOptions);
+                clearTimeout(timeoutId);
+                
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    throw new Error('Unauthorized');
+                }
+                
                 return response;
             } catch (error) {
-                console.warn('⚠️ Fetch failed, using fallback:', error.message);
-                showErrorBanner('⚠️ Using cached data - server may be slow');
-                // Return a mock response with the fallback data
-                return {
-                    ok: true,
-                    json: async () => fallbackData || { success: false, error: 'Using cached data' },
-                    status: 200
-                };
+                if (error.name === 'AbortError') {
+                    throw new Error('Request timeout');
+                }
+                throw error;
             }
         }
 
@@ -997,10 +884,7 @@
             hideErrorBanner();
             showMessage('🔄 Refreshing...', 'loading');
             try {
-                const response = await fetchWithRetry('/api/force-refresh', { 
-                    method: 'POST',
-                    credentials: 'same-origin'
-                }, 2);
+                const response = await fastFetch('/api/force-refresh', { method: 'POST' });
                 const result = await response.json();
                 if (result.success) {
                     hwidDetailsCache = {};
@@ -1012,7 +896,6 @@
             } catch (error) {
                 showMessage('❌ Error refreshing: ' + error.message, 'error');
                 showErrorBanner('❌ Error refreshing data: ' + error.message);
-                // Use cached data
                 if (allCodes.length > 0) {
                     renderCurrentTab();
                     updateStats();
@@ -1041,7 +924,7 @@
         }
 
         // ============================================
-        // LOAD ALL DATA - WITH FALLBACK
+        // LOAD ALL DATA - FAST
         // ============================================
         async function loadAll() {
             if (isLoading) return;
@@ -1049,43 +932,28 @@
             loadError = false;
             hideErrorBanner();
             
-            // Save current data as fallback
-            const fallbackData = {
-                codes: allCodes || [],
-                devices: allDevices || [],
-                stats: {
-                    totalCodes: allCodes.length || 0,
-                    total: allDevices.length || 0
-                }
-            };
-            
             try {
-                const response = await fetchWithFallback('/api/dashboard-data', {
-                    credentials: 'same-origin'
-                }, fallbackData);
-                
+                const response = await fastFetch('/api/dashboard-data');
                 const data = await response.json();
                 
                 if (data && data.codes) {
                     allCodes = data.codes || [];
                     allDevices = data.devices || [];
-                } else if (fallbackData.codes) {
-                    // Use fallback data
-                    allCodes = fallbackData.codes;
-                    allDevices = fallbackData.devices;
-                    showErrorBanner('⚠️ Using cached data - server may be slow');
                 }
                 
-                await loadHwidStatusForCodes();
+                // Load HWID status in background (non-blocking)
+                setTimeout(() => {
+                    loadHwidStatusForCodes();
+                }, 100);
+                
                 populateHwidCodeDropdown();
                 filterSVIP();
                 filterVIP();
                 updateStats();
                 
+                // Update new HWID count
                 try {
-                    const newResponse = await fetchWithRetry('/api/hwid-new?limit=1', {
-                        credentials: 'same-origin'
-                    }, 1);
+                    const newResponse = await fastFetch('/api/hwid-new?limit=1');
                     const newData = await newResponse.json();
                     if (newData.success) {
                         const countEl = document.getElementById('new-hwid-unique-count');
@@ -1095,7 +963,7 @@
                         }
                     }
                 } catch (e) {
-                    // Ignore - non-critical
+                    // Ignore
                 }
                 
                 isLoading = false;
@@ -1107,7 +975,6 @@
                 showMessage('⚠️ Using cached data: ' + error.message, 'info');
                 showErrorBanner('⚠️ Using cached data - ' + error.message);
                 
-                // Still render with existing data
                 if (allCodes.length > 0) {
                     renderCurrentTab();
                     updateStats();
@@ -1116,42 +983,35 @@
         }
 
         // ============================================
-        // LOAD HWID STATUS - FIXED with fallback
+        // LOAD HWID STATUS - Non-blocking
         // ============================================
         async function loadHwidStatusForCodes() {
             codeHwidsMap = {};
             
-            // Process in smaller batches to avoid 429
-            const batchSize = 2;
-            const codes = allCodes.slice(0, 30); // Limit to 30 codes
+            const codes = allCodes.slice(0, 30);
+            if (codes.length === 0) return;
             
-            for (let i = 0; i < codes.length; i += batchSize) {
-                const batch = codes.slice(i, i + batchSize);
-                const promises = batch.map(async (code) => {
-                    try {
-                        const response = await fetchWithRetry(`/api/code/${code.code}/hwid-limit`, {
-                            credentials: 'same-origin'
-                        }, 1);
-                        const data = await response.json();
-                        return { code: code.code, data: data };
-                    } catch (error) {
-                        return { code: code.code, data: { current_hwid_count: 0, max_hwid_limit: 1 } };
-                    }
-                });
-                
-                const results = await Promise.all(promises);
-                results.forEach(result => {
-                    codeHwidsMap[result.code] = {
-                        count: result.data.current_hwid_count || 0,
-                        limit: result.data.max_hwid_limit || 1
-                    };
-                });
-                
-                // Wait between batches
-                if (i + batchSize < codes.length) {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+            const promises = codes.map(async (code) => {
+                try {
+                    const response = await fastFetch(`/api/code/${code.code}/hwid-limit`);
+                    const data = await response.json();
+                    return { code: code.code, data: data };
+                } catch (error) {
+                    return { code: code.code, data: { current_hwid_count: 0, max_hwid_limit: 1 } };
                 }
-            }
+            });
+            
+            const results = await Promise.all(promises);
+            results.forEach(result => {
+                codeHwidsMap[result.code] = {
+                    count: result.data.current_hwid_count || 0,
+                    limit: result.data.max_hwid_limit || 1
+                };
+            });
+            
+            // Re-render with HWID info
+            filterSVIP();
+            filterVIP();
         }
 
         // ============================================
@@ -1363,12 +1223,11 @@
                 const currentCode = allCodes.find(c => c.code === code);
                 
                 if (currentCode && username && currentCode.username !== username) {
-                    const response = await fetchWithRetry(`/api/code/${code}/username`, {
+                    const response = await fastFetch(`/api/code/${code}/username`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ username }),
-                        credentials: 'same-origin'
-                    }, 2);
+                        body: JSON.stringify({ username })
+                    });
                     const result = await response.json();
                     if (!result.success) {
                         showMessage('❌ ' + (result.error || 'Failed to update username'), 'error');
@@ -1377,12 +1236,11 @@
                 }
                 
                 if (currentCode && currentCode.subscription_type !== subscriptionType) {
-                    const response = await fetchWithRetry(`/api/code/${code}/subscription`, {
+                    const response = await fastFetch(`/api/code/${code}/subscription`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ subscriptionType }),
-                        credentials: 'same-origin'
-                    }, 2);
+                        body: JSON.stringify({ subscriptionType })
+                    });
                     const result = await response.json();
                     if (!result.success) {
                         showMessage('❌ ' + (result.error || 'Failed to update subscription'), 'error');
@@ -1391,12 +1249,11 @@
                 }
 
                 if (currentCode && currentCode.max_hwid_limit !== hwidLimit) {
-                    const response = await fetchWithRetry(`/api/code/${code}/hwid-limit`, {
+                    const response = await fastFetch(`/api/code/${code}/hwid-limit`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ limit: hwidLimit }),
-                        credentials: 'same-origin'
-                    }, 2);
+                        body: JSON.stringify({ limit: hwidLimit })
+                    });
                     const result = await response.json();
                     if (!result.success) {
                         showMessage('❌ ' + (result.error || 'Failed to update HWID limit'), 'error');
@@ -1429,17 +1286,13 @@
             try {
                 let response;
                 if (codeInfo.is_active) {
-                    response = await fetchWithRetry(`/api/code/${code}/deactivate`, { 
-                        method: 'POST',
-                        credentials: 'same-origin'
-                    }, 2);
+                    response = await fastFetch(`/api/code/${code}/deactivate`, { method: 'POST' });
                 } else {
-                    response = await fetchWithRetry(`/api/code/${code}/reactivate`, {
+                    response = await fastFetch(`/api/code/${code}/reactivate`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ subscriptionType: codeInfo.subscription_type || 'Lifetime' }),
-                        credentials: 'same-origin'
-                    }, 2);
+                        body: JSON.stringify({ subscriptionType: codeInfo.subscription_type || 'Lifetime' })
+                    });
                 }
                 const result = await response.json();
                 if (result.success) {
@@ -1467,10 +1320,7 @@
         async function deleteCode(code) {
             if (!confirm(`⚠️ Permanently delete code ${code}?`)) return;
             try {
-                const response = await fetchWithRetry(`/api/code/${code}`, { 
-                    method: 'DELETE',
-                    credentials: 'same-origin'
-                }, 2);
+                const response = await fastFetch(`/api/code/${code}`, { method: 'DELETE' });
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
@@ -1500,12 +1350,11 @@
             
             showMessage('⏳ Generating...', 'loading');
             try {
-                const response = await fetchWithRetry('/api/generate-code', {
+                const response = await fastFetch('/api/generate-code', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, accessLevel, subscriptionType }),
-                    credentials: 'same-origin'
-                }, 2);
+                    body: JSON.stringify({ username, accessLevel, subscriptionType })
+                });
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ Code ${result.code} generated for ${result.username}`, 'success');
@@ -1555,8 +1404,8 @@
                 document.getElementById('hwid-list-body').innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading HWIDs...</div></td></tr>';
                 
                 const [limitResponse, hwidResponse] = await Promise.all([
-                    fetchWithRetry(`/api/code/${code}/hwid-limit`, { credentials: 'same-origin' }, 2),
-                    fetchWithRetry(`/api/code/${code}/hwids`, { credentials: 'same-origin' }, 2)
+                    fastFetch(`/api/code/${code}/hwid-limit`),
+                    fastFetch(`/api/code/${code}/hwids`)
                 ]);
                 
                 if (!limitResponse.ok || !hwidResponse.ok) {
@@ -1631,7 +1480,6 @@
                 const cpu = hardware.cpu || 'N/A';
                 const gpu = hardware.gpu || 'N/A';
                 const ram = hardware.ram_gb ? hardware.ram_gb + ' GB' : 'N/A';
-                // STORAGE REMOVED - No longer displayed
                 const deviceName = hardware.device_name || 'N/A';
                 const profile = hardware.profile_name || 'N/A';
                 const registeredOwner = hardware.registered_owner || 'N/A';
@@ -1682,10 +1530,7 @@
             });
             
             try {
-                const response = await fetchWithRetry(`/api/code/${code}/hwid/${hwid}`, { 
-                    method: 'DELETE',
-                    credentials: 'same-origin'
-                }, 2);
+                const response = await fastFetch(`/api/code/${code}/hwid/${hwid}`, { method: 'DELETE' });
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
@@ -1722,12 +1567,11 @@
             }
             
             try {
-                const response = await fetchWithRetry(`/api/code/${code}/hwid-limit`, {
+                const response = await fastFetch(`/api/code/${code}/hwid-limit`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ limit }),
-                    credentials: 'same-origin'
-                }, 2);
+                    body: JSON.stringify({ limit })
+                });
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
@@ -1752,9 +1596,7 @@
             tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading logs...</div></td></tr>';
             
             try {
-                const response = await fetchWithRetry('/api/hwid-logs?limit=200', {
-                    credentials: 'same-origin'
-                }, 2);
+                const response = await fastFetch('/api/hwid-logs?limit=200');
                 if (!response.ok) {
                     throw new Error('Server returned ' + response.status);
                 }
@@ -1864,9 +1706,7 @@
             tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading new HWIDs...</div></td></tr>';
             
             try {
-                const response = await fetchWithRetry('/api/hwid-new?limit=100', {
-                    credentials: 'same-origin'
-                }, 2);
+                const response = await fastFetch('/api/hwid-new?limit=100');
                 const data = await response.json();
                 
                 if (data.success) {
@@ -1978,12 +1818,11 @@
             
             try {
                 showMessage('⏳ Assigning...', 'loading');
-                const response = await fetchWithRetry('/api/hwid-new/assign', {
+                const response = await fastFetch('/api/hwid-new/assign', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ hwid, code }),
-                    credentials: 'same-origin'
-                }, 2);
+                    body: JSON.stringify({ hwid, code })
+                });
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
@@ -1999,12 +1838,11 @@
 
         async function markNewHwidSeen(hwid, index) {
             try {
-                const response = await fetchWithRetry('/api/hwid-new/mark-seen', {
+                const response = await fastFetch('/api/hwid-new/mark-seen', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ hwid }),
-                    credentials: 'same-origin'
-                }, 2);
+                    body: JSON.stringify({ hwid })
+                });
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ HWID marked as seen`, 'success');
@@ -2032,12 +1870,11 @@
             }
             try {
                 showMessage('⏳ Deleting all logs...', 'loading');
-                const response = await fetchWithRetry('/api/cleanup-logs', {
+                const response = await fastFetch('/api/cleanup-logs', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ delete_all: true }),
-                    credentials: 'same-origin'
-                }, 2);
+                    body: JSON.stringify({ delete_all: true })
+                });
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ ${result.message} (${result.deleted} logs deleted)`, 'success');
@@ -2060,15 +1897,14 @@
         // INIT
         // ============================================
         document.addEventListener('DOMContentLoaded', function() {
-            // Load data immediately
             loadAll();
             
-            // Auto-refresh every 15 seconds (reduced to avoid 429)
+            // Auto-refresh every 20 seconds (less frequent to avoid 429)
             setInterval(function() {
                 if (!isLoading) {
                     loadAll();
                 }
-            }, 15000);
+            }, 20000);
             
             // Clear HWID cache every 2 minutes
             setInterval(function() {
@@ -2076,7 +1912,6 @@
             }, 120000);
         });
         
-        // Also load when tab becomes visible
         document.addEventListener('visibilitychange', function() {
             if (!document.hidden && !isLoading) {
                 loadAll();
