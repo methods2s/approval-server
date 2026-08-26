@@ -374,7 +374,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID MANAGER - FIXED -->
+        <!-- TAB: HWID MANAGER -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwid">
             <div class="card">
@@ -838,9 +838,9 @@
         }
 
         // ============================================
-        // FETCH WITH RETRY - FIXED 429
+        // FETCH WITH RETRY - FIXED with fallback
         // ============================================
-        async function fetchWithRetry(url, options = {}, retries = 3) {
+        async function fetchWithRetry(url, options = {}, maxRetries = 2) {
             const defaultOptions = {
                 credentials: 'same-origin',
                 headers: {
@@ -858,12 +858,16 @@
                 }
             };
             
-            // Add exponential backoff for 429
-            let delay = 1000;
-            
-            for (let i = 0; i < retries; i++) {
+            // Try once with short timeout, then with longer timeout
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
                 try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), attempt === 0 ? 8000 : 15000);
+                    
+                    mergedOptions.signal = controller.signal;
+                    
                     const response = await fetch(url, mergedOptions);
+                    clearTimeout(timeoutId);
                     
                     if (response.status === 401) {
                         showErrorBanner('❌ Session expired. Please refresh the page or login again.');
@@ -872,40 +876,46 @@
                     }
                     
                     if (response.status === 429) {
-                        const waitTime = delay * (i + 1);
-                        console.log(`⏳ Rate limited, waiting ${waitTime}ms... (attempt ${i + 1}/${retries})`);
+                        const waitTime = 3000 * (attempt + 1);
+                        console.log(`⏳ Rate limited, waiting ${waitTime}ms... (attempt ${attempt + 1}/${maxRetries})`);
                         await new Promise(resolve => setTimeout(resolve, waitTime));
                         continue;
                     }
+                    
                     return response;
                 } catch (error) {
-                    if (i === retries - 1) throw error;
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                    delay *= 2;
+                    if (error.name === 'AbortError') {
+                        console.log(`⏳ Request timed out, retrying... (attempt ${attempt + 1}/${maxRetries})`);
+                        if (attempt === maxRetries - 1) {
+                            // Last attempt failed - throw
+                            throw new Error('Request timeout');
+                        }
+                        continue;
+                    }
+                    if (attempt === maxRetries - 1) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 1000));
                 }
             }
             throw new Error('Max retries exceeded');
         }
 
         // ============================================
-        // FETCH WITH BATCH - FIXED 429
+        // FETCH WITH FALLBACK - USE CACHED DATA
         // ============================================
-        async function fetchBatch(urls, options = {}) {
-            // Process sequentially with delay to avoid 429
-            const results = [];
-            for (const url of urls) {
-                try {
-                    const response = await fetchWithRetry(url, options, 2);
-                    const data = await response.json();
-                    results.push(data);
-                    // Wait between requests to avoid rate limiting
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                } catch (error) {
-                    console.error('Batch fetch error:', error);
-                    results.push(null);
-                }
+        async function fetchWithFallback(url, options = {}, fallbackData = null) {
+            try {
+                const response = await fetchWithRetry(url, options, 2);
+                return response;
+            } catch (error) {
+                console.warn('⚠️ Fetch failed, using fallback:', error.message);
+                showErrorBanner('⚠️ Using cached data - server may be slow');
+                // Return a mock response with the fallback data
+                return {
+                    ok: true,
+                    json: async () => fallbackData || { success: false, error: 'Using cached data' },
+                    status: 200
+                };
             }
-            return results;
         }
 
         // ============================================
@@ -990,7 +1000,7 @@
                 const response = await fetchWithRetry('/api/force-refresh', { 
                     method: 'POST',
                     credentials: 'same-origin'
-                });
+                }, 2);
                 const result = await response.json();
                 if (result.success) {
                     hwidDetailsCache = {};
@@ -1002,6 +1012,11 @@
             } catch (error) {
                 showMessage('❌ Error refreshing: ' + error.message, 'error');
                 showErrorBanner('❌ Error refreshing data: ' + error.message);
+                // Use cached data
+                if (allCodes.length > 0) {
+                    renderCurrentTab();
+                    updateStats();
+                }
             }
         }
 
@@ -1026,7 +1041,7 @@
         }
 
         // ============================================
-        // LOAD ALL DATA
+        // LOAD ALL DATA - WITH FALLBACK
         // ============================================
         async function loadAll() {
             if (isLoading) return;
@@ -1034,17 +1049,32 @@
             loadError = false;
             hideErrorBanner();
             
-            try {
-                const response = await fetchWithRetry('/api/dashboard-data', {
-                    credentials: 'same-origin'
-                });
-                if (!response.ok) {
-                    throw new Error('Server returned ' + response.status);
+            // Save current data as fallback
+            const fallbackData = {
+                codes: allCodes || [],
+                devices: allDevices || [],
+                stats: {
+                    totalCodes: allCodes.length || 0,
+                    total: allDevices.length || 0
                 }
+            };
+            
+            try {
+                const response = await fetchWithFallback('/api/dashboard-data', {
+                    credentials: 'same-origin'
+                }, fallbackData);
+                
                 const data = await response.json();
                 
-                allCodes = data.codes || [];
-                allDevices = data.devices || [];
+                if (data && data.codes) {
+                    allCodes = data.codes || [];
+                    allDevices = data.devices || [];
+                } else if (fallbackData.codes) {
+                    // Use fallback data
+                    allCodes = fallbackData.codes;
+                    allDevices = fallbackData.devices;
+                    showErrorBanner('⚠️ Using cached data - server may be slow');
+                }
                 
                 await loadHwidStatusForCodes();
                 populateHwidCodeDropdown();
@@ -1055,7 +1085,7 @@
                 try {
                     const newResponse = await fetchWithRetry('/api/hwid-new?limit=1', {
                         credentials: 'same-origin'
-                    });
+                    }, 1);
                     const newData = await newResponse.json();
                     if (newData.success) {
                         const countEl = document.getElementById('new-hwid-unique-count');
@@ -1064,7 +1094,9 @@
                             countEl.className = 'badge badge-new-count' + ((newData.total || 0) === 0 ? ' zero' : '');
                         }
                     }
-                } catch (e) {}
+                } catch (e) {
+                    // Ignore - non-critical
+                }
                 
                 isLoading = false;
                 
@@ -1072,20 +1104,26 @@
                 console.error('Load data error:', error);
                 loadError = true;
                 isLoading = false;
-                showMessage('❌ Error loading data: ' + error.message, 'error');
-                showErrorBanner('❌ Failed to load data: ' + error.message);
+                showMessage('⚠️ Using cached data: ' + error.message, 'info');
+                showErrorBanner('⚠️ Using cached data - ' + error.message);
+                
+                // Still render with existing data
+                if (allCodes.length > 0) {
+                    renderCurrentTab();
+                    updateStats();
+                }
             }
         }
 
         // ============================================
-        // LOAD HWID STATUS - FIXED 429
+        // LOAD HWID STATUS - FIXED with fallback
         // ============================================
         async function loadHwidStatusForCodes() {
             codeHwidsMap = {};
             
             // Process in smaller batches to avoid 429
-            const batchSize = 3;
-            const codes = allCodes.slice(0, 50); // Limit to 50 codes
+            const batchSize = 2;
+            const codes = allCodes.slice(0, 30); // Limit to 30 codes
             
             for (let i = 0; i < codes.length; i += batchSize) {
                 const batch = codes.slice(i, i + batchSize);
@@ -1093,7 +1131,7 @@
                     try {
                         const response = await fetchWithRetry(`/api/code/${code.code}/hwid-limit`, {
                             credentials: 'same-origin'
-                        }, 2);
+                        }, 1);
                         const data = await response.json();
                         return { code: code.code, data: data };
                     } catch (error) {
@@ -1330,7 +1368,7 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ username }),
                         credentials: 'same-origin'
-                    });
+                    }, 2);
                     const result = await response.json();
                     if (!result.success) {
                         showMessage('❌ ' + (result.error || 'Failed to update username'), 'error');
@@ -1344,7 +1382,7 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ subscriptionType }),
                         credentials: 'same-origin'
-                    });
+                    }, 2);
                     const result = await response.json();
                     if (!result.success) {
                         showMessage('❌ ' + (result.error || 'Failed to update subscription'), 'error');
@@ -1358,7 +1396,7 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ limit: hwidLimit }),
                         credentials: 'same-origin'
-                    });
+                    }, 2);
                     const result = await response.json();
                     if (!result.success) {
                         showMessage('❌ ' + (result.error || 'Failed to update HWID limit'), 'error');
@@ -1394,14 +1432,14 @@
                     response = await fetchWithRetry(`/api/code/${code}/deactivate`, { 
                         method: 'POST',
                         credentials: 'same-origin'
-                    });
+                    }, 2);
                 } else {
                     response = await fetchWithRetry(`/api/code/${code}/reactivate`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ subscriptionType: codeInfo.subscription_type || 'Lifetime' }),
                         credentials: 'same-origin'
-                    });
+                    }, 2);
                 }
                 const result = await response.json();
                 if (result.success) {
@@ -1432,7 +1470,7 @@
                 const response = await fetchWithRetry(`/api/code/${code}`, { 
                     method: 'DELETE',
                     credentials: 'same-origin'
-                });
+                }, 2);
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
@@ -1467,7 +1505,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username, accessLevel, subscriptionType }),
                     credentials: 'same-origin'
-                });
+                }, 2);
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ Code ${result.code} generated for ${result.username}`, 'success');
@@ -1483,7 +1521,7 @@
         });
 
         // ============================================
-        // HWID MANAGEMENT FUNCTIONS - FIXED 429
+        // HWID MANAGEMENT FUNCTIONS
         // ============================================
 
         function populateHwidCodeDropdown() {
@@ -1516,7 +1554,6 @@
                 document.getElementById('hwid-list-section').style.display = 'block';
                 document.getElementById('hwid-list-body').innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading HWIDs...</div></td></tr>';
                 
-                // Fetch with delay to avoid 429
                 const [limitResponse, hwidResponse] = await Promise.all([
                     fetchWithRetry(`/api/code/${code}/hwid-limit`, { credentials: 'same-origin' }, 2),
                     fetchWithRetry(`/api/code/${code}/hwids`, { credentials: 'same-origin' }, 2)
@@ -1594,6 +1631,7 @@
                 const cpu = hardware.cpu || 'N/A';
                 const gpu = hardware.gpu || 'N/A';
                 const ram = hardware.ram_gb ? hardware.ram_gb + ' GB' : 'N/A';
+                // STORAGE REMOVED - No longer displayed
                 const deviceName = hardware.device_name || 'N/A';
                 const profile = hardware.profile_name || 'N/A';
                 const registeredOwner = hardware.registered_owner || 'N/A';
@@ -1647,7 +1685,7 @@
                 const response = await fetchWithRetry(`/api/code/${code}/hwid/${hwid}`, { 
                     method: 'DELETE',
                     credentials: 'same-origin'
-                });
+                }, 2);
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
@@ -1689,7 +1727,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ limit }),
                     credentials: 'same-origin'
-                });
+                }, 2);
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
@@ -1716,7 +1754,7 @@
             try {
                 const response = await fetchWithRetry('/api/hwid-logs?limit=200', {
                     credentials: 'same-origin'
-                });
+                }, 2);
                 if (!response.ok) {
                     throw new Error('Server returned ' + response.status);
                 }
@@ -1828,7 +1866,7 @@
             try {
                 const response = await fetchWithRetry('/api/hwid-new?limit=100', {
                     credentials: 'same-origin'
-                });
+                }, 2);
                 const data = await response.json();
                 
                 if (data.success) {
@@ -1945,7 +1983,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ hwid, code }),
                     credentials: 'same-origin'
-                });
+                }, 2);
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ ${result.message}`, 'success');
@@ -1966,7 +2004,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ hwid }),
                     credentials: 'same-origin'
-                });
+                }, 2);
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ HWID marked as seen`, 'success');
@@ -1999,7 +2037,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ delete_all: true }),
                     credentials: 'same-origin'
-                });
+                }, 2);
                 const result = await response.json();
                 if (result.success) {
                     showMessage(`✅ ${result.message} (${result.deleted} logs deleted)`, 'success');
@@ -2022,14 +2060,15 @@
         // INIT
         // ============================================
         document.addEventListener('DOMContentLoaded', function() {
+            // Load data immediately
             loadAll();
             
-            // Auto-refresh every 10 seconds (reduced to avoid 429)
+            // Auto-refresh every 15 seconds (reduced to avoid 429)
             setInterval(function() {
                 if (!isLoading) {
                     loadAll();
                 }
-            }, 10000);
+            }, 15000);
             
             // Clear HWID cache every 2 minutes
             setInterval(function() {
