@@ -163,10 +163,16 @@
         .card.svip-card { border-left: 3px solid #4CAF50; }
         .card.vip-card { border-left: 3px solid #FF9800; }
         
+        .section-header-with-search { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        .section-header-with-search .search-box { flex: 1; min-width: 200px; max-width: 400px; }
+        .section-header-with-search .search-box input { min-width: 150px; }
+        
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
             .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
             .search-box input { min-width: 120px; }
+            .section-header-with-search { flex-direction: column; align-items: stretch; }
+            .section-header-with-search .search-box { max-width: 100%; }
         }
     </style>
 </head>
@@ -278,10 +284,15 @@
                     ⭐ SVIP Codes <span class="badge-count text-muted" id="svip-count">0 codes</span>
                 </div>
                 <div class="card svip-card">
-                    <div class="card-header">
+                    <div class="card-header section-header-with-search">
                         <span style="font-size:13px;color:#888;">Premium Access</span>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <button onclick="batchDeactivateSVIP()" class="btn-small btn-danger" style="padding:4px 12px;">Deactivate All SVIP</button>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                            <div class="search-box">
+                                <span class="search-icon">🔍</span>
+                                <input type="text" id="svip-search" placeholder="Search username..." onkeyup="filterSVIP()">
+                                <button class="clear-search" onclick="document.getElementById('svip-search').value=''; filterSVIP();" title="Clear search">✕</button>
+                            </div>
+                            <button onclick="batchDeactivateSVIP()" class="btn-small btn-danger" style="padding:4px 12px;">Deactivate All</button>
                         </div>
                     </div>
                     <div class="scroll-table">
@@ -315,10 +326,15 @@
                     🔶 VIP Codes <span class="badge-count text-muted" id="vip-count">0 codes</span>
                 </div>
                 <div class="card vip-card">
-                    <div class="card-header">
+                    <div class="card-header section-header-with-search">
                         <span style="font-size:13px;color:#888;">Standard Access</span>
-                        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                            <button onclick="batchDeactivateVIP()" class="btn-small btn-danger" style="padding:4px 12px;">Deactivate All VIP</button>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                            <div class="search-box">
+                                <span class="search-icon">🔍</span>
+                                <input type="text" id="vip-search" placeholder="Search username..." onkeyup="filterVIP()">
+                                <button class="clear-search" onclick="document.getElementById('vip-search').value=''; filterVIP();" title="Clear search">✕</button>
+                            </div>
+                            <button onclick="batchDeactivateVIP()" class="btn-small btn-danger" style="padding:4px 12px;">Deactivate All</button>
                         </div>
                     </div>
                     <div class="scroll-table">
@@ -346,7 +362,7 @@
         </div>
 
         <!-- ============================================ -->
-        <!-- TAB: HWID MANAGER -->
+        <!-- TAB: HWID MANAGER - FIXED -->
         <!-- ============================================ -->
         <div class="tab-content" id="tab-hwid">
             <div class="card">
@@ -403,7 +419,9 @@
                                 </tr>
                             </thead>
                             <tbody id="hwid-list-body">
-                                <tr><td colspan="4" style="text-align:center;color:#888;padding:20px;">Select a code to view HWIDs</td></tr>
+                                <tr><td colspan="4" style="text-align:center;color:#888;padding:20px;">
+                                    <div class="loading-text"><span class="spinner"></span> Loading HWIDs...</div>
+                                </td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -771,8 +789,11 @@
         let codeHwidsMap = {};
         let isLoading = false;
         let loadError = false;
-        let filteredCodes = [];
+        let filteredSVIP = [];
+        let filteredVIP = [];
         let hwidDetailsCache = {};
+        let svipSearchTerm = '';
+        let vipSearchTerm = '';
 
         // ============================================
         // DEACTIVATION REASON MAPPING
@@ -839,10 +860,48 @@
             if (!activeTab) return;
             const id = activeTab.id;
             if (id === 'tab-codes') {
-                renderSVIP();
-                renderVIP();
+                filterSVIP();
+                filterVIP();
                 updateStats();
             }
+        }
+
+        // ============================================
+        // FILTER SVIP
+        // ============================================
+        function filterSVIP() {
+            const search = document.getElementById('svip-search').value.toLowerCase().trim();
+            svipSearchTerm = search;
+            const svipCodes = allCodes.filter(c => c.access_level === 'SVIP');
+            
+            if (!search) {
+                filteredSVIP = svipCodes;
+            } else {
+                filteredSVIP = svipCodes.filter(c => {
+                    const username = (c.username || '').toLowerCase();
+                    return username.includes(search);
+                });
+            }
+            renderSVIP();
+        }
+
+        // ============================================
+        // FILTER VIP
+        // ============================================
+        function filterVIP() {
+            const search = document.getElementById('vip-search').value.toLowerCase().trim();
+            vipSearchTerm = search;
+            const vipCodes = allCodes.filter(c => c.access_level === 'VIP');
+            
+            if (!search) {
+                filteredVIP = vipCodes;
+            } else {
+                filteredVIP = vipCodes.filter(c => {
+                    const username = (c.username || '').toLowerCase();
+                    return username.includes(search);
+                });
+            }
+            renderVIP();
         }
 
         // ============================================
@@ -905,7 +964,8 @@
                 
                 await loadHwidStatusForCodes();
                 populateHwidCodeDropdown();
-                renderCurrentTab();
+                filterSVIP();
+                filterVIP();
                 updateStats();
                 
                 try {
@@ -957,15 +1017,15 @@
         // RENDER SVIP
         // ============================================
         function renderSVIP() {
-            const svipCodes = allCodes.filter(c => c.access_level === 'SVIP');
             const tbody = document.getElementById('svip-body');
             
-            if (svipCodes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">No SVIP codes found</td></tr>';
+            if (filteredSVIP.length === 0) {
+                const msg = svipSearchTerm ? `No SVIP codes found for username: "${svipSearchTerm}"` : 'No SVIP codes found';
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">${msg}</td></tr>`;
                 return;
             }
             
-            tbody.innerHTML = svipCodes.map(c => {
+            tbody.innerHTML = filteredSVIP.map(c => {
                 const isEditing = editingCode === c.code;
                 const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
                 const username = c.username || '';
@@ -1048,15 +1108,15 @@
         // RENDER VIP
         // ============================================
         function renderVIP() {
-            const vipCodes = allCodes.filter(c => c.access_level === 'VIP');
             const tbody = document.getElementById('vip-body');
             
-            if (vipCodes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">No VIP codes found</td></tr>';
+            if (filteredVIP.length === 0) {
+                const msg = vipSearchTerm ? `No VIP codes found for username: "${vipSearchTerm}"` : 'No VIP codes found';
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">${msg}</td></tr>`;
                 return;
             }
             
-            tbody.innerHTML = vipCodes.map(c => {
+            tbody.innerHTML = filteredVIP.map(c => {
                 const isEditing = editingCode === c.code;
                 const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
                 const username = c.username || '';
@@ -1140,14 +1200,16 @@
         // ============================================
         function startEdit(code) {
             editingCode = code;
-            renderCurrentTab();
+            filterSVIP();
+            filterVIP();
             const row = document.querySelector(`tr.editing`);
             if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
 
         function cancelEdit() {
             editingCode = null;
-            renderCurrentTab();
+            filterSVIP();
+            filterVIP();
         }
 
         async function saveEdit(code) {
@@ -1332,29 +1394,31 @@
             if (!code) {
                 document.getElementById('hwid-info').style.display = 'none';
                 document.getElementById('hwid-list-section').style.display = 'none';
+                document.getElementById('hwid-list-body').innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;">Select a code to view HWIDs</td></tr>';
                 return;
             }
             
-            if (hwidDetailsCache[code] && (Date.now() - hwidDetailsCache[code].timestamp < 30000)) {
-                console.log('📦 Using cached HWID details for:', code);
-                const cached = hwidDetailsCache[code];
-                updateHwidStats(cached);
-                renderHwidList(cached.hwidData);
-                return;
-            }
+            // Force refresh cache for accurate data
+            hwidDetailsCache[code] = null;
             
             try {
                 document.getElementById('hwid-info').style.display = 'block';
                 document.getElementById('hwid-list-section').style.display = 'block';
-                document.getElementById('hwid-list-body').innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading...</div></td></tr>';
+                document.getElementById('hwid-list-body').innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading HWIDs...</div></td></tr>';
                 
                 const [limitResponse, hwidResponse] = await Promise.all([
                     fetchWithRetry(`/api/code/${code}/hwid-limit`),
                     fetchWithRetry(`/api/code/${code}/hwids`)
                 ]);
                 
+                if (!limitResponse.ok || !hwidResponse.ok) {
+                    throw new Error('Failed to fetch HWID data');
+                }
+                
                 const limitData = await limitResponse.json();
                 const hwidData = await hwidResponse.json();
+                
+                console.log('📊 HWID Data:', hwidData);
                 
                 hwidDetailsCache[code] = {
                     timestamp: Date.now(),
@@ -1404,13 +1468,15 @@
             const tbody = document.getElementById('hwid-list-body');
             const hwids = (hwidData && hwidData.hwids && Array.isArray(hwidData.hwids)) ? hwidData.hwids : [];
             
+            console.log('📊 Rendering HWIDs:', hwids.length);
+            
             if (!hwids || hwids.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;">No HWIDs assigned to this code</td></tr>';
                 return;
             }
             
             tbody.innerHTML = hwids.map((h, index) => {
-                const hwidFull = h.hwid || '';
+                const hwidFull = h.hwid || h.hwid_full || '';
                 const hwidMasked = h.hwid_masked || (hwidFull ? hwidFull.substring(0, 16) + '...' : 'N/A');
                 const hardware = h.hardware || {};
                 
@@ -1844,7 +1910,7 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadAll();
             
-            // Auto-refresh every 5 seconds (matching server cache TTL)
+            // Auto-refresh every 5 seconds
             setInterval(function() {
                 if (!isLoading) {
                     loadAll();
