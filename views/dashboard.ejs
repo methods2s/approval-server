@@ -18,7 +18,7 @@
         .header .logout-btn { padding: 8px 20px; background: #f44336; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
         .header .logout-btn:hover { background: #d32f2f; }
         
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 20px; }
         .stat-card { background: rgba(255,255,255,0.05); padding: 20px; border-radius: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.08); }
         .stat-card .number { font-size: 32px; font-weight: bold; color: #4CAF50; }
         .stat-card .label { font-size: 13px; color: #888; margin-top: 5px; }
@@ -67,6 +67,8 @@
         .btn-batch-reactivate { background: #4CAF50; color: #fff; border: none; border-radius: 4px; padding: 8px 20px; cursor: pointer; font-size: 13px; font-weight: bold; transition: all 0.2s; }
         .btn-batch-reactivate:hover { background: #388E3C; transform: scale(1.02); }
         .btn-batch-reactivate:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
+        .btn-info { background: #2196F3; color: #fff; }
+        .btn-info:hover { background: #1976D2; }
         
         .scroll-table { overflow-x: auto; max-height: 500px; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -117,6 +119,7 @@
         .hwid-spec-detail.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
         .hwid-spec-detail.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
         .hwid-spec-detail.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
+        .hwid-spec-detail.storage { background: rgba(0,188,212,0.15); color: #00BCD4; }
         .hwid-spec-detail.device { background: rgba(255,87,34,0.15); color: #FF5722; }
         .hwid-spec-detail.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
         .hwid-spec-detail.owner { background: rgba(255,87,34,0.15); color: #FF5722; }
@@ -170,12 +173,140 @@
         .error-banner .retry-btn { background: #f44336; color: #fff; border: none; border-radius: 4px; padding: 4px 15px; cursor: pointer; margin-left: 15px; }
         .error-banner .retry-btn:hover { background: #d32f2f; }
         
+        /* Detail Modal */
+        #auto-deactivated-detail {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.85);
+            z-index: 10000;
+            padding: 40px;
+            overflow-y: auto;
+        }
+        #auto-deactivated-detail .modal-content {
+            background: #1a1a2e;
+            max-width: 1200px;
+            margin: 0 auto;
+            border-radius: 12px;
+            padding: 30px;
+            border: 1px solid #f44336;
+        }
+        #auto-deactivated-detail .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 15px;
+        }
+        #auto-deactivated-detail .modal-header h2 {
+            color: #f44336;
+            margin: 0;
+        }
+        #auto-deactivated-detail .modal-close {
+            background: #f44336;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        #auto-deactivated-detail .modal-close:hover {
+            background: #d32f2f;
+        }
+        #auto-deactivated-detail .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        #auto-deactivated-detail .detail-section {
+            background: rgba(255,255,255,0.05);
+            padding: 15px;
+            border-radius: 8px;
+        }
+        #auto-deactivated-detail .detail-section h4 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #aaa;
+        }
+        #auto-deactivated-detail .detail-section p {
+            margin: 5px 0;
+            font-size: 13px;
+        }
+        #auto-deactivated-detail .detail-section .hwid-item {
+            border-left: 3px solid #4CAF50;
+            padding: 10px;
+            background: rgba(76,175,80,0.05);
+            border-radius: 4px;
+            margin-bottom: 8px;
+        }
+        #auto-deactivated-detail .detail-section .hwid-item.new {
+            border-left-color: #FF9800;
+            background: rgba(255,152,0,0.08);
+        }
+        #auto-deactivated-detail .detail-section .hwid-item code {
+            color: #4CAF50;
+            font-weight: bold;
+            word-break: break-all;
+            font-size: 12px;
+        }
+        #auto-deactivated-detail .detail-section .hwid-item.new code {
+            color: #FF9800;
+        }
+        #auto-deactivated-detail .detail-section .hwid-item .hwid-specs {
+            color: #aaa;
+            font-size: 12px;
+            margin-top: 5px;
+            line-height: 1.6;
+        }
+        #auto-deactivated-detail .detail-section .hwid-item .hwid-specs span {
+            display: inline-block;
+            margin-right: 10px;
+        }
+        #auto-deactivated-detail .detail-section .hwid-item .trigger-badge {
+            display: inline-block;
+            background: #f44336;
+            color: #fff;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-top: 5px;
+            font-weight: bold;
+        }
+        #auto-deactivated-detail .detail-actions {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        .hwid-spec-item {
+            display: inline-block;
+            padding: 1px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            margin-right: 4px;
+        }
+        .hwid-spec-item.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
+        .hwid-spec-item.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
+        .hwid-spec-item.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
+        .hwid-spec-item.storage { background: rgba(0,188,212,0.15); color: #00BCD4; }
+        .hwid-spec-item.device { background: rgba(255,87,34,0.15); color: #FF5722; }
+        .hwid-spec-item.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
+        .hwid-spec-item.owner { background: rgba(255,87,34,0.15); color: #FF5722; }
+        .hwid-spec-item.unregistered { background: rgba(255,152,0,0.1); color: #FF9800; border: 1px dashed #FF9800; }
+        
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
             .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
             .search-box input { min-width: 120px; }
             .section-header-with-search { flex-direction: column; align-items: stretch; }
             .section-header-with-search .search-box { max-width: 100%; }
+            #auto-deactivated-detail .detail-grid { grid-template-columns: 1fr; }
+            #auto-deactivated-detail { padding: 20px; }
         }
     </style>
 </head>
@@ -230,6 +361,7 @@
             <button class="tab-btn" onclick="switchTab('hwid')">🖥️ HWID Manager</button>
             <button class="tab-btn" onclick="switchTab('hwidlogs')">📋 HWID Logs</button>
             <button class="tab-btn" onclick="switchTab('newhwid')">🆕 New HWID</button>
+            <button class="tab-btn" onclick="switchTab('autodeactivated')">🚨 Auto-Deactivated</button>
         </div>
 
         <!-- ============================================ -->
@@ -269,7 +401,7 @@
                 <div id="gen-result" class="mt-10"></div>
             </div>
 
-            <!-- BATCH ACTIONS - NO CONFIRMATION -->
+            <!-- BATCH ACTIONS -->
             <div class="batch-actions">
                 <span class="label">⚡ Batch Actions:</span>
                 <button onclick="batchDeactivateAll()" class="btn-batch-deactivate" id="batch-deactivate-btn">
@@ -483,7 +615,7 @@
                         <button onclick="cleanupOldLogs()" class="btn-small btn-danger" style="margin-left:10px;">🗑️ Clear All Logs</button>
                     </div>
                 </div>
-                <div style="font-size:13px;color:#888;margin-bottom:15px;padding:10px;background:rgba(255,152,0,0.1);border-radius:6px;">
+                <div style="font-size:13px;color:#FF9800;margin-bottom:15px;padding:10px;background:rgba(255,152,0,0.1);border-radius:6px;">
                     ⚠️ These are <strong>unique HWIDs</strong> that have been detected but are <strong>not yet assigned</strong> to any code.
                 </div>
                 <div class="card-body">
@@ -509,6 +641,98 @@
             </div>
         </div>
 
+        <!-- ============================================ -->
+        <!-- TAB: AUTO-DEACTIVATED CODES -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-autodeactivated">
+            <div class="card">
+                <div class="card-header">
+                    <h3>🚨 Auto-Deactivated Codes (HWID Limit Exceeded)</h3>
+                    <div>
+                        <span class="badge badge-new-count" id="auto-deactivated-count">0 codes</span>
+                        <button onclick="loadAutoDeactivatedCodes()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
+                    </div>
+                </div>
+                <div style="font-size:13px;color:#FF9800;margin-bottom:15px;padding:10px;background:rgba(255,152,0,0.1);border-radius:6px;">
+                    ⚠️ These codes were automatically deactivated because the HWID limit was exceeded. 
+                    Each code shows the <strong>new HWID</strong> that triggered the deactivation and the <strong>existing HWIDs</strong>.
+                </div>
+                <div class="card-body">
+                    <div class="scroll-table" style="max-height:800px;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width:100px;">Code</th>
+                                    <th>Username</th>
+                                    <th style="width:100px;">HWID Limit</th>
+                                    <th style="width:100px;">HWID Count</th>
+                                    <th style="min-width:300px;">🆕 New HWID (Trigger)</th>
+                                    <th style="min-width:350px;">📋 Existing HWIDs</th>
+                                    <th style="width:250px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="auto-deactivated-body">
+                                <tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">
+                                    <div class="loading-text"><span class="spinner"></span> Loading auto-deactivated codes...</div>
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ============================================ -->
+    <!-- AUTO-DEACTIVATED DETAIL MODAL -->
+    <!-- ============================================ -->
+    <div id="auto-deactivated-detail">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🚨 Auto-Deactivated: <span id="detail-code"></span></h2>
+                <button class="modal-close" onclick="closeDetail()">✕ Close</button>
+            </div>
+            
+            <div class="detail-grid">
+                <div class="detail-section">
+                    <h4>📋 Code Details</h4>
+                    <p><strong>Username:</strong> <span id="detail-username"></span></p>
+                    <p><strong>Access Level:</strong> <span id="detail-access"></span></p>
+                    <p><strong>Subscription:</strong> <span id="detail-subscription"></span></p>
+                    <p><strong>Status:</strong> <span id="detail-status" style="color:#f44336;"></span></p>
+                    <p><strong>HWID Limit:</strong> <span id="detail-limit"></span></p>
+                    <p><strong>Current HWID Count:</strong> <span id="detail-count"></span></p>
+                    <p><strong>Created:</strong> <span id="detail-created"></span></p>
+                    <p><strong>Expires:</strong> <span id="detail-expires"></span></p>
+                </div>
+                <div class="detail-section" style="border:1px solid #FF9800;">
+                    <h4 style="color:#FF9800;">🆕 New HWID (Triggered Deactivation)</h4>
+                    <div id="detail-new-hwid">
+                        <p style="color:#888;">No new HWID found</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="detail-section">
+                <h4 style="color:#4CAF50;">📋 Existing HWIDs (Before Deactivation)</h4>
+                <div id="detail-existing-hwids" style="max-height:300px;overflow-y:auto;">
+                    <p style="color:#888;">No existing HWIDs found</p>
+                </div>
+            </div>
+            
+            <div class="detail-section" style="margin-top:15px;">
+                <h4 style="color:#aaa;">📜 Recent HWID Logs</h4>
+                <div id="detail-hwid-logs" style="max-height:200px;overflow-y:auto;">
+                    <p style="color:#888;">No logs available</p>
+                </div>
+            </div>
+            
+            <div class="detail-actions">
+                <button onclick="reactivateFromDetail()" class="btn-batch-reactivate" id="detail-reactivate-btn">🔓 Reactivate Code</button>
+                <button onclick="closeDetail()" class="btn-small btn-cancel" style="padding:10px 20px;">✕ Close</button>
+            </div>
+        </div>
     </div>
 
     <!-- Result Message -->
@@ -620,7 +844,7 @@
         }
 
         // ============================================
-        // BATCH DEACTIVATE ALL - NO CONFIRMATION
+        // BATCH DEACTIVATE ALL
         // ============================================
         async function batchDeactivateAll() {
             const totalCodes = allCodes.length;
@@ -663,7 +887,7 @@
         }
 
         // ============================================
-        // BATCH REACTIVATE ALL - NO CONFIRMATION
+        // BATCH REACTIVATE ALL
         // ============================================
         async function batchReactivateAll() {
             const inactiveCodes = allCodes.filter(c => !c.is_active);
@@ -801,6 +1025,8 @@
                 loadHwidLogs();
             } else if (tab === 'newhwid') {
                 loadNewHwids();
+            } else if (tab === 'autodeactivated') {
+                loadAutoDeactivatedCodes();
             } else {
                 renderCurrentTab();
             }
@@ -902,7 +1128,7 @@
         }
 
         // ============================================
-        // LOAD ALL DATA - FAST
+        // LOAD ALL DATA
         // ============================================
         async function loadAll() {
             if (isLoading) return;
@@ -927,6 +1153,19 @@
                 filterSVIP();
                 filterVIP();
                 updateStats();
+                
+                // Load auto-deactivated count
+                try {
+                    const autoResponse = await fastFetch('/api/auto-deactivated-codes?limit=1');
+                    const autoData = await autoResponse.json();
+                    if (autoData.success) {
+                        const countEl = document.getElementById('auto-deactivated-count');
+                        if (countEl) {
+                            countEl.textContent = (autoData.count || 0) + ' codes';
+                            countEl.className = 'badge badge-new-count' + ((autoData.count || 0) === 0 ? ' zero' : '');
+                        }
+                    }
+                } catch (e) {}
                 
                 try {
                     const newResponse = await fastFetch('/api/hwid-new?limit=1');
@@ -957,7 +1196,7 @@
         }
 
         // ============================================
-        // LOAD HWID STATUS - Non-blocking
+        // LOAD HWID STATUS
         // ============================================
         async function loadHwidStatusForCodes() {
             codeHwidsMap = {};
@@ -1388,8 +1627,6 @@
                 const limitData = await limitResponse.json();
                 const hwidData = await hwidResponse.json();
                 
-                console.log('📊 HWID Data:', hwidData);
-                
                 hwidDetailsCache[code] = {
                     timestamp: Date.now(),
                     limitData: limitData,
@@ -1438,8 +1675,6 @@
             const tbody = document.getElementById('hwid-list-body');
             const hwids = (hwidData && hwidData.hwids && Array.isArray(hwidData.hwids)) ? hwidData.hwids : [];
             
-            console.log('📊 Rendering HWIDs:', hwids.length);
-            
             if (!hwids || hwids.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;">No HWIDs assigned to this code</td></tr>';
                 return;
@@ -1453,6 +1688,7 @@
                 const cpu = hardware.cpu || 'N/A';
                 const gpu = hardware.gpu || 'N/A';
                 const ram = hardware.ram_gb ? hardware.ram_gb + ' GB' : 'N/A';
+                const storage = hardware.storage_gb ? hardware.storage_gb + ' GB' : 'N/A';
                 const deviceName = hardware.device_name || 'N/A';
                 const profile = hardware.profile_name || 'N/A';
                 const registeredOwner = hardware.registered_owner || 'N/A';
@@ -1470,6 +1706,7 @@
                                 <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
                                 <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
                                 <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
+                                <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
                                 <div><span class="hwid-spec-detail device">💻 Device: ${deviceName}</span></div>
                                 <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
                                 <div><span class="hwid-spec-detail owner">👔 Owner: ${registeredOwner}</span></div>
@@ -1613,12 +1850,13 @@
                 const hwid = log.hwid || '';
                 const hwidDisplay = hwid ? hwid.substring(0, 16) + '...' : 'N/A';
                 
-                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', device = 'N/A', profile = 'N/A', owner = 'N/A';
+                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A', owner = 'N/A';
                 
                 if (log.details) {
                     const cpuMatch = log.details.match(/CPU:\s*([^,|]+)/i);
                     const gpuMatch = log.details.match(/GPU:\s*([^,|]+)/i);
                     const ramMatch = log.details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                    const storageMatch = log.details.match(/Storage:\s*([^,|]+)\s*GB/i);
                     const deviceMatch = log.details.match(/Device:\s*([^,|]+)/i);
                     const profileMatch = log.details.match(/Profile:\s*([^,|]+)/i);
                     const ownerMatch = log.details.match(/Owner:\s*([^,|]+)/i);
@@ -1626,6 +1864,7 @@
                     if (cpuMatch) cpu = cpuMatch[1].trim();
                     if (gpuMatch) gpu = gpuMatch[1].trim();
                     if (ramMatch) ram = ramMatch[1].trim() + ' GB';
+                    if (storageMatch) storage = storageMatch[1].trim() + ' GB';
                     if (deviceMatch) device = deviceMatch[1].trim();
                     if (profileMatch) profile = profileMatch[1].trim();
                     if (ownerMatch) owner = ownerMatch[1].trim();
@@ -1641,6 +1880,7 @@
                         ${cpu !== 'N/A' ? `<span class="hwid-spec-item cpu">🔧 ${cpu}</span>` : ''}
                         ${gpu !== 'N/A' ? `<span class="hwid-spec-item gpu">🎮 ${gpu}</span>` : ''}
                         ${ram !== 'N/A' ? `<span class="hwid-spec-item ram">💾 ${ram}</span>` : ''}
+                        ${storage !== 'N/A' ? `<span class="hwid-spec-item storage">💿 ${storage}</span>` : ''}
                         ${device !== 'N/A' ? `<span class="hwid-spec-item device">💻 ${device}</span>` : ''}
                         ${profile !== 'N/A' ? `<span class="hwid-spec-item profile">👤 ${profile}</span>` : ''}
                         ${owner !== 'N/A' ? `<span class="hwid-spec-item owner">👔 ${owner}</span>` : ''}
@@ -1714,12 +1954,13 @@
                 const hwidDisplay = hwid ? hwid.substring(0, 16) + '...' + hwid.substring(48) : 'N/A';
                 const time = item.created_at ? new Date(item.created_at).toLocaleString() : 'N/A';
                 
-                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', device = 'N/A', profile = 'N/A', owner = 'N/A';
+                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A', owner = 'N/A';
                 
                 if (item.details) {
                     const cpuMatch = item.details.match(/CPU:\s*([^,|]+)/i);
                     const gpuMatch = item.details.match(/GPU:\s*([^,|]+)/i);
                     const ramMatch = item.details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                    const storageMatch = item.details.match(/Storage:\s*([^,|]+)\s*GB/i);
                     const deviceMatch = item.details.match(/Device:\s*([^,|]+)/i);
                     const profileMatch = item.details.match(/Profile:\s*([^,|]+)/i);
                     const ownerMatch = item.details.match(/Owner:\s*([^,|]+)/i);
@@ -1727,6 +1968,7 @@
                     if (cpuMatch) cpu = cpuMatch[1].trim();
                     if (gpuMatch) gpu = gpuMatch[1].trim();
                     if (ramMatch) ram = ramMatch[1].trim() + ' GB';
+                    if (storageMatch) storage = storageMatch[1].trim() + ' GB';
                     if (deviceMatch) device = deviceMatch[1].trim();
                     if (profileMatch) profile = profileMatch[1].trim();
                     if (ownerMatch) owner = ownerMatch[1].trim();
@@ -1754,6 +1996,7 @@
                                 <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
                                 <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
                                 <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
+                                <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
                                 <div><span class="hwid-spec-detail device">💻 Device: ${device}</span></div>
                                 <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
                                 <div><span class="hwid-spec-detail owner">👔 Owner: ${owner}</span></div>
@@ -1828,6 +2071,315 @@
                     }
                 } else {
                     showMessage('❌ ' + (result.error || 'Failed to mark as seen'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // AUTO-DEACTIVATED CODES FUNCTIONS
+        // ============================================
+
+        let autoDeactivatedCodes = [];
+        let detailCodeData = null;
+
+        async function loadAutoDeactivatedCodes() {
+            const tbody = document.getElementById('auto-deactivated-body');
+            if (!tbody) return;
+            
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading auto-deactivated codes...</div></td></tr>';
+            
+            try {
+                const response = await fastFetch('/api/auto-deactivated-codes');
+                const data = await response.json();
+                
+                if (data.success) {
+                    autoDeactivatedCodes = data.codes || [];
+                    const countEl = document.getElementById('auto-deactivated-count');
+                    if (countEl) {
+                        countEl.textContent = autoDeactivatedCodes.length + ' codes';
+                        countEl.className = 'badge badge-new-count' + (autoDeactivatedCodes.length === 0 ? ' zero' : '');
+                    }
+                    
+                    if (autoDeactivatedCodes.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#4CAF50;padding:30px;">✅ No auto-deactivated codes found</td></tr>';
+                    } else {
+                        renderAutoDeactivatedCodes(autoDeactivatedCodes);
+                    }
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load data') + '</td></tr>';
+                }
+            } catch (error) {
+                console.error('Load auto-deactivated codes error:', error);
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
+            }
+        }
+
+        function renderAutoDeactivatedCodes(codes) {
+            const tbody = document.getElementById('auto-deactivated-body');
+            if (!tbody) return;
+            
+            tbody.innerHTML = codes.map((code, index) => {
+                const hwids = code.hwids || [];
+                const hwidCount = hwids.length;
+                const limit = code.max_hwid_limit || 1;
+                
+                // Find the newest HWID that triggered the deactivation
+                const recentLogs = code.recent_hwid_logs || [];
+                let newHwid = null;
+                let newHwidHardware = null;
+                
+                // Look for the HWID that triggered the deactivation
+                const triggerLog = recentLogs.find(log => 
+                    log.action === 'register_attempt' && 
+                    (log.status === 'new' || log.status === 'seen')
+                );
+                
+                if (triggerLog) {
+                    newHwid = triggerLog.hwid;
+                    for (const h of hwids) {
+                        if (h.hwid === newHwid && h.hardware) {
+                            newHwidHardware = h.hardware;
+                            break;
+                        }
+                    }
+                }
+                
+                // If no trigger log found, use the first HWID in the list
+                if (!newHwid && hwids.length > 0) {
+                    newHwid = hwids[0].hwid;
+                    newHwidHardware = hwids[0].hardware;
+                }
+                
+                // Find existing HWIDs (all except the new one)
+                const existingHwids = hwids.filter(h => h.hwid !== newHwid);
+                
+                // Format HWID display
+                const formatHwid = (hwid) => {
+                    if (!hwid) return 'N/A';
+                    return hwid.substring(0, 16) + '...' + hwid.substring(48);
+                };
+                
+                const formatHardware = (hardware) => {
+                    if (!hardware) return 'No hardware specs';
+                    const parts = [];
+                    if (hardware.cpu_name && hardware.cpu_name !== 'Unknown') parts.push('🔧 ' + hardware.cpu_name);
+                    if (hardware.gpu_name && hardware.gpu_name !== 'Unknown') parts.push('🎮 ' + hardware.gpu_name);
+                    if (hardware.ram_total_gb) parts.push('💾 ' + hardware.ram_total_gb + 'GB');
+                    if (hardware.storage_total_gb) parts.push('💿 ' + hardware.storage_total_gb + 'GB');
+                    if (hardware.device_name && hardware.device_name !== 'Unknown') parts.push('💻 ' + hardware.device_name);
+                    if (hardware.profile_name && hardware.profile_name !== 'Default') parts.push('👤 ' + hardware.profile_name);
+                    if (hardware.registered_owner && hardware.registered_owner !== 'Unknown') parts.push('👔 ' + hardware.registered_owner);
+                    return parts.length > 0 ? parts.join(' | ') : 'No hardware specs';
+                };
+                
+                // Build HWID list HTML
+                const buildHwidList = (hwidList, isNew = false) => {
+                    if (!hwidList || hwidList.length === 0) {
+                        return isNew ? '<span style="color:#888;">No new HWID detected</span>' : '<span style="color:#888;">None</span>';
+                    }
+                    return hwidList.map(h => {
+                        const hwidDisplay = formatHwid(h.hwid);
+                        const hardwareStr = formatHardware(h.hardware);
+                        const borderColor = isNew ? '#FF9800' : '#4CAF50';
+                        const bgColor = isNew ? 'rgba(255,152,0,0.1)' : 'rgba(76,175,80,0.05)';
+                        return `
+                            <div style="border-left:3px solid ${borderColor};background:${bgColor};padding:8px 12px;margin-bottom:6px;border-radius:4px;font-size:12px;">
+                                <code style="color:${isNew ? '#FF9800' : '#4CAF50'};font-weight:bold;">${hwidDisplay}</code>
+                                <div style="color:#aaa;font-size:11px;margin-top:2px;">${hardwareStr}</div>
+                            </div>
+                        `;
+                    }).join('');
+                };
+                
+                const newHwidHtml = newHwid ? 
+                    `<div style="border-left:3px solid #FF9800;background:rgba(255,152,0,0.1);padding:8px 12px;border-radius:4px;font-size:12px;">
+                        <code style="color:#FF9800;font-weight:bold;">${formatHwid(newHwid)}</code>
+                        <div style="color:#aaa;font-size:11px;margin-top:2px;">${formatHardware(newHwidHardware)}</div>
+                        <span style="color:#f44336;font-size:10px;font-weight:bold;">⚠️ TRIGGERED DEACTIVATION</span>
+                    </div>` :
+                    '<span style="color:#888;">No new HWID found</span>';
+                
+                const existingHwidsHtml = existingHwids.length > 0 ? 
+                    buildHwidList(existingHwids, false) :
+                    '<span style="color:#888;">No existing HWIDs</span>';
+                
+                return `
+                    <tr style="background:rgba(244,67,54,0.05);">
+                        <td><strong class="code-font">${code.code}</strong></td>
+                        <td>${code.username || '<span class="text-muted">N/A</span>'}</td>
+                        <td style="text-align:center;"><span style="color:#FF9800;font-weight:bold;">${limit}</span></td>
+                        <td style="text-align:center;"><span style="color:${hwidCount >= limit ? '#f44336' : '#FF9800'};font-weight:bold;">${hwidCount}</span></td>
+                        <td>${newHwidHtml}</td>
+                        <td style="max-width:350px;">${existingHwidsHtml}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button onclick="viewAutoDeactivatedDetail('${code.code}')" class="btn-small btn-info" style="background:#2196F3;color:#fff;">📋 Details</button>
+                                <button onclick="reactivateAutoDeactivated('${code.code}')" class="btn-small btn-success">🔓 Reactivate</button>
+                                <button onclick="deleteCode('${code.code}')" class="btn-small btn-danger">🗑️</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function viewAutoDeactivatedDetail(code) {
+            try {
+                const response = await fastFetch(`/api/auto-deactivated-code/${code}`);
+                const data = await response.json();
+                
+                if (!data.success) {
+                    showMessage('❌ ' + (data.error || 'Failed to load details'), 'error');
+                    return;
+                }
+                
+                detailCodeData = data.code;
+                const c = data.code;
+                
+                document.getElementById('detail-code').textContent = c.code;
+                document.getElementById('detail-username').textContent = c.username || 'N/A';
+                document.getElementById('detail-access').textContent = c.access_level || 'VIP';
+                document.getElementById('detail-subscription').textContent = c.subscription_type || 'Lifetime';
+                document.getElementById('detail-status').textContent = c.status || 'auto_deactivated';
+                document.getElementById('detail-limit').textContent = c.max_hwid_limit || 1;
+                document.getElementById('detail-count').textContent = c.hwid_count || 0;
+                document.getElementById('detail-created').textContent = c.created_at ? new Date(c.created_at).toLocaleString() : 'N/A';
+                document.getElementById('detail-expires').textContent = c.expires_at ? new Date(c.expires_at).toLocaleString() : 'Never';
+                
+                // Find new HWID
+                const hwids = c.hwids || [];
+                const recentLogs = c.recent_logs || [];
+                
+                let newHwid = null;
+                let newHwidHardware = null;
+                
+                // Look for trigger in logs
+                const triggerLog = recentLogs.find(log => 
+                    log.action === 'register_attempt' && 
+                    (log.status === 'new' || log.status === 'seen')
+                );
+                
+                if (triggerLog) {
+                    newHwid = triggerLog.hwid;
+                    for (const h of hwids) {
+                        if (h.hwid === newHwid && h.hardware) {
+                            newHwidHardware = h.hardware;
+                            break;
+                        }
+                    }
+                }
+                
+                if (!newHwid && hwids.length > 0) {
+                    newHwid = hwids[0].hwid;
+                    newHwidHardware = hwids[0].hardware;
+                }
+                
+                // Render new HWID
+                const newHwidDiv = document.getElementById('detail-new-hwid');
+                if (newHwid) {
+                    newHwidDiv.innerHTML = `
+                        <div style="border-left:3px solid #FF9800;padding:10px;background:rgba(255,152,0,0.05);border-radius:4px;">
+                            <code style="color:#FF9800;font-weight:bold;word-break:break-all;">${newHwid}</code>
+                            ${newHwidHardware ? `
+                                <div style="color:#aaa;font-size:12px;margin-top:8px;line-height:1.6;">
+                                    <div>🔧 CPU: ${newHwidHardware.cpu_name || 'Unknown'}</div>
+                                    <div>🎮 GPU: ${newHwidHardware.gpu_name || 'Unknown'}</div>
+                                    <div>💾 RAM: ${newHwidHardware.ram_total_gb || 0}GB</div>
+                                    <div>💿 Storage: ${newHwidHardware.storage_total_gb || 0}GB</div>
+                                    <div>💻 Device: ${newHwidHardware.device_name || 'Unknown'}</div>
+                                    <div>👤 Profile: ${newHwidHardware.profile_name || 'Default'}</div>
+                                    <div>👔 Owner: ${newHwidHardware.registered_owner || 'Unknown'}</div>
+                                </div>
+                            ` : '<div style="color:#888;margin-top:8px;">No hardware specs available</div>'}
+                            <span style="color:#f44336;font-size:12px;font-weight:bold;display:block;margin-top:8px;">⚠️ This HWID triggered the deactivation</span>
+                        </div>
+                    `;
+                } else {
+                    newHwidDiv.innerHTML = '<p style="color:#888;">No new HWID detected</p>';
+                }
+                
+                // Render existing HWIDs
+                const existingHwids = hwids.filter(h => h.hwid !== newHwid);
+                const existingDiv = document.getElementById('detail-existing-hwids');
+                if (existingHwids.length > 0) {
+                    existingDiv.innerHTML = existingHwids.map(h => `
+                        <div style="border-left:3px solid #4CAF50;padding:10px;background:rgba(76,175,80,0.05);border-radius:4px;margin-bottom:8px;">
+                            <code style="color:#4CAF50;font-weight:bold;word-break:break-all;">${h.hwid}</code>
+                            ${h.hardware ? `
+                                <div style="color:#aaa;font-size:12px;margin-top:8px;line-height:1.6;">
+                                    <div>🔧 CPU: ${h.hardware.cpu_name || 'Unknown'}</div>
+                                    <div>🎮 GPU: ${h.hardware.gpu_name || 'Unknown'}</div>
+                                    <div>💾 RAM: ${h.hardware.ram_total_gb || 0}GB</div>
+                                    <div>💿 Storage: ${h.hardware.storage_total_gb || 0}GB</div>
+                                    <div>💻 Device: ${h.hardware.device_name || 'Unknown'}</div>
+                                    <div>👤 Profile: ${h.hardware.profile_name || 'Default'}</div>
+                                    <div>👔 Owner: ${h.hardware.registered_owner || 'Unknown'}</div>
+                                </div>
+                            ` : '<div style="color:#888;margin-top:8px;">No hardware specs available</div>'}
+                            <div style="color:#888;font-size:11px;margin-top:4px;">Assigned: ${h.assigned_at ? new Date(h.assigned_at).toLocaleString() : 'N/A'}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    existingDiv.innerHTML = '<p style="color:#888;">No existing HWIDs found</p>';
+                }
+                
+                // Render logs
+                const logsDiv = document.getElementById('detail-hwid-logs');
+                if (recentLogs.length > 0) {
+                    logsDiv.innerHTML = recentLogs.slice(0, 15).map(log => `
+                        <div style="border-bottom:1px solid rgba(255,255,255,0.05);padding:6px 0;font-size:11px;">
+                            <span style="color:${log.status === 'new' ? '#FF9800' : '#aaa'}">${log.action}</span>
+                            <span style="color:#888;"> | ${log.hwid ? log.hwid.substring(0, 16) + '...' : 'N/A'}</span>
+                            <span style="color:#888;"> | ${log.created_at ? new Date(log.created_at).toLocaleString() : 'N/A'}</span>
+                            ${log.details ? `<div style="color:#888;font-size:10px;">${log.details}</div>` : ''}
+                        </div>
+                    `).join('');
+                } else {
+                    logsDiv.innerHTML = '<p style="color:#888;">No logs available</p>';
+                }
+                
+                document.getElementById('auto-deactivated-detail').style.display = 'block';
+                document.body.style.overflow = 'hidden';
+                
+            } catch (error) {
+                showMessage('❌ Error loading details: ' + error.message, 'error');
+            }
+        }
+
+        function closeDetail() {
+            document.getElementById('auto-deactivated-detail').style.display = 'none';
+            document.body.style.overflow = 'auto';
+            detailCodeData = null;
+        }
+
+        async function reactivateFromDetail() {
+            if (detailCodeData) {
+                await reactivateAutoDeactivated(detailCodeData.code);
+                closeDetail();
+            }
+        }
+
+        async function reactivateAutoDeactivated(code) {
+            if (!confirm(`🔓 Reactivate code ${code}?\n\nThis will remove all existing HWIDs and allow the user to register again.\n\nThe user will need to run the Python software again.`)) {
+                return;
+            }
+            
+            try {
+                const response = await fastFetch(`/api/code/${code}/reactivate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subscriptionType: 'Lifetime' })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage(`✅ Code ${code} reactivated! ${result.hwids_removed || 0} HWID(s) removed.`, 'success');
+                    hwidDetailsCache = {};
+                    await loadAll();
+                    await loadAutoDeactivatedCodes();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to reactivate'), 'error');
                 }
             } catch (error) {
                 showMessage('❌ Error: ' + error.message, 'error');

@@ -1,4 +1,4 @@
-// database-pg.js - COMPLETE OPTIMIZED FOR 100-200 USERS
+// database-pg.js - COMPLETE CLEAN VERSION (No Wallpaper, HWID + Hardware Only)
 
 const { Pool } = require('pg');
 
@@ -305,8 +305,7 @@ class DeviceDatabase {
       );
       
       const devices = await this.queuedQuery(
-        `SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, registered_owner, cpu_name, gpu_name, ram_total_gb, storage_total_gb, wallpaper_name, wallpaper_width, wallpaper_height, wallpaper_size_kb, 
-        EXISTS(SELECT 1 FROM devices d2 WHERE d2.wallpaper_base64 IS NOT NULL AND d2.device_id = devices.device_id) as has_wallpaper
+        `SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, registered_owner, cpu_name, gpu_name, ram_total_gb, storage_total_gb
         FROM devices ORDER BY created_at DESC LIMIT 100`,
         [], 3
       );
@@ -472,7 +471,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // INIT TABLES - WITH OPTIMIZED INDEXES
+  // INIT TABLES - WITH OPTIMIZED INDEXES (NO WALLPAPER)
   // ============================================
 
   async initTables() {
@@ -512,6 +511,9 @@ class DeviceDatabase {
         )
       `);
 
+      // ============================================
+      // DEVICES TABLE - NO WALLPAPER COLUMNS
+      // ============================================
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -535,16 +537,11 @@ class DeviceDatabase {
           storage_total_gb DECIMAL,
           profile_name TEXT,
           device_name TEXT,
-          registered_owner TEXT,
-          wallpaper_name TEXT,
-          wallpaper_size_kb DECIMAL,
-          wallpaper_width INTEGER,
-          wallpaper_height INTEGER,
-          wallpaper_base64 TEXT
+          registered_owner TEXT
         )
       `);
 
-      // ALTER TABLE for registered_owner
+      // ALTER TABLE for registered_owner (if not exists)
       try {
         await this.queryWithRetry(`
           ALTER TABLE devices ADD COLUMN IF NOT EXISTS registered_owner TEXT
@@ -552,6 +549,18 @@ class DeviceDatabase {
         console.log('✅ registered_owner column verified/added');
       } catch (err) {
         console.log('ℹ️ registered_owner column already exists or error:', err.message);
+      }
+
+      // Remove wallpaper columns if they exist (cleanup)
+      try {
+        await this.queryWithRetry(`ALTER TABLE devices DROP COLUMN IF EXISTS wallpaper_name`);
+        await this.queryWithRetry(`ALTER TABLE devices DROP COLUMN IF EXISTS wallpaper_size_kb`);
+        await this.queryWithRetry(`ALTER TABLE devices DROP COLUMN IF EXISTS wallpaper_width`);
+        await this.queryWithRetry(`ALTER TABLE devices DROP COLUMN IF EXISTS wallpaper_height`);
+        await this.queryWithRetry(`ALTER TABLE devices DROP COLUMN IF EXISTS wallpaper_base64`);
+        console.log('✅ Wallpaper columns removed (if they existed)');
+      } catch (err) {
+        console.log('ℹ️ Wallpaper columns already removed or error:', err.message);
       }
 
       // ============================================
@@ -617,7 +626,7 @@ class DeviceDatabase {
         )
       `);
 
-      console.log('✅ Tables created/verified with all indexes');
+      console.log('✅ Tables created/verified with all indexes (No Wallpaper)');
       await this.refreshCache();
       
     } catch (error) {
@@ -626,10 +635,10 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // REGISTER DEVICE - OPTIMIZED
+  // REGISTER DEVICE - OPTIMIZED (NO WALLPAPER)
   // ============================================
 
-  async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null, hardware = null, wallpaper = null) {
+  async registerDeviceWithCode(deviceId, userAgent, ip, browserInfo, code, hwid = null, hardware = null) {
     try {
       const codeInfoResult = await this.queuedQuery(
         'SELECT * FROM codes WHERE code = $1', 
@@ -701,9 +710,9 @@ class DeviceDatabase {
         };
       }
 
+      // Parse hardware specs (NO WALLPAPER)
       let cpuName = 'Unknown', gpuName = 'Unknown', ramTotal = 0, storageTotal = 0, deviceName = 'Unknown', profileName = 'Default';
       let registeredOwner = 'Unknown';
-      let wallpaperName = null, wallpaperSizeKb = 0, wallpaperWidth = 0, wallpaperHeight = 0, wallpaperBase64 = null;
 
       if (hardware) {
         const hw = typeof hardware === 'string' ? JSON.parse(hardware) : hardware;
@@ -714,15 +723,6 @@ class DeviceDatabase {
         deviceName = hw.device_name || 'Unknown';
         profileName = hw.profile_name || 'Default';
         registeredOwner = hw.registered_owner || 'Unknown';
-      }
-
-      if (wallpaper) {
-        const wp = typeof wallpaper === 'string' ? JSON.parse(wallpaper) : wallpaper;
-        wallpaperName = wp.file_name || null;
-        wallpaperSizeKb = wp.size_kb || 0;
-        wallpaperWidth = wp.width || 0;
-        wallpaperHeight = wp.height || 0;
-        wallpaperBase64 = wp.image_base64 || null;
       }
 
       const existingDevice = await this.getDevice(deviceId);
@@ -745,14 +745,9 @@ class DeviceDatabase {
             profile_name = $11,
             device_name = $12,
             registered_owner = $13,
-            wallpaper_name = $14,
-            wallpaper_size_kb = $15,
-            wallpaper_width = $16,
-            wallpaper_height = $17,
-            wallpaper_base64 = $18,
             approved_at = CURRENT_TIMESTAMP,
             revoked_at = NULL
-          WHERE device_id = $19`,
+          WHERE device_id = $14`,
           [
             userAgent || '',
             ip || '',
@@ -767,11 +762,6 @@ class DeviceDatabase {
             profileName,
             deviceName,
             registeredOwner,
-            wallpaperName,
-            wallpaperSizeKb,
-            wallpaperWidth,
-            wallpaperHeight,
-            wallpaperBase64,
             deviceId
           ]
         );
@@ -781,11 +771,9 @@ class DeviceDatabase {
             device_id, user_agent, ip_address, browser_info, code, hwid,
             status, approved_at, browser_profile,
             cpu_name, gpu_name, ram_total_gb, storage_total_gb,
-            profile_name, device_name, registered_owner,
-            wallpaper_name, wallpaper_size_kb, wallpaper_width, wallpaper_height, wallpaper_base64
+            profile_name, device_name, registered_owner
           ) VALUES ($1, $2, $3, $4, $5, $6, 'approved', CURRENT_TIMESTAMP, $7,
-            $8, $9, $10, $11, $12, $13, $14,
-            $15, $16, $17, $18, $19)`,
+            $8, $9, $10, $11, $12, $13, $14)`,
           [
             deviceId,
             userAgent || '',
@@ -800,12 +788,7 @@ class DeviceDatabase {
             storageTotal,
             profileName,
             deviceName,
-            registeredOwner,
-            wallpaperName,
-            wallpaperSizeKb,
-            wallpaperWidth,
-            wallpaperHeight,
-            wallpaperBase64
+            registeredOwner
           ]
         );
       }
@@ -831,14 +814,7 @@ class DeviceDatabase {
         subscription_expires_at: updatedCodeInfo.expires_at,
         status_code: updatedCodeInfo.status,
         hwid_auto_assigned: !isAuthorized,
-        registered_owner: registeredOwner,
-        wallpaper: {
-          name: wallpaperName,
-          size_kb: wallpaperSizeKb,
-          width: wallpaperWidth,
-          height: wallpaperHeight,
-          has_base64: !!wallpaperBase64
-        }
+        registered_owner: registeredOwner
       };
       
     } catch (error) {
@@ -848,12 +824,12 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET DEVICES - OPTIMIZED WITH PAGINATION
+  // GET DEVICES - OPTIMIZED WITH PAGINATION (NO WALLPAPER)
   // ============================================
 
   async getDevices(status = null, limit = 100, offset = 0) {
     try {
-      let query = 'SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, registered_owner, cpu_name, gpu_name, ram_total_gb, storage_total_gb, wallpaper_name, wallpaper_width, wallpaper_height, wallpaper_size_kb FROM devices';
+      let query = 'SELECT device_id, status, code, last_ping, created_at, profile_name, device_name, registered_owner, cpu_name, gpu_name, ram_total_gb, storage_total_gb FROM devices';
       const params = [];
       
       if (status) {
@@ -872,7 +848,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET DEVICES BY CODE
+  // GET DEVICES BY CODE (NO WALLPAPER)
   // ============================================
 
   async getDevicesByCode(code) {
@@ -932,7 +908,7 @@ class DeviceDatabase {
       
       const hwidsWithSpecs = await Promise.all(result.map(async (h) => {
         const device = await this.get(
-          'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner, wallpaper_name FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
+          'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
           [h.hwid]
         );
         return {
@@ -944,8 +920,7 @@ class DeviceDatabase {
             storage_gb: device.storage_total_gb || 0,
             device_name: device.device_name || 'Unknown',
             profile_name: device.profile_name || 'Unknown',
-            registered_owner: device.registered_owner || 'Unknown',
-            wallpaper: device.wallpaper_name || null
+            registered_owner: device.registered_owner || 'Unknown'
           } : null
         };
       }));
@@ -1196,6 +1171,83 @@ class DeviceDatabase {
             success: false,
             error: error.message
         };
+    }
+  }
+
+  // ============================================
+  // GET AUTO-DEACTIVATED CODES WITH HWID DETAILS
+  // ============================================
+
+  async getAutoDeactivatedCodesWithHwidDetails() {
+    try {
+      const result = await this.queuedQuery(`
+        SELECT 
+          c.code,
+          c.username,
+          c.access_level,
+          c.subscription_type,
+          c.status,
+          c.is_active,
+          c.created_at,
+          c.expires_at,
+          c.max_hwid_limit,
+          c.hwid as code_hwid,
+          (
+            SELECT COUNT(*) FROM code_hwids WHERE code = c.code
+          ) as hwid_count,
+          (
+            SELECT json_agg(
+              json_build_object(
+                'hwid', ch.hwid,
+                'assigned_at', ch.assigned_at,
+                'last_used', ch.last_used,
+                'hardware', (
+                  SELECT json_build_object(
+                    'cpu_name', d.cpu_name,
+                    'gpu_name', d.gpu_name,
+                    'ram_total_gb', d.ram_total_gb,
+                    'storage_total_gb', d.storage_total_gb,
+                    'device_name', d.device_name,
+                    'profile_name', d.profile_name,
+                    'registered_owner', d.registered_owner
+                  )
+                  FROM devices d 
+                  WHERE d.hwid = ch.hwid 
+                  ORDER BY d.created_at DESC 
+                  LIMIT 1
+                )
+              )
+            ) 
+            FROM code_hwids ch 
+            WHERE ch.code = c.code
+          ) as hwids,
+          (
+            SELECT json_agg(
+              json_build_object(
+                'hwid', l.hwid,
+                'action', l.action,
+                'status', l.status,
+                'details', l.details,
+                'created_at', l.created_at,
+                'browser_profile', l.browser_profile
+              )
+              ORDER BY l.created_at DESC
+              LIMIT 20
+            )
+            FROM hwid_logs l 
+            WHERE l.code = c.code 
+            AND (l.status = 'new' OR l.status = 'seen')
+          ) as recent_hwid_logs
+        FROM codes c
+        WHERE c.status IN ('auto_deactivated_limit_exceeded', 'auto_deactivated')
+        AND c.is_active = false
+        ORDER BY c.created_at DESC
+      `, [], 5);
+      
+      return result.rows || [];
+    } catch (error) {
+      console.error('❌ Get auto-deactivated codes with HWID details error:', error.message);
+      return [];
     }
   }
 
@@ -1683,13 +1735,6 @@ class DeviceDatabase {
         subscription_expires_at: codeInfo ? codeInfo.expires_at : null,
         status_code: codeInfo ? codeInfo.status : null,
         registered_owner: device.registered_owner || 'Unknown',
-        wallpaper: device.wallpaper_name ? {
-          name: device.wallpaper_name,
-          size_kb: device.wallpaper_size_kb,
-          width: device.wallpaper_width,
-          height: device.wallpaper_height,
-          has_base64: !!device.wallpaper_base64
-        } : null,
         device: {
           id: device.device_id,
           approved_at: device.approved_at,
