@@ -283,6 +283,36 @@
             display: flex;
             gap: 10px;
         }
+        
+        /* Owner list styles - VERTICAL */
+        .owner-list {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .owner-item {
+            font-size: 11px;
+            color: #FF5722;
+            background: rgba(255,87,34,0.08);
+            padding: 2px 8px;
+            border-radius: 3px;
+            border-left: 2px solid #FF5722;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+        .owner-item .owner-count {
+            color: #888;
+            font-size: 9px;
+            margin-left: 4px;
+        }
+        .owner-list .no-owner {
+            color: #666;
+            font-size: 11px;
+            font-style: italic;
+        }
+        
         .hwid-spec-item {
             display: inline-block;
             padding: 1px 8px;
@@ -299,6 +329,26 @@
         .hwid-spec-item.owner { background: rgba(255,87,34,0.15); color: #FF5722; }
         .hwid-spec-item.unregistered { background: rgba(255,152,0,0.1); color: #FF9800; border: 1px dashed #FF9800; }
         
+        /* Owner column in table */
+        .owner-cell {
+            max-width: 180px;
+            min-width: 120px;
+        }
+        .owner-cell .owner-list {
+            max-height: 80px;
+            overflow-y: auto;
+        }
+        .owner-cell .owner-list::-webkit-scrollbar {
+            width: 3px;
+        }
+        .owner-cell .owner-list::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 3px;
+        }
+        .owner-cell .owner-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
             .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -307,6 +357,7 @@
             .section-header-with-search .search-box { max-width: 100%; }
             #auto-deactivated-detail .detail-grid { grid-template-columns: 1fr; }
             #auto-deactivated-detail { padding: 20px; }
+            .owner-cell { max-width: 120px; min-width: 80px; }
         }
     </style>
 </head>
@@ -434,17 +485,18 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th style="width:100px;">Code</th>
+                                    <th style="width:90px;">Code</th>
                                     <th>Username</th>
                                     <th>Subscription</th>
                                     <th>Expires</th>
                                     <th style="width:120px;">HWID Status</th>
+                                    <th style="min-width:150px;">👔 Owners</th>
                                     <th style="min-width:180px;">Deactivation Reason</th>
                                     <th style="width:280px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="svip-body">
-                                <tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">
+                                <tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">
                                     <div class="loading-text"><span class="spinner"></span> Loading SVIP codes...</div>
                                 </td></tr>
                             </tbody>
@@ -475,17 +527,18 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th style="width:100px;">Code</th>
+                                    <th style="width:90px;">Code</th>
                                     <th>Username</th>
                                     <th>Subscription</th>
                                     <th>Expires</th>
                                     <th style="width:120px;">HWID Status</th>
+                                    <th style="min-width:150px;">👔 Owners</th>
                                     <th style="min-width:180px;">Deactivation Reason</th>
                                     <th style="width:280px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="vip-body">
-                                <tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">
+                                <tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">
                                     <div class="loading-text"><span class="spinner"></span> Loading VIP codes...</div>
                                 </td></tr>
                             </tbody>
@@ -662,13 +715,13 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th style="width:100px;">Code</th>
+                                    <th style="width:90px;">Code</th>
                                     <th>Username</th>
-                                    <th style="width:100px;">HWID Limit</th>
-                                    <th style="width:100px;">HWID Count</th>
-                                    <th style="min-width:300px;">🆕 New HWID (Trigger)</th>
-                                    <th style="min-width:350px;">📋 Existing HWIDs</th>
-                                    <th style="width:250px;">Actions</th>
+                                    <th style="width:90px;">HWID Limit</th>
+                                    <th style="width:90px;">HWID Count</th>
+                                    <th style="min-width:280px;">🆕 New HWID (Trigger)</th>
+                                    <th style="min-width:300px;">📋 Existing HWIDs</th>
+                                    <th style="width:220px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="auto-deactivated-body">
@@ -1128,6 +1181,37 @@
         }
 
         // ============================================
+        // GET OWNERS FOR A CODE
+        // ============================================
+        function getOwnersForCode(code) {
+            const owners = [];
+            const devices = allDevices.filter(d => d.code === code);
+            for (const device of devices) {
+                if (device.registered_owner && device.registered_owner !== 'Unknown' && device.registered_owner !== 'N/A') {
+                    if (!owners.includes(device.registered_owner)) {
+                        owners.push(device.registered_owner);
+                    }
+                }
+            }
+            return owners;
+        }
+
+        // ============================================
+        // RENDER OWNERS LIST (VERTICAL)
+        // ============================================
+        function renderOwnersList(owners) {
+            if (!owners || owners.length === 0) {
+                return '<span class="no-owner">No owner</span>';
+            }
+            const listItems = owners.map((owner, index) => {
+                const count = owners.length;
+                const countLabel = count > 1 ? `<span class="owner-count">(${index + 1}/${count})</span>` : '';
+                return `<div class="owner-item">👔 ${owner} ${countLabel}</div>`;
+            }).join('');
+            return `<div class="owner-list">${listItems}</div>`;
+        }
+
+        // ============================================
         // LOAD ALL DATA
         // ============================================
         async function loadAll() {
@@ -1234,7 +1318,7 @@
             
             if (filteredSVIP.length === 0) {
                 const msg = svipSearchTerm ? `No SVIP codes found for username: "${svipSearchTerm}"` : 'No SVIP codes found';
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">${msg}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">${msg}</td></tr>`;
                 return;
             }
             
@@ -1242,6 +1326,7 @@
                 const isEditing = editingCode === c.code;
                 const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
                 const username = c.username || '';
+                const owners = getOwnersForCode(c.code);
                 
                 const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
                 const hasHwid = hwidInfo.count > 0;
@@ -1264,6 +1349,8 @@
                     hwidStatusHtml = `<span class="hwid-status-badge-sm has-hwid">${hwidDisplay}</span>`;
                 }
                 
+                const ownersHtml = renderOwnersList(owners);
+                
                 if (isEditing) {
                     return `
                         <tr class="editing">
@@ -1281,6 +1368,7 @@
                             <td>
                                 <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;">
                             </td>
+                            <td class="owner-cell">${ownersHtml}</td>
                             <td>${deactivationDisplay}</td>
                             <td>
                                 <div class="action-buttons">
@@ -1299,6 +1387,7 @@
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${hwidStatusHtml}</td>
+                        <td class="owner-cell">${ownersHtml}</td>
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
@@ -1325,7 +1414,7 @@
             
             if (filteredVIP.length === 0) {
                 const msg = vipSearchTerm ? `No VIP codes found for username: "${vipSearchTerm}"` : 'No VIP codes found';
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">${msg}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">${msg}</td></tr>`;
                 return;
             }
             
@@ -1333,6 +1422,7 @@
                 const isEditing = editingCode === c.code;
                 const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
                 const username = c.username || '';
+                const owners = getOwnersForCode(c.code);
                 
                 const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
                 const hasHwid = hwidInfo.count > 0;
@@ -1355,6 +1445,8 @@
                     hwidStatusHtml = `<span class="hwid-status-badge-sm has-hwid">${hwidDisplay}</span>`;
                 }
                 
+                const ownersHtml = renderOwnersList(owners);
+                
                 if (isEditing) {
                     return `
                         <tr class="editing">
@@ -1372,6 +1464,7 @@
                             <td>
                                 <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;">
                             </td>
+                            <td class="owner-cell">${ownersHtml}</td>
                             <td>${deactivationDisplay}</td>
                             <td>
                                 <div class="action-buttons">
@@ -1390,6 +1483,7 @@
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${hwidStatusHtml}</td>
+                        <td class="owner-cell">${ownersHtml}</td>
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
@@ -2127,17 +2221,11 @@
                 
                 // Find the newest HWID that triggered the deactivation
                 const recentLogs = code.recent_hwid_logs || [];
-                let newHwid = null;
+                let newHwid = code.trigger_hwid || null;
                 let newHwidHardware = null;
                 
-                // Look for the HWID that triggered the deactivation
-                const triggerLog = recentLogs.find(log => 
-                    log.action === 'register_attempt' && 
-                    (log.status === 'new' || log.status === 'seen')
-                );
-                
-                if (triggerLog) {
-                    newHwid = triggerLog.hwid;
+                // If trigger_hwid exists, find its hardware
+                if (newHwid) {
                     for (const h of hwids) {
                         if (h.hwid === newHwid && h.hardware) {
                             newHwidHardware = h.hardware;
@@ -2146,7 +2234,39 @@
                     }
                 }
                 
-                // If no trigger log found, use the first HWID in the list
+                // If no trigger_hwid, look for trigger log
+                if (!newHwid) {
+                    const triggerLog = recentLogs.find(log => 
+                        log.action === 'auto_deactivation_trigger'
+                    );
+                    if (triggerLog) {
+                        newHwid = triggerLog.hwid;
+                        // Try to extract hardware from details
+                        if (triggerLog.details) {
+                            const details = triggerLog.details;
+                            const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
+                            const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
+                            const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                            const storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
+                            const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
+                            const profileMatch = details.match(/Profile:\s*([^,|]+)/i);
+                            const ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
+                            
+                            newHwidHardware = {};
+                            if (cpuMatch) newHwidHardware.cpu_name = cpuMatch[1].trim();
+                            if (gpuMatch) newHwidHardware.gpu_name = gpuMatch[1].trim();
+                            if (ramMatch) newHwidHardware.ram_total_gb = parseFloat(ramMatch[1].trim());
+                            if (storageMatch) newHwidHardware.storage_total_gb = parseFloat(storageMatch[1].trim());
+                            if (deviceMatch) newHwidHardware.device_name = deviceMatch[1].trim();
+                            if (profileMatch) newHwidHardware.profile_name = profileMatch[1].trim();
+                            if (ownerMatch) newHwidHardware.registered_owner = ownerMatch[1].trim();
+                            
+                            if (Object.keys(newHwidHardware).length === 0) newHwidHardware = null;
+                        }
+                    }
+                }
+                
+                // If still no new HWID, use first HWID
                 if (!newHwid && hwids.length > 0) {
                     newHwid = hwids[0].hwid;
                     newHwidHardware = hwids[0].hardware;
@@ -2251,22 +2371,43 @@
                 // Find new HWID
                 const hwids = c.hwids || [];
                 const recentLogs = c.recent_logs || [];
-                
-                let newHwid = null;
+                let newHwid = c.trigger_hwid || null;
                 let newHwidHardware = null;
                 
-                // Look for trigger in logs
-                const triggerLog = recentLogs.find(log => 
-                    log.action === 'register_attempt' && 
-                    (log.status === 'new' || log.status === 'seen')
-                );
-                
-                if (triggerLog) {
-                    newHwid = triggerLog.hwid;
+                if (newHwid) {
                     for (const h of hwids) {
                         if (h.hwid === newHwid && h.hardware) {
                             newHwidHardware = h.hardware;
                             break;
+                        }
+                    }
+                }
+                
+                if (!newHwid) {
+                    const triggerLog = recentLogs.find(log => 
+                        log.action === 'auto_deactivation_trigger'
+                    );
+                    if (triggerLog) {
+                        newHwid = triggerLog.hwid;
+                        if (triggerLog.details) {
+                            const details = triggerLog.details;
+                            const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
+                            const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
+                            const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                            const storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
+                            const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
+                            const profileMatch = details.match(/Profile:\s*([^,|]+)/i);
+                            const ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
+                            
+                            newHwidHardware = {};
+                            if (cpuMatch) newHwidHardware.cpu_name = cpuMatch[1].trim();
+                            if (gpuMatch) newHwidHardware.gpu_name = gpuMatch[1].trim();
+                            if (ramMatch) newHwidHardware.ram_total_gb = parseFloat(ramMatch[1].trim());
+                            if (storageMatch) newHwidHardware.storage_total_gb = parseFloat(storageMatch[1].trim());
+                            if (deviceMatch) newHwidHardware.device_name = deviceMatch[1].trim();
+                            if (profileMatch) newHwidHardware.profile_name = profileMatch[1].trim();
+                            if (ownerMatch) newHwidHardware.registered_owner = ownerMatch[1].trim();
+                            if (Object.keys(newHwidHardware).length === 0) newHwidHardware = null;
                         }
                     }
                 }
@@ -2279,20 +2420,24 @@
                 // Render new HWID
                 const newHwidDiv = document.getElementById('detail-new-hwid');
                 if (newHwid) {
+                    let hardwareHtml = '';
+                    if (newHwidHardware) {
+                        hardwareHtml = `
+                            <div style="color:#aaa;font-size:12px;margin-top:8px;line-height:1.6;">
+                                <div>🔧 CPU: ${newHwidHardware.cpu_name || 'Unknown'}</div>
+                                <div>🎮 GPU: ${newHwidHardware.gpu_name || 'Unknown'}</div>
+                                <div>💾 RAM: ${newHwidHardware.ram_total_gb || 0}GB</div>
+                                <div>💿 Storage: ${newHwidHardware.storage_total_gb || 0}GB</div>
+                                <div>💻 Device: ${newHwidHardware.device_name || 'Unknown'}</div>
+                                <div>👤 Profile: ${newHwidHardware.profile_name || 'Default'}</div>
+                                <div>👔 Owner: ${newHwidHardware.registered_owner || 'Unknown'}</div>
+                            </div>
+                        `;
+                    }
                     newHwidDiv.innerHTML = `
                         <div style="border-left:3px solid #FF9800;padding:10px;background:rgba(255,152,0,0.05);border-radius:4px;">
                             <code style="color:#FF9800;font-weight:bold;word-break:break-all;">${newHwid}</code>
-                            ${newHwidHardware ? `
-                                <div style="color:#aaa;font-size:12px;margin-top:8px;line-height:1.6;">
-                                    <div>🔧 CPU: ${newHwidHardware.cpu_name || 'Unknown'}</div>
-                                    <div>🎮 GPU: ${newHwidHardware.gpu_name || 'Unknown'}</div>
-                                    <div>💾 RAM: ${newHwidHardware.ram_total_gb || 0}GB</div>
-                                    <div>💿 Storage: ${newHwidHardware.storage_total_gb || 0}GB</div>
-                                    <div>💻 Device: ${newHwidHardware.device_name || 'Unknown'}</div>
-                                    <div>👤 Profile: ${newHwidHardware.profile_name || 'Default'}</div>
-                                    <div>👔 Owner: ${newHwidHardware.registered_owner || 'Unknown'}</div>
-                                </div>
-                            ` : '<div style="color:#888;margin-top:8px;">No hardware specs available</div>'}
+                            ${hardwareHtml || '<div style="color:#888;margin-top:8px;">No hardware specs available</div>'}
                             <span style="color:#f44336;font-size:12px;font-weight:bold;display:block;margin-top:8px;">⚠️ This HWID triggered the deactivation</span>
                         </div>
                     `;
@@ -2304,10 +2449,10 @@
                 const existingHwids = hwids.filter(h => h.hwid !== newHwid);
                 const existingDiv = document.getElementById('detail-existing-hwids');
                 if (existingHwids.length > 0) {
-                    existingDiv.innerHTML = existingHwids.map(h => `
-                        <div style="border-left:3px solid #4CAF50;padding:10px;background:rgba(76,175,80,0.05);border-radius:4px;margin-bottom:8px;">
-                            <code style="color:#4CAF50;font-weight:bold;word-break:break-all;">${h.hwid}</code>
-                            ${h.hardware ? `
+                    existingDiv.innerHTML = existingHwids.map(h => {
+                        let hardwareHtml = '';
+                        if (h.hardware) {
+                            hardwareHtml = `
                                 <div style="color:#aaa;font-size:12px;margin-top:8px;line-height:1.6;">
                                     <div>🔧 CPU: ${h.hardware.cpu_name || 'Unknown'}</div>
                                     <div>🎮 GPU: ${h.hardware.gpu_name || 'Unknown'}</div>
@@ -2317,10 +2462,16 @@
                                     <div>👤 Profile: ${h.hardware.profile_name || 'Default'}</div>
                                     <div>👔 Owner: ${h.hardware.registered_owner || 'Unknown'}</div>
                                 </div>
-                            ` : '<div style="color:#888;margin-top:8px;">No hardware specs available</div>'}
-                            <div style="color:#888;font-size:11px;margin-top:4px;">Assigned: ${h.assigned_at ? new Date(h.assigned_at).toLocaleString() : 'N/A'}</div>
-                        </div>
-                    `).join('');
+                            `;
+                        }
+                        return `
+                            <div style="border-left:3px solid #4CAF50;padding:10px;background:rgba(76,175,80,0.05);border-radius:4px;margin-bottom:8px;">
+                                <code style="color:#4CAF50;font-weight:bold;word-break:break-all;">${h.hwid}</code>
+                                ${hardwareHtml || '<div style="color:#888;margin-top:8px;">No hardware specs available</div>'}
+                                <div style="color:#888;font-size:11px;margin-top:4px;">Assigned: ${h.assigned_at ? new Date(h.assigned_at).toLocaleString() : 'N/A'}</div>
+                            </div>
+                        `;
+                    }).join('');
                 } else {
                     existingDiv.innerHTML = '<p style="color:#888;">No existing HWIDs found</p>';
                 }
