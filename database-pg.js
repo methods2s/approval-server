@@ -1,4 +1,4 @@
-// database-pg.js - COMPLETE OPTIMIZED FOR 100-200 USERS (FIXED VERSION)
+// database-pg.js - COMPLETE OPTIMIZED FOR 100-200 USERS
 
 const { Pool } = require('pg');
 
@@ -68,11 +68,6 @@ class DeviceDatabase {
     this.recentQueries = new Map();
     this.queryDedupeWindow = 5000;  // 5 seconds dedupe
     
-    // Cache cleanup interval
-    this.cacheCleanupInterval = setInterval(() => {
-      this.cleanupQueryCache();
-    }, 60000); // Clean up every minute
-    
     this.pool.on('connect', () => {});
     this.pool.on('acquire', () => {});
     this.pool.on('remove', () => {});
@@ -85,23 +80,6 @@ class DeviceDatabase {
     console.log(`📊 Pool: max=${this.pool.options.max}, min=${this.pool.options.min}`);
     console.log(`⏱️  Cache TTL: ${this.cacheTTL}s`);
     console.log(`📈 Max Concurrent Queries: ${this.maxConcurrentQueries}`);
-  }
-
-  // ============================================
-  // CACHE CLEANUP - Prevents memory leaks
-  // ============================================
-  cleanupQueryCache() {
-    const now = Date.now();
-    let deletedCount = 0;
-    for (const [key, value] of this.recentQueries) {
-      if (now - value.timestamp > this.queryDedupeWindow) {
-        this.recentQueries.delete(key);
-        deletedCount++;
-      }
-    }
-    if (deletedCount > 0) {
-      console.log(`🧹 Cleaned up ${deletedCount} old query cache entries`);
-    }
   }
 
   getQueryKey(sql, params) {
@@ -150,6 +128,12 @@ class DeviceDatabase {
           result: result,
           timestamp: Date.now()
         });
+        
+        for (const [key, value] of this.recentQueries) {
+          if (Date.now() - value.timestamp > this.queryDedupeWindow) {
+            this.recentQueries.delete(key);
+          }
+        }
       }
       
       task.resolve(result);
@@ -488,16 +472,13 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // INIT TABLES - WITH ALL TABLES AND INDEXES
+  // INIT TABLES - WITH OPTIMIZED INDEXES
   // ============================================
 
   async initTables() {
     try {
       console.log('🔧 Creating/verifying tables...');
       
-      // ============================================
-      // CODES TABLE
-      // ============================================
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS codes (
           code TEXT PRIMARY KEY,
@@ -520,9 +501,6 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
-      // CODE_HWIDS TABLE
-      // ============================================
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS code_hwids (
           id SERIAL PRIMARY KEY,
@@ -534,9 +512,6 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
-      // DEVICES TABLE
-      // ============================================
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -569,29 +544,30 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
-      // HWID_LIMIT_EXCEEDED_LOGS TABLE - NEW!
-      // ============================================
-      await this.queryWithRetry(`
-        CREATE TABLE IF NOT EXISTS hwid_limit_exceeded_logs (
-          id SERIAL PRIMARY KEY,
-          code TEXT NOT NULL,
-          username TEXT,
-          attempted_hwid TEXT NOT NULL,
-          existing_hwids TEXT[],
-          attempted_hardware JSONB,
-          reason TEXT DEFAULT 'hwid_limit_exceeded',
-          status TEXT DEFAULT 'pending',
-          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-          resolved_at TIMESTAMP,
-          resolved_by TEXT,
-          resolution_notes TEXT
-        )
-      `);
+      // ALTER TABLE for registered_owner
+      try {
+        await this.queryWithRetry(`
+          ALTER TABLE devices ADD COLUMN IF NOT EXISTS registered_owner TEXT
+        `);
+        console.log('✅ registered_owner column verified/added');
+      } catch (err) {
+        console.log('ℹ️ registered_owner column already exists or error:', err.message);
+      }
 
       // ============================================
-      // REQUESTS TABLE
+      // OPTIMIZED: All necessary indexes
       // ============================================
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_code_status ON devices(code, status)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status_created ON hwid_logs(status, created_at DESC)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid_created ON hwid_logs(hwid, created_at DESC)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_status_active ON codes(status, is_active)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_registered_owner ON devices(registered_owner)`);
+
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS requests (
           id SERIAL PRIMARY KEY,
@@ -605,9 +581,6 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
-      // USAGE_LOGS TABLE
-      // ============================================
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS usage_logs (
           id SERIAL PRIMARY KEY,
@@ -619,9 +592,6 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
-      // ADMINS TABLE
-      // ============================================
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS admins (
           id SERIAL PRIMARY KEY,
@@ -631,9 +601,6 @@ class DeviceDatabase {
         )
       `);
 
-      // ============================================
-      // HWID_LOGS TABLE
-      // ============================================
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS hwid_logs (
           id SERIAL PRIMARY KEY,
@@ -649,46 +616,6 @@ class DeviceDatabase {
           browser_profile TEXT
         )
       `);
-
-      // ============================================
-      // ALTER TABLE for registered_owner (safety)
-      // ============================================
-      try {
-        await this.queryWithRetry(`
-          ALTER TABLE devices ADD COLUMN IF NOT EXISTS registered_owner TEXT
-        `);
-        console.log('✅ registered_owner column verified/added');
-      } catch (err) {
-        console.log('ℹ️ registered_owner column already exists or error:', err.message);
-      }
-
-      // ============================================
-      // OPTIMIZED: All necessary indexes
-      // ============================================
-      console.log('🔧 Creating indexes...');
-      
-      // Codes indexes
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_status_active ON codes(status, is_active)`);
-      
-      // Code HWIDs indexes
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
-      
-      // Devices indexes
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_code_status ON devices(code, status)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_registered_owner ON devices(registered_owner)`);
-      
-      // HWID logs indexes
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status_created ON hwid_logs(status, created_at DESC)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid_created ON hwid_logs(hwid, created_at DESC)`);
-      
-      // HWID limit logs indexes
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_limit_logs_code ON hwid_limit_exceeded_logs(code)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_limit_logs_status ON hwid_limit_exceeded_logs(status)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_limit_logs_created ON hwid_limit_exceeded_logs(created_at DESC)`);
 
       console.log('✅ Tables created/verified with all indexes');
       await this.refreshCache();
@@ -746,16 +673,6 @@ class DeviceDatabase {
         const assignResult = await this.assignHwidToCode(code, hwid, true);
         if (!assignResult.success) {
           if (assignResult.auto_deactivate) {
-            // Log the HWID limit exceeded
-            await this.logHwidLimitExceeded(
-              code,
-              codeInfo.username || 'Unknown',
-              hwid,
-              [], // We'll get existing HWIDs
-              { hardware },
-              'hwid_limit_exceeded_auto_assign'
-            );
-            
             const deactivateResult = await this.autoDeactivateCode(code, 'hwid_limit_exceeded_auto_assign');
             return {
               success: false,
@@ -1743,96 +1660,6 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // HWID LIMIT EXCEEDED LOGS - NEW METHODS
-  // ============================================
-
-  async logHwidLimitExceeded(code, username, attemptedHwid, existingHwids, hardware, reason = 'hwid_limit_exceeded') {
-    try {
-      const result = await this.run(
-        `INSERT INTO hwid_limit_exceeded_logs 
-         (code, username, attempted_hwid, existing_hwids, attempted_hardware, reason, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
-        [code, username, attemptedHwid, existingHwids || [], hardware, reason]
-      );
-      console.log(`📝 HWID limit exceeded logged for code: ${code}`);
-      return { success: true, id: result.lastID };
-    } catch (error) {
-      console.error('❌ Error logging HWID limit exceeded:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  async getHwidLimitExceededLogs(limit = 50, offset = 0, status = null) {
-    try {
-      let query = 'SELECT * FROM hwid_limit_exceeded_logs';
-      const params = [];
-      
-      if (status) {
-        query += ' WHERE status = $1';
-        params.push(status);
-      }
-      
-      query += ' ORDER BY created_at DESC LIMIT $' + (params.length + 1) + ' OFFSET $' + (params.length + 2);
-      params.push(Math.min(limit, 100), offset);
-      
-      return await this.all(query, params);
-    } catch (error) {
-      console.error('❌ Get HWID limit exceeded logs error:', error);
-      return [];
-    }
-  }
-
-  async getHwidLimitExceededLogsCount(status = null) {
-    try {
-      let query = 'SELECT COUNT(*) as count FROM hwid_limit_exceeded_logs';
-      const params = [];
-      
-      if (status) {
-        query += ' WHERE status = $1';
-        params.push(status);
-      }
-      
-      const result = await this.get(query, params);
-      return result ? parseInt(result.count) : 0;
-    } catch (error) {
-      console.error('❌ Get HWID limit exceeded logs count error:', error);
-      return 0;
-    }
-  }
-
-  async getHwidLimitExceededLogDetails(id) {
-    try {
-      return await this.get(
-        'SELECT * FROM hwid_limit_exceeded_logs WHERE id = $1',
-        [id]
-      );
-    } catch (error) {
-      console.error('❌ Get HWID limit exceeded log details error:', error);
-      return null;
-    }
-  }
-
-  async resolveHwidLimitExceededLog(id, resolvedBy = 'admin', notes = '') {
-    try {
-      const result = await this.run(
-        `UPDATE hwid_limit_exceeded_logs 
-         SET status = 'resolved', resolved_at = CURRENT_TIMESTAMP, resolved_by = $1, resolution_notes = $2
-         WHERE id = $3`,
-        [resolvedBy, notes, id]
-      );
-      
-      if (result.changes > 0) {
-        console.log(`✅ HWID limit exceeded log ${id} resolved by ${resolvedBy}`);
-        return { success: true };
-      }
-      return { success: false, error: 'Log not found' };
-    } catch (error) {
-      console.error('❌ Error resolving HWID limit exceeded log:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // ============================================
   // DEVICE MANAGEMENT
   // ============================================
 
@@ -2192,14 +2019,7 @@ class DeviceDatabase {
     };
   }
 
-  // ============================================
-  // CLOSE - Cleanup
-  // ============================================
-
   close() {
-    if (this.cacheCleanupInterval) {
-      clearInterval(this.cacheCleanupInterval);
-    }
     this.pool.end();
   }
 }

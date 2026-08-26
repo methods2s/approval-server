@@ -82,8 +82,6 @@
         .badge.svip { background: rgba(76,175,80,0.2); color: #4CAF50; }
         .badge.auto-deactivated { background: rgba(244,67,54,0.2); color: #f44336; }
         .badge.approved { background: rgba(76,175,80,0.2); color: #4CAF50; }
-        .badge.pending { background: rgba(255,152,0,0.2); color: #FF9800; }
-        .badge.resolved { background: rgba(76,175,80,0.2); color: #4CAF50; }
         
         .edit-input { width: 100%; padding: 6px 8px; border: 2px solid #FF9800; border-radius: 4px; background: #2a1f0a; color: #fff; font-size: 13px; min-width: 60px; }
         .edit-input:focus { outline: none; border-color: #4CAF50; }
@@ -172,25 +170,12 @@
         .error-banner .retry-btn { background: #f44336; color: #fff; border: none; border-radius: 4px; padding: 4px 15px; cursor: pointer; margin-left: 15px; }
         .error-banner .retry-btn:hover { background: #d32f2f; }
         
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 10000; justify-content: center; align-items: center; }
-        .modal-overlay.active { display: flex; }
-        .modal-content { background: #1a1a2e; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 30px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; }
-        .modal-content h2 { color: #fff; margin-bottom: 20px; }
-        .modal-content .close-modal { float: right; background: none; border: none; color: #888; font-size: 24px; cursor: pointer; }
-        .modal-content .close-modal:hover { color: #fff; }
-        .modal-content .detail-row { display: flex; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        .modal-content .detail-label { font-weight: bold; color: #888; width: 120px; flex-shrink: 0; }
-        .modal-content .detail-value { color: #e0e0e0; word-break: break-all; }
-        
         @media (max-width: 768px) { 
             .form-row { flex-direction: column; } 
             .hwid-stats-grid { grid-template-columns: repeat(2, 1fr); }
             .search-box input { min-width: 120px; }
             .section-header-with-search { flex-direction: column; align-items: stretch; }
             .section-header-with-search .search-box { max-width: 100%; }
-            .modal-content { padding: 20px; }
-            .modal-content .detail-row { flex-direction: column; }
-            .modal-content .detail-label { width: 100%; margin-bottom: 4px; }
         }
     </style>
 </head>
@@ -245,7 +230,6 @@
             <button class="tab-btn" onclick="switchTab('hwid')">🖥️ HWID Manager</button>
             <button class="tab-btn" onclick="switchTab('hwidlogs')">📋 HWID Logs</button>
             <button class="tab-btn" onclick="switchTab('newhwid')">🆕 New HWID</button>
-            <button class="tab-btn" onclick="switchTab('hwidlimit')">🚨 HWID Limit Logs</button>
         </div>
 
         <!-- ============================================ -->
@@ -525,62 +509,12 @@
             </div>
         </div>
 
-        <!-- ============================================ -->
-        <!-- TAB: HWID LIMIT LOGS -->
-        <!-- ============================================ -->
-        <div class="tab-content" id="tab-hwidlimit">
-            <div class="card">
-                <div class="card-header">
-                    <h3>🚨 HWID Limit Exceeded Logs</h3>
-                    <div>
-                        <span class="badge" id="hwid-limit-pending-count" style="background:#f44336;color:#fff;">0 pending</span>
-                        <button onclick="loadHwidLimitLogs()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
-                    </div>
-                </div>
-                <div style="font-size:13px;color:#888;margin-bottom:15px;padding:10px;background:rgba(255,152,0,0.1);border-radius:6px;">
-                    ⚠️ These logs track when users <strong>exceeded their HWID limit</strong> and triggered auto-deactivation.
-                </div>
-                <div class="card-body">
-                    <div class="scroll-table">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th style="width:40px;">#</th>
-                                    <th style="width:100px;">Code</th>
-                                    <th>Username</th>
-                                    <th style="min-width:150px;">Attempted HWID</th>
-                                    <th style="min-width:200px;">Existing HWIDs</th>
-                                    <th style="width:100px;">Status</th>
-                                    <th style="width:160px;">Time</th>
-                                    <th style="width:150px;">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="hwid-limit-logs-body">
-                                <tr><td colspan="8" style="text-align:center;color:#888;padding:30px;">
-                                    <div class="loading-text"><span class="spinner"></span> Loading logs...</div>
-                                </td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
     </div>
 
     <!-- Result Message -->
     <div id="result-message">
         <button class="close-msg" onclick="hideMessage()">✕</button>
         <span id="result-text"></span>
-    </div>
-
-    <!-- Detail Modal -->
-    <div class="modal-overlay" id="detail-modal">
-        <div class="modal-content">
-            <button class="close-modal" onclick="closeModal()">✕</button>
-            <h2>📋 Log Details</h2>
-            <div id="modal-body"></div>
-        </div>
     </div>
 
     <script>
@@ -591,11 +525,7 @@
             const el = document.getElementById('result-message');
             const text = document.getElementById('result-text');
             if (!el || !text) return;
-            // Sanitize message to prevent XSS
-            const sanitizedMsg = String(msg).replace(/[<>]/g, function(m) {
-                return m === '<' ? '&lt;' : '&gt;';
-            });
-            text.innerHTML = sanitizedMsg;
+            text.innerHTML = msg;
             el.className = type;
             el.style.display = 'block';
             clearTimeout(window.msgTimeout);
@@ -613,32 +543,6 @@
         }
 
         // ============================================
-        // MODAL HELPERS
-        // ============================================
-        function openModal(content) {
-            const modal = document.getElementById('detail-modal');
-            const body = document.getElementById('modal-body');
-            if (modal && body) {
-                body.innerHTML = content;
-                modal.classList.add('active');
-            }
-        }
-
-        function closeModal() {
-            const modal = document.getElementById('detail-modal');
-            if (modal) {
-                modal.classList.remove('active');
-            }
-        }
-
-        // Close modal on overlay click
-        document.getElementById('detail-modal')?.addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeModal();
-            }
-        });
-
-        // ============================================
         // SHOW/HIDE ERROR BANNER
         // ============================================
         function showErrorBanner(msg) {
@@ -650,16 +554,6 @@
         
         function hideErrorBanner() {
             document.getElementById('error-banner').style.display = 'none';
-        }
-
-        // ============================================
-        // ESCAPE HTML - XSS PROTECTION
-        // ============================================
-        function escapeHtml(text) {
-            if (!text) return '';
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
         }
 
         // ============================================
@@ -829,8 +723,6 @@
         let hwidDetailsCache = {};
         let svipSearchTerm = '';
         let vipSearchTerm = '';
-        let isErrorLocked = false;
-        let hasDisplayedError = false;
 
         // ============================================
         // DEACTIVATION REASON MAPPING
@@ -849,9 +741,9 @@
         }
 
         // ============================================
-        // FAST FETCH WITH RETRY
+        // FAST FETCH
         // ============================================
-        async function fastFetch(url, options = {}, maxRetries = 2) {
+        async function fastFetch(url, options = {}) {
             const defaultOptions = {
                 credentials: 'same-origin',
                 headers: {
@@ -869,36 +761,26 @@
                 }
             };
             
-            let lastError;
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 15000);
-                    mergedOptions.signal = controller.signal;
-                    
-                    const response = await fetch(url, mergedOptions);
-                    clearTimeout(timeoutId);
-                    
-                    if (response.status === 401) {
-                        window.location.href = '/login';
-                        throw new Error('Unauthorized');
-                    }
-                    
-                    return response;
-                } catch (error) {
-                    lastError = error;
-                    if (error.name === 'AbortError') {
-                        if (attempt < maxRetries) {
-                            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-                            continue;
-                        }
-                    }
-                    if (attempt < maxRetries && error.message !== 'Unauthorized') {
-                        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-                    }
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 15000);
+                mergedOptions.signal = controller.signal;
+                
+                const response = await fetch(url, mergedOptions);
+                clearTimeout(timeoutId);
+                
+                if (response.status === 401) {
+                    window.location.href = '/login';
+                    throw new Error('Unauthorized');
                 }
+                
+                return response;
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    throw new Error('Request timeout');
+                }
+                throw error;
             }
-            throw lastError;
         }
 
         // ============================================
@@ -919,8 +801,6 @@
                 loadHwidLogs();
             } else if (tab === 'newhwid') {
                 loadNewHwids();
-            } else if (tab === 'hwidlimit') {
-                loadHwidLimitLogs();
             } else {
                 renderCurrentTab();
             }
@@ -980,8 +860,6 @@
         // ============================================
         async function refreshData() {
             hideErrorBanner();
-            isErrorLocked = false;
-            hasDisplayedError = false;
             showMessage('🔄 Refreshing...', 'loading');
             try {
                 const response = await fastFetch('/api/force-refresh', { method: 'POST' });
@@ -1062,31 +940,14 @@
                     }
                 } catch (e) {}
                 
-                // Load HWID limit logs count
-                try {
-                    const limitLogsResponse = await fastFetch('/api/hwid-limit-logs/count/pending');
-                    const limitLogsData = await limitLogsResponse.json();
-                    if (limitLogsData.success) {
-                        const countEl = document.getElementById('hwid-limit-pending-count');
-                        if (countEl) {
-                            countEl.textContent = (limitLogsData.count || 0) + ' pending';
-                        }
-                    }
-                } catch (e) {}
-                
                 isLoading = false;
                 
             } catch (error) {
                 console.error('Load data error:', error);
                 loadError = true;
                 isLoading = false;
-                
-                if (!isErrorLocked && !hasDisplayedError) {
-                    isErrorLocked = true;
-                    hasDisplayedError = true;
-                    showMessage('⚠️ Using cached data: ' + error.message, 'info');
-                    showErrorBanner('⚠️ Using cached data - ' + error.message);
-                }
+                showMessage('⚠️ Using cached data: ' + error.message, 'info');
+                showErrorBanner('⚠️ Using cached data - ' + error.message);
                 
                 if (allCodes.length > 0) {
                     renderCurrentTab();
@@ -1133,7 +994,7 @@
             const tbody = document.getElementById('svip-body');
             
             if (filteredSVIP.length === 0) {
-                const msg = svipSearchTerm ? `No SVIP codes found for username: "${escapeHtml(svipSearchTerm)}"` : 'No SVIP codes found';
+                const msg = svipSearchTerm ? `No SVIP codes found for username: "${svipSearchTerm}"` : 'No SVIP codes found';
                 tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">${msg}</td></tr>`;
                 return;
             }
@@ -1149,7 +1010,7 @@
                 const hwidDisplay = `${hwidInfo.count}/${hwidInfo.limit}`;
                 
                 const deactivationDisplay = !c.is_active ? 
-                    `<span style="font-size:11px;color:#f44336;">${escapeHtml(deactivationReason)}</span>` : 
+                    `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
                     '<span class="text-muted">—</span>';
                 
                 const codeHwid = c.hwid || null;
@@ -1167,10 +1028,10 @@
                 if (isEditing) {
                     return `
                         <tr class="editing">
-                            <td><strong class="code-font">${escapeHtml(c.code)}</strong></td>
-                            <td><input class="edit-input" id="edit-username-${escapeHtml(c.code)}" value="${escapeHtml(c.username || '')}" placeholder="Username"></td>
+                            <td><strong class="code-font">${c.code}</strong></td>
+                            <td><input class="edit-input" id="edit-username-${c.code}" value="${c.username || ''}" placeholder="Username"></td>
                             <td>
-                                <select class="edit-select" id="edit-subscription-${escapeHtml(c.code)}">
+                                <select class="edit-select" id="edit-subscription-${c.code}">
                                     <option value="Lifetime" ${c.subscription_type === 'Lifetime' ? 'selected' : ''}>♾️ Lifetime</option>
                                     <option value="3 Months" ${c.subscription_type === '3 Months' ? 'selected' : ''}>3 Months</option>
                                     <option value="6 Months" ${c.subscription_type === '6 Months' ? 'selected' : ''}>6 Months</option>
@@ -1179,12 +1040,12 @@
                             </td>
                             <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : 'Never'}</td>
                             <td>
-                                <input class="edit-input" id="edit-hwid-limit-${escapeHtml(c.code)}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;">
+                                <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;">
                             </td>
                             <td>${deactivationDisplay}</td>
                             <td>
                                 <div class="action-buttons">
-                                    <button onclick="saveEdit('${escapeHtml(c.code)}')" class="btn-small btn-save">💾 Save</button>
+                                    <button onclick="saveEdit('${c.code}')" class="btn-small btn-save">💾 Save</button>
                                     <button onclick="cancelEdit()" class="btn-small btn-cancel">✖ Cancel</button>
                                 </div>
                             </td>
@@ -1194,22 +1055,22 @@
                 
                 return `
                     <tr>
-                        <td><strong class="code-font">${escapeHtml(c.code)}</strong></td>
-                        <td>${escapeHtml(username) || '<span class="text-muted">N/A</span>'}</td>
-                        <td>${escapeHtml(c.subscription_type || 'Lifetime')}</td>
+                        <td><strong class="code-font">${c.code}</strong></td>
+                        <td>${username || '<span class="text-muted">N/A</span>'}</td>
+                        <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${hwidStatusHtml}</td>
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
-                                <button onclick="copyCodeAndUser('${escapeHtml(c.code)}', '${escapeHtml(username)}')" class="btn-copy-one">📋</button>
-                                <button onclick="goToHwidManager('${escapeHtml(c.code)}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
-                                <button onclick="startEdit('${escapeHtml(c.code)}')" class="btn-small btn-edit">✏️</button>
-                                <button onclick="toggleStatus('${escapeHtml(c.code)}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
+                                <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
+                                <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
+                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
+                                <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
                                 </button>
-                                ${hasHwidAssigned ? `<button onclick="removeHwidFromCode('${escapeHtml(c.code)}', '${escapeHtml(codeHwid)}')" class="btn-remove-hwid-code" title="Remove HWID">🗑️ HWID</button>` : ''}
-                                <button onclick="deleteCode('${escapeHtml(c.code)}')" class="btn-small btn-danger">🗑️</button>
+                                ${hasHwidAssigned ? `<button onclick="removeHwidFromCode('${c.code}', '${codeHwid}')" class="btn-remove-hwid-code" title="Remove HWID">🗑️ HWID</button>` : ''}
+                                <button onclick="deleteCode('${c.code}')" class="btn-small btn-danger">🗑️</button>
                             </div>
                         </td>
                     </tr>
@@ -1224,7 +1085,7 @@
             const tbody = document.getElementById('vip-body');
             
             if (filteredVIP.length === 0) {
-                const msg = vipSearchTerm ? `No VIP codes found for username: "${escapeHtml(vipSearchTerm)}"` : 'No VIP codes found';
+                const msg = vipSearchTerm ? `No VIP codes found for username: "${vipSearchTerm}"` : 'No VIP codes found';
                 tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">${msg}</td></tr>`;
                 return;
             }
@@ -1240,7 +1101,7 @@
                 const hwidDisplay = `${hwidInfo.count}/${hwidInfo.limit}`;
                 
                 const deactivationDisplay = !c.is_active ? 
-                    `<span style="font-size:11px;color:#f44336;">${escapeHtml(deactivationReason)}</span>` : 
+                    `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
                     '<span class="text-muted">—</span>';
                 
                 const codeHwid = c.hwid || null;
@@ -1258,10 +1119,10 @@
                 if (isEditing) {
                     return `
                         <tr class="editing">
-                            <td><strong class="code-font">${escapeHtml(c.code)}</strong></td>
-                            <td><input class="edit-input" id="edit-username-${escapeHtml(c.code)}" value="${escapeHtml(c.username || '')}" placeholder="Username"></td>
+                            <td><strong class="code-font">${c.code}</strong></td>
+                            <td><input class="edit-input" id="edit-username-${c.code}" value="${c.username || ''}" placeholder="Username"></td>
                             <td>
-                                <select class="edit-select" id="edit-subscription-${escapeHtml(c.code)}">
+                                <select class="edit-select" id="edit-subscription-${c.code}">
                                     <option value="Lifetime" ${c.subscription_type === 'Lifetime' ? 'selected' : ''}>♾️ Lifetime</option>
                                     <option value="3 Months" ${c.subscription_type === '3 Months' ? 'selected' : ''}>3 Months</option>
                                     <option value="6 Months" ${c.subscription_type === '6 Months' ? 'selected' : ''}>6 Months</option>
@@ -1270,12 +1131,12 @@
                             </td>
                             <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : 'Never'}</td>
                             <td>
-                                <input class="edit-input" id="edit-hwid-limit-${escapeHtml(c.code)}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;">
+                                <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;">
                             </td>
                             <td>${deactivationDisplay}</td>
                             <td>
                                 <div class="action-buttons">
-                                    <button onclick="saveEdit('${escapeHtml(c.code)}')" class="btn-small btn-save">💾 Save</button>
+                                    <button onclick="saveEdit('${c.code}')" class="btn-small btn-save">💾 Save</button>
                                     <button onclick="cancelEdit()" class="btn-small btn-cancel">✖ Cancel</button>
                                 </div>
                             </td>
@@ -1285,22 +1146,22 @@
                 
                 return `
                     <tr>
-                        <td><strong class="code-font">${escapeHtml(c.code)}</strong></td>
-                        <td>${escapeHtml(username) || '<span class="text-muted">N/A</span>'}</td>
-                        <td>${escapeHtml(c.subscription_type || 'Lifetime')}</td>
+                        <td><strong class="code-font">${c.code}</strong></td>
+                        <td>${username || '<span class="text-muted">N/A</span>'}</td>
+                        <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${hwidStatusHtml}</td>
                         <td>${deactivationDisplay}</td>
                         <td>
                             <div class="action-buttons">
-                                <button onclick="copyCodeAndUser('${escapeHtml(c.code)}', '${escapeHtml(username)}')" class="btn-copy-one">📋</button>
-                                <button onclick="goToHwidManager('${escapeHtml(c.code)}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
-                                <button onclick="startEdit('${escapeHtml(c.code)}')" class="btn-small btn-edit">✏️</button>
-                                <button onclick="toggleStatus('${escapeHtml(c.code)}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
+                                <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
+                                <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
+                                <button onclick="startEdit('${c.code}')" class="btn-small btn-edit">✏️</button>
+                                <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
                                 </button>
-                                ${hasHwidAssigned ? `<button onclick="removeHwidFromCode('${escapeHtml(c.code)}', '${escapeHtml(codeHwid)}')" class="btn-remove-hwid-code" title="Remove HWID">🗑️ HWID</button>` : ''}
-                                <button onclick="deleteCode('${escapeHtml(c.code)}')" class="btn-small btn-danger">🗑️</button>
+                                ${hasHwidAssigned ? `<button onclick="removeHwidFromCode('${c.code}', '${codeHwid}')" class="btn-remove-hwid-code" title="Remove HWID">🗑️ HWID</button>` : ''}
+                                <button onclick="deleteCode('${c.code}')" class="btn-small btn-danger">🗑️</button>
                             </div>
                         </td>
                     </tr>
@@ -1527,6 +1388,8 @@
                 const limitData = await limitResponse.json();
                 const hwidData = await hwidResponse.json();
                 
+                console.log('📊 HWID Data:', hwidData);
+                
                 hwidDetailsCache[code] = {
                     timestamp: Date.now(),
                     limitData: limitData,
@@ -1538,7 +1401,7 @@
                 
             } catch (error) {
                 console.error('Load HWID details error:', error);
-                document.getElementById('hwid-list-body').innerHTML = `<tr><td colspan="4" style="text-align:center;color:#f44336;padding:20px;">❌ Error loading HWIDs: ${escapeHtml(error.message)}</td></tr>`;
+                document.getElementById('hwid-list-body').innerHTML = `<tr><td colspan="4" style="text-align:center;color:#f44336;padding:20px;">❌ Error loading HWIDs: ${error.message}</td></tr>`;
                 showMessage('❌ Error loading HWID details: ' + error.message, 'error');
             }
         }
@@ -1575,6 +1438,8 @@
             const tbody = document.getElementById('hwid-list-body');
             const hwids = (hwidData && hwidData.hwids && Array.isArray(hwidData.hwids)) ? hwidData.hwids : [];
             
+            console.log('📊 Rendering HWIDs:', hwids.length);
+            
             if (!hwids || hwids.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#888;padding:20px;">No HWIDs assigned to this code</td></tr>';
                 return;
@@ -1598,22 +1463,22 @@
                     <tr>
                         <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
                         <td>
-                            <code style="font-size:11px;font-weight:bold;color:#4CAF50;word-break:break-all;" title="${escapeHtml(hwidFull)}">${escapeHtml(hwidMasked)}</code>
+                            <code style="font-size:11px;font-weight:bold;color:#4CAF50;word-break:break-all;" title="${hwidFull}">${hwidMasked}</code>
                         </td>
                         <td style="font-size:11px;line-height:1.8;">
                             ${hasSpecs ? `
-                                <div><span class="hwid-spec-detail cpu">🔧 CPU: ${escapeHtml(cpu)}</span></div>
-                                <div><span class="hwid-spec-detail gpu">🎮 GPU: ${escapeHtml(gpu)}</span></div>
-                                <div><span class="hwid-spec-detail ram">💾 RAM: ${escapeHtml(ram)}</span></div>
-                                <div><span class="hwid-spec-detail device">💻 Device: ${escapeHtml(deviceName)}</span></div>
-                                <div><span class="hwid-spec-detail profile">👤 Profile: ${escapeHtml(profile)}</span></div>
-                                <div><span class="hwid-spec-detail owner">👔 Owner: ${escapeHtml(registeredOwner)}</span></div>
+                                <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
+                                <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
+                                <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
+                                <div><span class="hwid-spec-detail device">💻 Device: ${deviceName}</span></div>
+                                <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
+                                <div><span class="hwid-spec-detail owner">👔 Owner: ${registeredOwner}</span></div>
                             ` : `
                                 <div style="color:#888;font-style:italic;">No hardware specs available. Please register a device first.</div>
                             `}
                         </td>
                         <td style="text-align:center;">
-                            <button onclick="removeHwid('${escapeHtml(hwidFull)}')" class="btn-remove-hwid" id="remove-btn-${index}">
+                            <button onclick="removeHwid('${hwidFull}')" class="btn-remove-hwid" id="remove-btn-${index}">
                                 🗑️ Remove
                             </button>
                         </td>
@@ -1725,11 +1590,11 @@
                         renderHwidLogs(logs);
                     }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">' + escapeHtml(data.error || 'Failed to load logs') + '</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load logs') + '</td></tr>';
                 }
             } catch (error) {
                 console.error('Load HWID logs error:', error);
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">Error: ${escapeHtml(error.message)}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
             }
         }
 
@@ -1773,12 +1638,12 @@
                 const hasSpecs = cpu !== 'N/A' || gpu !== 'N/A' || ram !== 'N/A';
                 const hardwareHtml = hasSpecs ? `
                     <div style="font-size:10px;line-height:1.6;">
-                        ${cpu !== 'N/A' ? `<span class="hwid-spec-item cpu">🔧 ${escapeHtml(cpu)}</span>` : ''}
-                        ${gpu !== 'N/A' ? `<span class="hwid-spec-item gpu">🎮 ${escapeHtml(gpu)}</span>` : ''}
-                        ${ram !== 'N/A' ? `<span class="hwid-spec-item ram">💾 ${escapeHtml(ram)}</span>` : ''}
-                        ${device !== 'N/A' ? `<span class="hwid-spec-item device">💻 ${escapeHtml(device)}</span>` : ''}
-                        ${profile !== 'N/A' ? `<span class="hwid-spec-item profile">👤 ${escapeHtml(profile)}</span>` : ''}
-                        ${owner !== 'N/A' ? `<span class="hwid-spec-item owner">👔 ${escapeHtml(owner)}</span>` : ''}
+                        ${cpu !== 'N/A' ? `<span class="hwid-spec-item cpu">🔧 ${cpu}</span>` : ''}
+                        ${gpu !== 'N/A' ? `<span class="hwid-spec-item gpu">🎮 ${gpu}</span>` : ''}
+                        ${ram !== 'N/A' ? `<span class="hwid-spec-item ram">💾 ${ram}</span>` : ''}
+                        ${device !== 'N/A' ? `<span class="hwid-spec-item device">💻 ${device}</span>` : ''}
+                        ${profile !== 'N/A' ? `<span class="hwid-spec-item profile">👤 ${profile}</span>` : ''}
+                        ${owner !== 'N/A' ? `<span class="hwid-spec-item owner">👔 ${owner}</span>` : ''}
                         <span class="hwid-spec-item unregistered">🔓 UNASSIGNED</span>
                     </div>
                 ` : `
@@ -1791,7 +1656,7 @@
                         <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
                         <td>
                             <span style="font-weight:bold;color:#FF9800;">
-                                🖥️ ${escapeHtml(hwidDisplay)}
+                                🖥️ ${hwidDisplay}
                             </span>
                             ${isNew ? ' 🔴' : ''}
                         </td>
@@ -1832,11 +1697,11 @@
                         renderNewHwids(hwids);
                     }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">' + escapeHtml(data.error || 'Failed to load new HWIDs') + '</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load new HWIDs') + '</td></tr>';
                 }
             } catch (error) {
                 console.error('Load new HWIDs error:', error);
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">Error: ${escapeHtml(error.message)}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
             }
         }
 
@@ -1875,23 +1740,23 @@
                 
                 const codeOptions = allCodes
                     .filter(c => c.is_active)
-                    .map(c => `<option value="${escapeHtml(c.code)}">${escapeHtml(c.code)} - ${escapeHtml(c.username || 'N/A')}</option>`)
+                    .map(c => `<option value="${c.code}">${c.code} - ${c.username || 'N/A'}</option>`)
                     .join('');
                 
                 return `
                     <tr>
                         <td style="text-align:center;font-weight:bold;color:#FF9800;">${index + 1}</td>
                         <td>
-                            <code style="font-size:11px;font-weight:bold;color:#FF9800;word-break:break-all;" title="${escapeHtml(hwid)}">${escapeHtml(hwidDisplay)}</code>
+                            <code style="font-size:11px;font-weight:bold;color:#FF9800;word-break:break-all;" title="${hwid}">${hwidDisplay}</code>
                         </td>
                         <td style="font-size:11px;line-height:1.8;">
                             ${hasSpecs ? `
-                                <div><span class="hwid-spec-detail cpu">🔧 CPU: ${escapeHtml(cpu)}</span></div>
-                                <div><span class="hwid-spec-detail gpu">🎮 GPU: ${escapeHtml(gpu)}</span></div>
-                                <div><span class="hwid-spec-detail ram">💾 RAM: ${escapeHtml(ram)}</span></div>
-                                <div><span class="hwid-spec-detail device">💻 Device: ${escapeHtml(device)}</span></div>
-                                <div><span class="hwid-spec-detail profile">👤 Profile: ${escapeHtml(profile)}</span></div>
-                                <div><span class="hwid-spec-detail owner">👔 Owner: ${escapeHtml(owner)}</span></div>
+                                <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
+                                <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
+                                <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
+                                <div><span class="hwid-spec-detail device">💻 Device: ${device}</span></div>
+                                <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
+                                <div><span class="hwid-spec-detail owner">👔 Owner: ${owner}</span></div>
                             ` : `
                                 <div style="color:#888;font-style:italic;">No hardware specs available</div>
                             `}
@@ -1904,9 +1769,9 @@
                                         <option value="">-- Select Code --</option>
                                         ${codeOptions}
                                     </select>
-                                    <button onclick="assignNewHwid('${escapeHtml(hwid)}', ${index})" class="btn-small btn-success">Assign</button>
+                                    <button onclick="assignNewHwid('${hwid}', ${index})" class="btn-small btn-success">Assign</button>
                                 </div>
-                                <button onclick="markNewHwidSeen('${escapeHtml(hwid)}', ${index})" class="btn-small btn-warning" style="font-size:10px;">👁️ Mark as Seen</button>
+                                <button onclick="markNewHwidSeen('${hwid}', ${index})" class="btn-small btn-warning" style="font-size:10px;">👁️ Mark as Seen</button>
                             </div>
                         </td>
                     </tr>
@@ -1963,157 +1828,6 @@
                     }
                 } else {
                     showMessage('❌ ' + (result.error || 'Failed to mark as seen'), 'error');
-                }
-            } catch (error) {
-                showMessage('❌ Error: ' + error.message, 'error');
-            }
-        }
-
-        // ============================================
-        // HWID LIMIT LOGS
-        // ============================================
-        async function loadHwidLimitLogs() {
-            const tbody = document.getElementById('hwid-limit-logs-body');
-            if (!tbody) return;
-            
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading logs...</div></td></tr>';
-            
-            try {
-                const response = await fastFetch('/api/hwid-limit-logs?limit=100');
-                const data = await response.json();
-                
-                if (data.success) {
-                    const logs = data.logs || [];
-                    const pendingCount = data.pending_count || 0;
-                    
-                    const countEl = document.getElementById('hwid-limit-pending-count');
-                    if (countEl) {
-                        countEl.textContent = pendingCount + ' pending';
-                    }
-                    
-                    if (logs.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#4CAF50;padding:30px;">✅ No HWID limit exceeded logs found</td></tr>';
-                    } else {
-                        renderHwidLimitLogs(logs);
-                    }
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#f44336;padding:20px;">' + escapeHtml(data.error || 'Failed to load logs') + '</td></tr>';
-                }
-            } catch (error) {
-                console.error('Load HWID limit logs error:', error);
-                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#f44336;padding:20px;">Error: ${escapeHtml(error.message)}</td></tr>`;
-            }
-        }
-
-        function renderHwidLimitLogs(logs) {
-            const tbody = document.getElementById('hwid-limit-logs-body');
-            if (!tbody) return;
-            
-            tbody.innerHTML = logs.map((log, index) => {
-                const time = new Date(log.created_at).toLocaleString();
-                const isPending = log.status === 'pending';
-                const attemptedHwid = log.attempted_hwid || '';
-                const attemptedHwidDisplay = attemptedHwid ? attemptedHwid.substring(0, 16) + '...' + attemptedHwid.substring(48) : 'N/A';
-                const existingHwids = log.existing_hwids || [];
-                const existingHwidsDisplay = existingHwids.length > 0 
-                    ? existingHwids.map(h => h.substring(0, 12) + '...').join(', ')
-                    : 'None';
-                
-                const viewDetails = `
-                    <div class="detail-row">
-                        <span class="detail-label">Code:</span>
-                        <span class="detail-value"><strong>${escapeHtml(log.code)}</strong></span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Username:</span>
-                        <span class="detail-value">${escapeHtml(log.username || 'Unknown')}</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Attempted HWID:</span>
-                        <span class="detail-value"><code>${escapeHtml(log.attempted_hwid || 'N/A')}</code></span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Existing HWIDs:</span>
-                        <span class="detail-value">${existingHwids.length > 0 ? existingHwids.map(h => `<code>${escapeHtml(h)}</code>`).join('<br>') : 'None'}</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Reason:</span>
-                        <span class="detail-value">${escapeHtml(log.reason || 'hwid_limit_exceeded')}</span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Status:</span>
-                        <span class="detail-value"><span class="badge ${isPending ? 'pending' : 'resolved'}">${isPending ? '⏳ Pending' : '✅ Resolved'}</span></span>
-                    </div>
-                    <div class="detail-row">
-                        <span class="detail-label">Created:</span>
-                        <span class="detail-value">${time}</span>
-                    </div>
-                    ${log.resolved_at ? `
-                        <div class="detail-row">
-                            <span class="detail-label">Resolved:</span>
-                            <span class="detail-value">${new Date(log.resolved_at).toLocaleString()}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Resolved By:</span>
-                            <span class="detail-value">${escapeHtml(log.resolved_by || 'admin')}</span>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">Notes:</span>
-                            <span class="detail-value">${escapeHtml(log.resolution_notes || '')}</span>
-                        </div>
-                    ` : ''}
-                `;
-                
-                return `
-                    <tr style="${isPending ? 'background:rgba(244,67,54,0.08);' : ''}">
-                        <td style="text-align:center;font-weight:bold;color:#888;">${index + 1}</td>
-                        <td><strong class="code-font">${escapeHtml(log.code)}</strong></td>
-                        <td>${escapeHtml(log.username || 'Unknown')}</td>
-                        <td>
-                            <code style="font-size:10px;color:#FF9800;" title="${escapeHtml(attemptedHwid)}">${escapeHtml(attemptedHwidDisplay)}</code>
-                        </td>
-                        <td style="font-size:11px;">
-                            ${existingHwidsDisplay}
-                            <span class="badge" style="background:rgba(244,67,54,0.2);color:#f44336;font-size:10px;margin-left:5px;">
-                                ${existingHwids.length} existing
-                            </span>
-                        </td>
-                        <td>
-                            <span class="badge ${isPending ? 'pending' : 'resolved'}" style="${isPending ? 'background:#f44336;color:#fff;' : 'background:#4CAF50;color:#fff;'}">
-                                ${isPending ? '⏳ Pending' : '✅ Resolved'}
-                            </span>
-                        </td>
-                        <td><small>${time}</small></td>
-                        <td>
-                            <div class="action-buttons">
-                                <button onclick="openModal('${viewDetails.replace(/'/g, "\\'")}')" class="btn-small btn-edit">👁️ View</button>
-                                ${isPending ? `
-                                    <button onclick="resolveHwidLimitLog(${log.id})" class="btn-small btn-success">
-                                        ✅ Resolve
-                                    </button>
-                                ` : `
-                                    <span class="text-muted" style="font-size:10px;">Resolved</span>
-                                `}
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-        }
-
-        async function resolveHwidLimitLog(id) {
-            if (!confirm(`✅ Mark this HWID limit violation as resolved?`)) return;
-            
-            try {
-                const response = await fastFetch(`/api/hwid-limit-logs/${id}/resolve`, {
-                    method: 'POST'
-                });
-                const result = await response.json();
-                if (result.success) {
-                    showMessage('✅ Log marked as resolved!', 'success');
-                    await loadHwidLimitLogs();
-                } else {
-                    showMessage('❌ ' + (result.error || 'Failed to resolve'), 'error');
                 }
             } catch (error) {
                 showMessage('❌ Error: ' + error.message, 'error');

@@ -1,4 +1,4 @@
-// server.js - COMPLETE OPTIMIZED FOR 100-200 USERS (FIXED VERSION)
+// server.js - COMPLETE OPTIMIZED FOR 100-200 USERS
 
 require('dotenv').config();
 const express = require('express');
@@ -15,13 +15,10 @@ const db = require('./database-pg');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ============================================
-// SSL - REMOVED INSECURE BYPASS
-// ============================================
-// NEVER use: process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-// This was removed for security
+// SSL Fix - Allow self-signed certificates
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : 0);
+app.set('trust proxy', 1);
 
 // ============================================
 // SECURITY & COMPRESSION - OPTIMIZED
@@ -38,89 +35,39 @@ app.use(compression({
   }
 }));
 
-// ============================================
-// HELMET - SECURE HEADERS
-// ============================================
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "https://cdn.jsdelivr.net"],
-      styleSrc: ["'self'", "https://cdn.jsdelivr.net"],
-      imgSrc: ["'self'", "data:"],
-      connectSrc: ["'self'"],
-      fontSrc: ["'self'", "https://cdn.jsdelivr.net"],
-      objectSrc: ["'none'"],
-      frameSrc: ["'none'"],
-    }
-  },
-  crossOriginEmbedderPolicy: false,
-  crossOriginOpenerPolicy: { policy: "same-origin" },
-  crossOriginResourcePolicy: { policy: "same-origin" },
-  dnsPrefetchControl: { allow: false },
-  frameguard: { action: "deny" },
-  hidePoweredBy: true,
-  hsts: {
-    maxAge: 31536000,
-    includeSubDomains: true,
-    preload: true
-  },
-  ieNoOpen: true,
-  noSniff: true,
-  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
-  xssFilter: true
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false
 }));
 
 // ============================================
-// CORS - SECURE CONFIGURATION
+// CORS - Chrome Extensions Allowed
 // ============================================
-
-// List of allowed Chrome extension IDs
-const ALLOWED_EXTENSION_IDS = process.env.ALLOWED_EXTENSION_IDS 
-  ? process.env.ALLOWED_EXTENSION_IDS.split(',').map(id => id.trim())
-  : [];
 
 const corsOptions = {
   origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
-    // Allow Chrome extensions with specific IDs
     if (origin.startsWith('chrome-extension://')) {
-      const extensionId = origin.replace('chrome-extension://', '').split('/')[0];
-      if (ALLOWED_EXTENSION_IDS.length === 0 || ALLOWED_EXTENSION_IDS.includes(extensionId)) {
-        return callback(null, true);
-      }
-      console.warn(`⚠️ Blocked extension: ${extensionId}`);
-      return callback(new Error('Extension not allowed by CORS'));
+      return callback(null, true);
     }
-    
-    // Allowed origins
+    if (process.env.NODE_ENV === 'development') {
+      return callback(null, true);
+    }
     const allowedOrigins = [
       'http://localhost:3000',
       'http://localhost:3001',
       'https://wantmatures-approval-server.onrender.com',
+      'https://*.onrender.com'
     ];
-    
-    // Allow any onrender.com subdomain (only in production)
-    if (process.env.NODE_ENV === 'production') {
-      if (origin && origin.includes('onrender.com')) {
-        return callback(null, true);
-      }
-    }
-    
-    if (allowedOrigins.includes(origin)) {
+    if (allowedOrigins.includes(origin) || origin.includes('onrender.com')) {
       callback(null, true);
     } else {
-      console.warn(`⚠️ Blocked origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
+      callback(null, true);
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin', 'Access-Control-Allow-Origin'],
-  exposedHeaders: ['Content-Length', 'X-JSON'],
-  maxAge: 86400 // 24 hours
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin', 'Access-Control-Allow-Origin']
 };
 
 app.use(cors(corsOptions));
@@ -132,21 +79,16 @@ app.options('*', cors(corsOptions));
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   
-  // Only set CORS headers if origin is allowed
-  if (origin) {
-    const isAllowed = corsOptions.origin(origin, (err, allowed) => {
-      if (!err && allowed) {
-        res.header('Access-Control-Allow-Origin', origin);
-      }
-    });
+  if (origin && origin.startsWith('chrome-extension://')) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
   }
   
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin, Access-Control-Allow-Origin');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.header('Access-Control-Expose-Headers', 'Content-Length, X-JSON');
-  
-  // Set secure cache headers
   res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.header('Pragma', 'no-cache');
   res.header('Expires', '0');
@@ -159,33 +101,28 @@ app.use((req, res, next) => {
   next();
 });
 
-// ============================================
-// BODY PARSERS - WITH SIZE LIMIT
-// ============================================
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '10mb' }));  // Reduced from 50mb to 10mb
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ============================================
-// SESSION - SECURE
+// SESSION - OPTIMIZED
 // ============================================
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'default-secret-change-me-in-production',
+    secret: process.env.SESSION_SECRET || 'default-secret-change-me',
     resave: false,
-    saveUninitialized: false,
+    saveUninitialized: false,  // Don't save empty sessions
     cookie: {
-        secure: process.env.NODE_ENV === 'production',
-        httpOnly: true,
-        maxAge: parseInt(process.env.SESSION_TIMEOUT_HOURS) * 60 * 60 * 1000 || 24 * 60 * 60 * 1000,
-        sameSite: 'strict'
-    },
-    name: 'sessionId'
+        secure: false,
+        maxAge: 24 * 60 * 60 * 1000,
+        sameSite: 'lax'
+    }
 }));
 
 // ============================================
-// REQUEST TIMEOUT
+// REQUEST TIMEOUT - OPTIMIZED
 // ============================================
 app.use((req, res, next) => {
-    req.setTimeout(parseInt(process.env.REQUEST_TIMEOUT_MS) || 60000, () => {
+    req.setTimeout(60000, () => {  // Increased to 60 seconds
         res.status(408).json({ error: 'Request timeout' });
     });
     next();
@@ -213,8 +150,7 @@ const limiter = rateLimit({
             '/api/hwid-log',
             '/api/hwid-new',
             '/api/wallpaper/',
-            '/api/device/',
-            '/api/hwid-limit-logs'
+            '/api/device/'
         ];
         return skipPaths.some(path => req.path.startsWith(path));
     }
@@ -237,33 +173,12 @@ const apiLimiter = rateLimit({
 app.use('/api/codes', apiLimiter);
 app.use('/api/device/', apiLimiter);
 
-// Dashboard rate limiter - prevents abuse
-const dashboardLimiter = rateLimit({
-    windowMs: 60 * 1000,
-    max: 30, // 30 requests per minute
-    message: { error: 'Too many dashboard requests. Please wait.' }
-});
-app.use('/api/dashboard-data', dashboardLimiter);
-app.use('/api/force-refresh', dashboardLimiter);
-
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.static('public', {
-    maxAge: '1d',
+    maxAge: '1d',  // Cache static files
     etag: true
 }));
-
-// ============================================
-// HTTPS REDIRECT
-// ============================================
-if (process.env.FORCE_HTTPS === 'true' && process.env.NODE_ENV === 'production') {
-    app.use((req, res, next) => {
-        if (req.headers['x-forwarded-proto'] !== 'https') {
-            return res.redirect(301, 'https://' + req.headers.host + req.url);
-        }
-        next();
-    });
-}
 
 // ============================================
 // MIDDLEWARE
@@ -284,7 +199,7 @@ function isApiAuthenticated(req, res, next) {
 }
 
 // ============================================
-// HEALTH CHECK
+// HEALTH CHECK - OPTIMIZED
 // ============================================
 
 app.get('/api/health', async (req, res) => {
@@ -479,7 +394,6 @@ app.post('/login', async (req, res) => {
     if (username === adminUsername && password === adminPassword) {
         req.session.isAuthenticated = true;
         req.session.username = username;
-        req.session.createdAt = Date.now();
         return res.redirect('/dashboard');
     }
     
@@ -507,7 +421,7 @@ app.get('/dashboard', isAuthenticated, async (req, res) => {
             codes: data.codes || [],
             requests: data.requests || [],
             autoRefresh: true,
-            refreshInterval: 15000
+            refreshInterval: 15000  // 15 seconds
         });
     } catch (error) {
         console.error('Dashboard error:', error);
@@ -545,7 +459,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - WITH VALIDATION
+// REGISTER DEVICE - OPTIMIZED
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -564,57 +478,18 @@ app.post('/api/register', async (req, res) => {
         detected_hwids
     } = req.body;
 
-    // ============================================
-    // INPUT VALIDATION
-    // ============================================
-    
     if (!deviceId) {
         return res.status(400).json({ error: 'Device ID is required' });
-    }
-    
-    // Validate deviceId format (alphanumeric, underscore, hyphen only)
-    if (!/^[a-zA-Z0-9_\-]+$/.test(deviceId)) {
-        return res.status(400).json({ 
-            error: 'Invalid Device ID format - alphanumeric, underscore, hyphen only' 
-        });
-    }
-    
-    // Validate deviceId length
-    if (deviceId.length < 10 || deviceId.length > 100) {
-        return res.status(400).json({ 
-            error: 'Device ID must be between 10 and 100 characters' 
-        });
     }
 
     if (!code) {
         return res.status(400).json({ error: 'Activation code is required' });
     }
 
-    // Validate code format (XXXX-XXXX where X is alphanumeric)
-    if (!/^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(code.toUpperCase())) {
-        return res.status(400).json({ 
-            error: 'Invalid code format - must be XXXX-XXXX (letters and numbers only)' 
-        });
-    }
-
     if (!hwid) {
         return res.status(403).json({
             error: '❌ HWID is required. Please run the Python software first.',
             status: 'hwid_required'
-        });
-    }
-
-    // Validate HWID format - must be exactly 64 characters (SHA-256)
-    if (!/^[a-fA-F0-9]{64}$/.test(hwid)) {
-        return res.status(400).json({ 
-            error: 'Invalid HWID format - must be 64 hexadecimal characters' 
-        });
-    }
-
-    // Validate browser_profile if provided
-    if (browser_profile && browser_profile.length > 100) {
-        return res.status(400).json({
-            error: 'Browser profile name too long (max 100 characters)'
         });
     }
 
@@ -665,21 +540,6 @@ app.post('/api/register', async (req, res) => {
             if (!assignResult.success) {
                 if (assignResult.auto_deactivate) {
                     console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
-                    
-                    // Get existing HWIDs for logging
-                    const existingHwids = await db.getCodeHwids(code.toUpperCase());
-                    const hwidList = existingHwids.map(h => h.hwid);
-                    
-                    // Log the HWID limit exceeded
-                    await db.logHwidLimitExceeded(
-                        code.toUpperCase(),
-                        codeInfo.username || 'Unknown',
-                        hwid,
-                        hwidList,
-                        hardware ? { hardware } : null,
-                        'hwid_limit_exceeded_auto_assign'
-                    );
-                    
                     const deactivateResult = await db.autoDeactivateCode(code.toUpperCase(), 'hwid_limit_exceeded_auto_assign');
                     
                     return res.status(403).json({
@@ -812,7 +672,7 @@ app.post('/api/register', async (req, res) => {
         console.error('❌ Registration error:', error);
         res.status(500).json({ 
             error: 'Registration failed: ' + error.message,
-            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            details: error.stack
         });
     }
 });
@@ -2111,128 +1971,6 @@ app.get('/api/hwid-logs/new-count', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// HWID LIMIT EXCEEDED LOGS - NEW ENDPOINTS
-// ============================================
-
-app.get('/api/hwid-limit-logs', isApiAuthenticated, async (req, res) => {
-    try {
-        const limit = Math.min(parseInt(req.query.limit) || 50, 100);
-        const page = parseInt(req.query.page) || 1;
-        const offset = (page - 1) * limit;
-        const status = req.query.status || null;
-        
-        console.log(`📊 Fetching HWID limit logs - Page: ${page}, Limit: ${limit}, Status: ${status}`);
-        
-        const [logs, total, pendingCount] = await Promise.all([
-            db.getHwidLimitExceededLogs(limit, offset, status),
-            db.getHwidLimitExceededLogsCount(status),
-            db.getHwidLimitExceededLogsCount('pending')
-        ]);
-        
-        res.json({
-            success: true,
-            logs: logs || [],
-            total: total || 0,
-            pending_count: pendingCount || 0,
-            page: page,
-            limit: limit,
-            total_pages: Math.ceil((total || 0) / limit)
-        });
-    } catch (error) {
-        console.error('❌ Get HWID limit logs error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get HWID limit logs: ' + error.message,
-            logs: [],
-            total: 0,
-            pending_count: 0,
-            page: 1,
-            limit: 50,
-            total_pages: 0
-        });
-    }
-});
-
-app.get('/api/hwid-limit-logs/:id', isApiAuthenticated, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const log = await db.getHwidLimitExceededLogDetails(id);
-        
-        if (!log) {
-            return res.status(404).json({
-                success: false,
-                error: 'Log not found'
-            });
-        }
-        
-        res.json({
-            success: true,
-            log: log
-        });
-    } catch (error) {
-        console.error('❌ Get HWID limit log details error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get log details: ' + error.message
-        });
-    }
-});
-
-app.post('/api/hwid-limit-logs/:id/resolve', isApiAuthenticated, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { notes } = req.body;
-        
-        const result = await db.resolveHwidLimitExceededLog(
-            id,
-            req.session.username || 'admin',
-            notes || 'Resolved by admin'
-        );
-        
-        if (result.success) {
-            await db.logUsage(
-                'admin',
-                null,
-                'hwid_limit_resolved',
-                `HWID limit log ${id} resolved by ${req.session.username}`
-            );
-            res.json({
-                success: true,
-                message: 'Log resolved successfully'
-            });
-        } else {
-            res.status(404).json({
-                success: false,
-                error: result.error || 'Failed to resolve log'
-            });
-        }
-    } catch (error) {
-        console.error('❌ Resolve HWID limit log error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to resolve log: ' + error.message
-        });
-    }
-});
-
-app.get('/api/hwid-limit-logs/count/pending', isApiAuthenticated, async (req, res) => {
-    try {
-        const count = await db.getHwidLimitExceededLogsCount('pending');
-        res.json({
-            success: true,
-            count: count || 0
-        });
-    } catch (error) {
-        console.error('❌ Get pending HWID limit logs count error:', error);
-        res.status(500).json({
-            success: false,
-            error: 'Failed to get count: ' + error.message,
-            count: 0
-        });
-    }
-});
-
-// ============================================
 // NEW HWID DETECTION - OPTIMIZED
 // ============================================
 
@@ -2580,23 +2318,20 @@ app.post('/api/monitor', async (req, res) => {
 
 async function autoDeleteOldLogs() {
     try {
-        const hwidDays = parseInt(process.env.HWID_LOG_RETENTION_DAYS) || 30;
-        const usageDays = parseInt(process.env.USAGE_LOG_RETENTION_DAYS) || 60;
-        
         const result = await db.run(
-            `DELETE FROM hwid_logs WHERE created_at < NOW() - INTERVAL '${hwidDays} days'`
+            "DELETE FROM hwid_logs WHERE created_at < NOW() - INTERVAL '30 days'"
         );
         
         if (result.changes > 0) {
-            console.log(`🧹 Auto-deleted ${result.changes} old HWID logs (older than ${hwidDays} days)`);
+            console.log(`🧹 Auto-deleted ${result.changes} old HWID logs (older than 30 days)`);
         }
         
         const usageResult = await db.run(
-            `DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '${usageDays} days'`
+            "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '60 days'"
         );
         
         if (usageResult.changes > 0) {
-            console.log(`🧹 Auto-deleted ${usageResult.changes} old usage logs (older than ${usageDays} days)`);
+            console.log(`🧹 Auto-deleted ${usageResult.changes} old usage logs (older than 60 days)`);
         }
         
         return result.changes + usageResult.changes;
@@ -2606,11 +2341,10 @@ async function autoDeleteOldLogs() {
     }
 }
 
-// Auto-cleanup every X hours
-const cleanupHours = parseInt(process.env.CLEANUP_INTERVAL_HOURS) || 6;
+// Auto-cleanup every 6 hours (less frequent)
 setInterval(async () => {
     await autoDeleteOldLogs();
-}, cleanupHours * 60 * 60 * 1000);
+}, 6 * 60 * 60 * 1000);
 
 setTimeout(async () => {
     await autoDeleteOldLogs();
@@ -2633,7 +2367,7 @@ app.post('/api/cleanup-logs', isApiAuthenticated, async (req, res) => {
             console.log(`🧹 Manually deleted ALL ${deleted} HWID logs`);
             
             const usageResult = await db.run(
-                `DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '60 days'`
+                "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '60 days'"
             );
             if (usageResult.changes > 0) {
                 message += ` and ${usageResult.changes} old usage logs`;
@@ -2645,16 +2379,14 @@ app.post('/api/cleanup-logs', isApiAuthenticated, async (req, res) => {
                 deleted: deleted
             });
         } else {
-            const hwidDays = parseInt(process.env.HWID_LOG_RETENTION_DAYS) || 30;
             const result = await db.run(
-                `DELETE FROM hwid_logs WHERE created_at < NOW() - INTERVAL '${hwidDays} days'`
+                "DELETE FROM hwid_logs WHERE created_at < NOW() - INTERVAL '30 days'"
             );
             deleted = result.changes || 0;
-            message = `Cleaned up ${deleted} old HWID logs (older than ${hwidDays} days)`;
+            message = `Cleaned up ${deleted} old HWID logs (older than 30 days)`;
             
-            const usageDays = parseInt(process.env.USAGE_LOG_RETENTION_DAYS) || 60;
             const usageResult = await db.run(
-                `DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '${usageDays} days'`
+                "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '60 days'"
             );
             if (usageResult.changes > 0) {
                 message += ` and ${usageResult.changes} old usage logs`;
@@ -2752,8 +2484,7 @@ createDefaultAdmin().then(() => {
         console.log(`⏱️  Cache TTL: ${db.cacheTTL}s`);
         console.log(`📈 Max Concurrent Queries: ${db.maxConcurrentQueries || 25}`);
         console.log('='.repeat(60));
-        console.log('✅ CORS: Chrome Extensions allowed (restricted)');
-        console.log('✅ HTTPS: ' + (process.env.FORCE_HTTPS === 'true' ? 'Enabled' : 'Disabled'));
+        console.log('✅ CORS: Chrome Extensions allowed');
         console.log('✅ Supabase Pro Plan Optimized');
         console.log(`✅ Rate Limits: Register=${registerLimiter.max}/min, API=${apiLimiter.max}/min`);
         console.log('='.repeat(60));
@@ -2766,11 +2497,10 @@ createDefaultAdmin().then(() => {
         console.log('   ✅ Batch Updates');
         console.log('   ✅ Hardware Specs with Registered Owner');
         console.log('   ✅ Device Info by HWID');
-        console.log('   ✅ Auto-Cleanup HWID Logs');
+        console.log('   ✅ Auto-Cleanup HWID Logs (30 days)');
         console.log('   ✅ Connection Pool: 30 connections');
         console.log('   ✅ Concurrent Queries: 25');
         console.log('   ✅ Rate Limits: 50 regs/min, 300 API/min');
-        console.log('   ✅ HWID Limit Exceeded Logs');
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');
