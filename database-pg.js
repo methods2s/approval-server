@@ -1,4 +1,4 @@
-// database-pg.js - Complete Optimized for 50+ Users with Registered Owner
+// database-pg.js - Complete with registered_owner column fix
 
 const { Pool } = require('pg');
 
@@ -461,12 +461,16 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // INIT TABLES - WITH REGISTERED OWNER
+  // INIT TABLES - FIXED: with ALTER TABLE for registered_owner
   // ============================================
 
   async initTables() {
     try {
       console.log('🔧 Creating/verifying tables...');
+      
+      // ============================================
+      // 1. CREATE TABLES IF NOT EXISTS
+      // ============================================
       
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS codes (
@@ -501,17 +505,10 @@ class DeviceDatabase {
         )
       `);
 
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_code_status ON devices(code, status)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status_created ON hwid_logs(status, created_at DESC)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid_created ON hwid_logs(hwid, created_at DESC)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_status_active ON codes(status, is_active)`);
-      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_registered_owner ON devices(registered_owner)`);
-
+      // ============================================
+      // 2. DEVICES TABLE - WITH registered_owner
+      // ============================================
+      
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS devices (
           id SERIAL PRIMARY KEY,
@@ -543,6 +540,43 @@ class DeviceDatabase {
           wallpaper_base64 TEXT
         )
       `);
+
+      // ============================================
+      // 3. ALTER TABLE - ADD registered_owner if missing
+      // ============================================
+      
+      try {
+        await this.queryWithRetry(`
+          ALTER TABLE devices ADD COLUMN IF NOT EXISTS registered_owner TEXT
+        `);
+        console.log('✅ registered_owner column verified/added');
+      } catch (err) {
+        console.log('ℹ️ registered_owner column already exists or error:', err.message);
+      }
+
+      // ============================================
+      // 4. CREATE INDEXES
+      // ============================================
+      
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_code ON code_hwids(code)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_code_hwids_hwid ON code_hwids(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_code_status ON devices(code, status)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_status_created ON hwid_logs(status, created_at DESC)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_hwid_logs_hwid_created ON hwid_logs(hwid, created_at DESC)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_status_active ON codes(status, is_active)`);
+      
+      try {
+        await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_registered_owner ON devices(registered_owner)`);
+      } catch (err) {
+        console.log('ℹ️ Index on registered_owner skipped:', err.message);
+      }
+
+      // ============================================
+      // 5. OTHER TABLES
+      // ============================================
 
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS requests (
