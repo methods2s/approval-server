@@ -680,7 +680,8 @@ app.get('/api/status/:deviceId', async (req, res) => {
             });
         }
 
-        db.updatePing(deviceId).catch(err => console.error('Ping update error:', err));
+        // ✅ FIXED: Await the updatePing function
+        await db.updatePing(deviceId).catch(err => console.error('Ping update error:', err));
 
         res.json({
             exists: true,
@@ -1953,6 +1954,7 @@ createDefaultAdmin().then(() => {
         console.log('✅ Delete Logs Only (Not Code)');
         console.log('✅ Owners Auto-Clear on Deactivate/Reactivate');
         console.log('✅ "Reason" Button redirects to Auto-Deactivated Tab');
+        console.log('✅ updatePing() function fixed');
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');

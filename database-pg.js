@@ -1726,6 +1726,105 @@ class DeviceDatabase {
   }
 
   // ============================================
+  // DEVICE MANAGEMENT
+  // ============================================
+
+  async getDeviceStatus(deviceId) {
+    try {
+      const device = await this.getDevice(deviceId);
+      if (!device) {
+        return { exists: false, status: 'not_found' };
+      }
+      
+      const codeInfo = await this.getCodeInfo(device.code);
+      
+      return { 
+        exists: true, 
+        status: device.status,
+        code: device.code,
+        username: codeInfo ? codeInfo.username : null,
+        access: codeInfo ? codeInfo.access_level : null,
+        subscription: codeInfo ? codeInfo.subscription_type : null,
+        subscription_started_at: codeInfo ? codeInfo.subscription_started_at : null,
+        subscription_expires_at: codeInfo ? codeInfo.expires_at : null,
+        status_code: codeInfo ? codeInfo.status : null,
+        registered_owner: device.registered_owner || 'Unknown',
+        device: {
+          id: device.device_id,
+          approved_at: device.approved_at,
+          revoked_at: device.revoked_at
+        }
+      };
+    } catch (error) {
+      console.error('Get device status error:', error);
+      return { exists: false, status: 'error' };
+    }
+  }
+
+  async removeUser(deviceId) {
+    try {
+      const device = await this.getDevice(deviceId);
+      if (!device) return false;
+
+      const code = device.code;
+      
+      const result = await this.run('DELETE FROM devices WHERE device_id = $1', [deviceId]);
+      
+      if (result.changes > 0) {
+        if (code) {
+          await this.run('UPDATE codes SET used_count = used_count - 1 WHERE code = $1', [code]);
+          await this.logUsage(deviceId, code, 'remove_user', 'User removed, slot freed');
+        }
+        
+        await this.refreshCache();
+        
+        console.log(`🗑️ User ${deviceId} removed`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Remove user error:', error);
+      return false;
+    }
+  }
+
+  async revokeDevice(deviceId) {
+    try {
+      const device = await this.getDevice(deviceId);
+      if (!device) return false;
+
+      const result = await this.run(
+        'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE device_id = $2',
+        ['revoked', deviceId]
+      );
+      
+      if (result.changes > 0) {
+        if (device.code) {
+          await this.run('UPDATE codes SET used_count = used_count - 1 WHERE code = $1', [device.code]);
+          await this.logUsage(deviceId, device.code, 'revoke', 'Device revoked');
+        }
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Revoke device error:', error);
+      return false;
+    }
+  }
+
+  // ✅ FIX: Add updatePing function
+  async updatePing(deviceId) {
+    try {
+      await this.run(
+        'UPDATE devices SET last_ping = CURRENT_TIMESTAMP, ping_count = ping_count + 1, updated_at = CURRENT_TIMESTAMP WHERE device_id = $1',
+        [deviceId]
+      );
+    } catch (error) {
+      console.error('Update ping error:', error);
+    }
+  }
+
+  // ============================================
   // STATS
   // ============================================
 
