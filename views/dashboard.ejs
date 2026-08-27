@@ -959,6 +959,7 @@
             return deactivationReasons[status] || status || 'Unknown reason';
         }
 
+        // ✅ FIX: Move isAutoDeactivated here, BEFORE it's used in renderSVIP and renderVIP
         function isAutoDeactivated(status) {
             return status && (status.startsWith('auto_deactivated') || status === 'auto_deactivated');
         }
@@ -1263,7 +1264,7 @@
                 const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
                 const username = c.username || '';
                 const owners = getOwnersForCode(c.code);
-                const isAutoDeactivated = isAutoDeactivated(c.status);
+                const isAutoDeactivatedFlag = isAutoDeactivated(c.status);
                 
                 const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
                 const hasHwid = hwidInfo.count > 0;
@@ -1318,7 +1319,7 @@
                 }
                 
                 // Deactivation Reason Button - only show for auto-deactivated codes
-                const reasonButton = isAutoDeactivated ? 
+                const reasonButton = isAutoDeactivatedFlag ? 
                     `<button onclick="goToAutoDeactivatedTab('${c.code}')" class="btn-reason" title="View deactivation reason">🔍 Reason</button>` : '';
                 
                 return `
@@ -1365,7 +1366,7 @@
                 const deactivationReason = !c.is_active ? getDeactivationReason(c.status) : '';
                 const username = c.username || '';
                 const owners = getOwnersForCode(c.code);
-                const isAutoDeactivated = isAutoDeactivated(c.status);
+                const isAutoDeactivatedFlag = isAutoDeactivated(c.status);
                 
                 const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
                 const hasHwid = hwidInfo.count > 0;
@@ -1420,7 +1421,7 @@
                 }
                 
                 // Deactivation Reason Button - only show for auto-deactivated codes
-                const reasonButton = isAutoDeactivated ? 
+                const reasonButton = isAutoDeactivatedFlag ? 
                     `<button onclick="goToAutoDeactivatedTab('${c.code}')" class="btn-reason" title="View deactivation reason">🔍 Reason</button>` : '';
                 
                 return `
