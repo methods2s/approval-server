@@ -1156,7 +1156,7 @@ class DeviceDatabase {
           null
         );
         
-        // SAVE TRIGGER HWID TO CODES TABLE - IMPORTANT!
+        // SAVE TRIGGER HWID TO CODES TABLE
         const updateResult = await this.run(
           'UPDATE codes SET trigger_hwid = $1, trigger_reason = $2, triggered_at = CURRENT_TIMESTAMP WHERE code = $3',
           [newHwid, reason, code]
@@ -1228,14 +1228,15 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET AUTO-DEACTIVATED CODES WITH HWID DETAILS
+  // GET AUTO-DEACTIVATED CODES WITH HWID DETAILS - FIXED VERSION
   // ============================================
 
   async getAutoDeactivatedCodesWithHwidDetails() {
     try {
       console.log('📊 Fetching auto-deactivated codes with HWID details...');
       
-      const result = await this.queuedQuery(`
+      // First, get all auto-deactivated codes
+      const codesResult = await this.queuedQuery(`
         SELECT 
           c.code,
           c.username,
@@ -1249,84 +1250,95 @@ class DeviceDatabase {
           c.hwid as code_hwid,
           c.trigger_hwid,
           c.trigger_reason,
-          c.triggered_at,
-          (
-            SELECT COUNT(*) FROM code_hwids WHERE code = c.code
-          ) as hwid_count,
-          (
-            SELECT json_agg(
-              json_build_object(
-                'hwid', ch.hwid,
-                'assigned_at', ch.assigned_at,
-                'last_used', ch.last_used,
-                'hardware', (
-                  SELECT json_build_object(
-                    'cpu_name', d.cpu_name,
-                    'gpu_name', d.gpu_name,
-                    'ram_total_gb', d.ram_total_gb,
-                    'storage_total_gb', d.storage_total_gb,
-                    'device_name', d.device_name,
-                    'profile_name', d.profile_name,
-                    'registered_owner', d.registered_owner
-                  )
-                  FROM devices d 
-                  WHERE d.hwid = ch.hwid 
-                  ORDER BY d.created_at DESC 
-                  LIMIT 1
-                )
-              )
-            ) 
-            FROM code_hwids ch 
-            WHERE ch.code = c.code
-          ) as hwids,
-          (
-            SELECT json_agg(
-              json_build_object(
-                'hwid', l.hwid,
-                'action', l.action,
-                'status', l.status,
-                'details', l.details,
-                'created_at', l.created_at,
-                'browser_profile', l.browser_profile
-              )
-              ORDER BY l.created_at DESC
-              LIMIT 20
-            )
-            FROM hwid_logs l 
-            WHERE (l.code = c.code OR l.hwid = c.trigger_hwid)
-            AND (l.status = 'new' OR l.status = 'seen' OR l.action = 'auto_deactivation_trigger')
-            ORDER BY l.created_at DESC
-            LIMIT 20
-          ) as recent_hwid_logs,
-          (
-            SELECT json_build_object(
-              'hwid', l.hwid,
-              'action', l.action,
-              'status', l.status,
-              'details', l.details,
-              'created_at', l.created_at,
-              'browser_profile', l.browser_profile
-            )
-            FROM hwid_logs l 
-            WHERE l.hwid = c.trigger_hwid 
-            AND l.action = 'auto_deactivation_trigger'
-            ORDER BY l.created_at DESC 
-            LIMIT 1
-          ) as trigger_log
+          c.triggered_at
         FROM codes c
         WHERE c.status IN ('auto_deactivated_limit_exceeded', 'auto_deactivated')
         AND c.is_active = false
         ORDER BY c.created_at DESC
       `, [], 5);
       
-      console.log(`✅ Found ${result.rows.length} auto-deactivated codes`);
-      if (result.rows.length > 0) {
-        console.log(`   First code: ${result.rows[0].code}, trigger_hwid: ${result.rows[0].trigger_hwid ? 'YES' : 'NO'}`);
+      const codes = codesResult.rows || [];
+      console.log(`✅ Found ${codes.length} auto-deactivated codes`);
+      
+      // For each code, get HWIDs and logs
+      const result = [];
+      for (const code of codes) {
+        // Get HWID count
+        const countResult = await this.queuedQuery(`
+          SELECT COUNT(*) as count FROM code_hwids WHERE code = $1
+        `, [code.code], 5);
+        
+        // Get HWIDs with hardware specs
+        const hwidsResult = await this.queuedQuery(`
+          SELECT 
+            ch.hwid,
+            ch.assigned_at,
+            ch.last_used,
+            json_build_object(
+              'cpu_name', d.cpu_name,
+              'gpu_name', d.gpu_name,
+              'ram_total_gb', d.ram_total_gb,
+              'storage_total_gb', d.storage_total_gb,
+              'device_name', d.device_name,
+              'profile_name', d.profile_name,
+              'registered_owner', d.registered_owner
+            ) as hardware
+          FROM code_hwids ch
+          LEFT JOIN devices d ON d.hwid = ch.hwid
+          WHERE ch.code = $1
+          ORDER BY ch.assigned_at DESC
+        `, [code.code], 5);
+        
+        // Get recent logs
+        const logsResult = await this.queuedQuery(`
+          SELECT 
+            l.hwid,
+            l.action,
+            l.status,
+            l.details,
+            l.created_at,
+            l.browser_profile
+          FROM hwid_logs l 
+          WHERE (l.code = $1 OR l.hwid = $2)
+          AND (l.status = 'new' OR l.status = 'seen' OR l.action = 'auto_deactivation_trigger')
+          ORDER BY l.created_at DESC
+          LIMIT 20
+        `, [code.code, code.trigger_hwid || ''], 5);
+        
+        // Get trigger log
+        let triggerLog = null;
+        if (code.trigger_hwid) {
+          const triggerResult = await this.queuedQuery(`
+            SELECT 
+              l.hwid,
+              l.action,
+              l.status,
+              l.details,
+              l.created_at,
+              l.browser_profile
+            FROM hwid_logs l 
+            WHERE l.hwid = $1 
+            AND l.action = 'auto_deactivation_trigger'
+            ORDER BY l.created_at DESC 
+            LIMIT 1
+          `, [code.trigger_hwid], 5);
+          triggerLog = triggerResult.rows[0] || null;
+        }
+        
+        result.push({
+          ...code,
+          hwid_count: parseInt(countResult.rows[0]?.count || 0),
+          hwids: hwidsResult.rows || [],
+          recent_hwid_logs: logsResult.rows || [],
+          trigger_log: triggerLog
+        });
       }
       
-      return result.rows || [];
+      console.log(`✅ Processed ${result.length} auto-deactivated codes with details`);
+      return result;
     } catch (error) {
       console.error('❌ Get auto-deactivated codes with HWID details error:', error.message);
+      console.error('   Stack:', error.stack);
       return [];
     }
   }
