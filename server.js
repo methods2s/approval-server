@@ -541,13 +541,37 @@ app.post('/api/register', async (req, res) => {
                 if (assignResult.auto_deactivate) {
                     console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
                     console.log(`   New HWID: ${hwid.substring(0, 16)}...`);
-                    console.log(`   HWID Details:`, assignResult.new_hwid_details);
+                    console.log(`   HWID Details from assignResult:`, assignResult.new_hwid_details);
+                    
+                    // Get hardware details from the request body (for the NEW HWID)
+                    let hwidDetailsFromRequest = null;
+                    if (hardware) {
+                        try {
+                            const hw = typeof hardware === 'string' ? JSON.parse(hardware) : hardware;
+                            hwidDetailsFromRequest = {
+                                cpu: hw.cpu || hw.cpu_name || 'N/A',
+                                gpu: hw.gpu || hw.gpu_name || 'N/A',
+                                ram: hw.ram_gb || hw.ram_total_gb || 0,
+                                storage: hw.storage_gb || hw.storage_total_gb || 0,
+                                device: hw.device_name || 'N/A',
+                                profile: browser_profile || hw.profile_name || 'Default',
+                                owner: hw.registered_owner || 'N/A'
+                            };
+                            console.log(`✅ Extracted hardware from request:`, hwidDetailsFromRequest);
+                        } catch (e) {
+                            console.log('⚠️ Failed to parse hardware from request:', e.message);
+                        }
+                    }
+                    
+                    // Use hardware from request if assignResult doesn't have it
+                    const finalHwidDetails = assignResult.new_hwid_details || hwidDetailsFromRequest;
+                    console.log(`   Final HWID Details:`, finalHwidDetails);
                     
                     const deactivateResult = await db.autoDeactivateCode(
                         code.toUpperCase(), 
                         'hwid_limit_exceeded_auto_assign', 
                         hwid,
-                        assignResult.new_hwid_details
+                        finalHwidDetails
                     );
                     
                     console.log(`   Deactivate result:`, deactivateResult);
@@ -1285,7 +1309,7 @@ app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
             }
             
             await db.run(
-                'UPDATE codes SET hwid = NULL, trigger_hwid = NULL, trigger_reason = NULL, triggered_at = NULL WHERE code = $1',
+                'UPDATE codes SET hwid = NULL, trigger_hwid = NULL, trigger_reason = NULL, triggered_at = NULL, notes = NULL WHERE code = $1',
                 [code]
             );
             
@@ -1309,7 +1333,8 @@ app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
                  expires_at = $3,
                  trigger_hwid = NULL,
                  trigger_reason = NULL,
-                 triggered_at = NULL
+                 triggered_at = NULL,
+                 notes = NULL
              WHERE code = $4`,
             [subscriptionType, now, expiresAt, code]
         );
@@ -2115,6 +2140,7 @@ app.get('/api/auto-deactivated-code/:code', isApiAuthenticated, async (req, res)
                 c.trigger_hwid,
                 c.trigger_reason,
                 c.triggered_at,
+                c.notes,
                 (
                     SELECT COUNT(*) FROM code_hwids WHERE code = c.code
                 ) as hwid_count,
