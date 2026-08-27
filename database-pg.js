@@ -1105,7 +1105,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // AUTO-DEACTIVATE CODE - WITH EXISTING HWIDS
+  // AUTO-DEACTIVATE CODE - WITH EXISTING HWIDS AND OWNER CLEAR
   // ============================================
 
   async autoDeactivateCode(code, reason = 'unauthorized_use', newHwid = null, newHwidDetails = null) {
@@ -1156,12 +1156,15 @@ class DeviceDatabase {
         );
         
         console.log(`✅ Trigger HWID (NEW HWID) saved: ${newHwid.substring(0, 16)}...`);
-        if (newHwidDetails) {
-          console.log(`   With hardware: CPU=${newHwidDetails.cpu || 'N/A'}, GPU=${newHwidDetails.gpu || 'N/A'}`);
-        }
       } else {
         console.log(`⚠️ No new HWID provided for code ${code}`);
       }
+      
+      // CLEAR OWNERS FROM DEVICES BEFORE DELETING
+      await this.run(
+        'UPDATE devices SET registered_owner = NULL, profile_name = NULL, device_name = NULL WHERE code = $1',
+        [code]
+      );
       
       // Update code status to inactive
       await this.run(
@@ -1213,7 +1216,7 @@ class DeviceDatabase {
         'system', 
         code, 
         'auto_deactivated_' + reason, 
-        `🔒 Code ${code} auto-deactivated due to ${reason}. ${deviceCount} devices revoked. NEW HWID (Trigger): ${newHwid || 'N/A'}. Existing HWIDs: ${existingHwids.length}`
+        `🔒 Code ${code} auto-deactivated due to ${reason}. ${deviceCount} devices revoked. NEW HWID (Trigger): ${newHwid || 'N/A'}. Existing HWIDs: ${existingHwids.length}. Owners cleared.`
       );
       
       await this.refreshCache();
@@ -1237,14 +1240,13 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET AUTO-DEACTIVATED CODES WITH HWID DETAILS - WITH IMPROVED HARDWARE EXTRACTION
+  // GET AUTO-DEACTIVATED CODES WITH HWID DETAILS
   // ============================================
 
   async getAutoDeactivatedCodesWithHwidDetails() {
     try {
       console.log('📊 Fetching auto-deactivated codes with HWID details...');
       
-      // First, get all auto-deactivated codes
       const codesResult = await this.queuedQuery(`
         SELECT 
           c.code,
@@ -1270,13 +1272,11 @@ class DeviceDatabase {
       const codes = codesResult.rows || [];
       console.log(`✅ Found ${codes.length} auto-deactivated codes`);
       
-      // For each code, get HWIDs and logs
       const result = [];
       for (const code of codes) {
         let hwids = [];
         let existingHwidsFromNotes = [];
         
-        // Try to get existing HWIDs from notes column
         if (code.notes && code.notes.startsWith('EXISTING_HWIDS:')) {
           try {
             const jsonStr = code.notes.replace('EXISTING_HWIDS:', '');
@@ -1287,7 +1287,6 @@ class DeviceDatabase {
           }
         }
         
-        // Also try to get HWIDs from code_hwids (baka may natira)
         const hwidsResult = await this.queuedQuery(`
           SELECT 
             ch.hwid,
@@ -1308,23 +1307,20 @@ class DeviceDatabase {
           ORDER BY ch.assigned_at DESC
         `, [code.code], 5);
         
-        // Combine: gamitin ang existing HWIDs from notes, at kung wala, gamitin ang from code_hwids
         if (existingHwidsFromNotes.length > 0) {
           hwids = existingHwidsFromNotes;
         } else if (hwidsResult.rows.length > 0) {
           hwids = hwidsResult.rows;
         }
         
-        // GET HARDWARE SPECS FOR TRIGGER HWID FROM HWID_LOGS - IMPROVED VERSION
         let triggerHardware = null;
         let triggerHwid = code.trigger_hwid;
         
         if (triggerHwid) {
-          // KUNIN MUNA SA HWID_LOGS
           const logWithHardware = await this.queuedQuery(`
             SELECT details FROM hwid_logs 
             WHERE hwid = $1 
-            AND (action = 'auto_deactivation_trigger')
+            AND action = 'auto_deactivation_trigger'
             ORDER BY created_at DESC 
             LIMIT 1
           `, [triggerHwid], 5);
@@ -1332,91 +1328,32 @@ class DeviceDatabase {
           if (logWithHardware.rows.length > 0) {
             const details = logWithHardware.rows[0].details || '';
             console.log(`   Found trigger HWID details in logs for ${code.code}`);
-            console.log(`   Details: ${details.substring(0, 200)}...`);
             
-            // Extract hardware from details string - IMPROVED WITH MULTIPLE PATTERNS
-            // CPU
-            let cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
-            if (!cpuMatch) cpuMatch = details.match(/CPU:\s*([^\s,|]+)/i);
-            if (!cpuMatch) cpuMatch = details.match(/CPU[:\s]+([A-Za-z0-9\s-]+)/i);
+            const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
+            const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
+            const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
+            const storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
+            const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
+            const profileMatch = details.match(/Profile:\s*([^,|]+)/i);
+            const ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
             
-            // GPU
-            let gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
-            if (!gpuMatch) gpuMatch = details.match(/GPU:\s*([^\s,|]+)/i);
-            if (!gpuMatch) gpuMatch = details.match(/GPU[:\s]+([A-Za-z0-9\s-]+)/i);
+            triggerHardware = {};
+            if (cpuMatch) triggerHardware.cpu_name = cpuMatch[1].trim();
+            if (gpuMatch) triggerHardware.gpu_name = gpuMatch[1].trim();
+            if (ramMatch) triggerHardware.ram_total_gb = parseFloat(ramMatch[1].trim());
+            if (storageMatch) triggerHardware.storage_total_gb = parseFloat(storageMatch[1].trim());
+            if (deviceMatch) triggerHardware.device_name = deviceMatch[1].trim();
+            if (profileMatch) triggerHardware.profile_name = profileMatch[1].trim();
+            if (ownerMatch) triggerHardware.registered_owner = ownerMatch[1].trim();
             
-            // RAM
-            let ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
-            if (!ramMatch) ramMatch = details.match(/RAM:\s*([0-9.]+)\s*GB/i);
-            if (!ramMatch) ramMatch = details.match(/RAM[:\s]+([0-9.]+)\s*GB/i);
-            
-            // Storage
-            let storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
-            if (!storageMatch) storageMatch = details.match(/Storage:\s*([0-9.]+)\s*GB/i);
-            if (!storageMatch) storageMatch = details.match(/Storage[:\s]+([0-9.]+)\s*GB/i);
-            
-            // Device
-            let deviceMatch = details.match(/Device:\s*([^,|]+)/i);
-            if (!deviceMatch) deviceMatch = details.match(/Device[:\s]+([A-Za-z0-9-]+)/i);
-            
-            // Profile
-            let profileMatch = details.match(/Profile:\s*([^,|]+)/i);
-            if (!profileMatch) profileMatch = details.match(/Profile[:\s]+([A-Za-z0-9\s-]+)/i);
-            
-            // Owner
-            let ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
-            if (!ownerMatch) ownerMatch = details.match(/Owner[:\s]+([A-Za-z0-9@.\s-]+)/i);
-            
-            // Build hardware object if we found anything meaningful
-            const hasCpu = cpuMatch && cpuMatch[1].trim() !== 'N/A';
-            const hasGpu = gpuMatch && gpuMatch[1].trim() !== 'N/A';
-            const hasRam = ramMatch && parseFloat(ramMatch[1]) > 0;
-            const hasDevice = deviceMatch && deviceMatch[1].trim() !== 'N/A';
-            
-            if (hasCpu || hasGpu || hasRam || hasDevice) {
-              triggerHardware = {
-                cpu_name: cpuMatch ? cpuMatch[1].trim() : 'Unknown',
-                gpu_name: gpuMatch ? gpuMatch[1].trim() : 'Unknown',
-                ram_total_gb: ramMatch ? parseFloat(ramMatch[1]) : 0,
-                storage_total_gb: storageMatch ? parseFloat(storageMatch[1]) : 0,
-                device_name: deviceMatch ? deviceMatch[1].trim() : 'Unknown',
-                profile_name: profileMatch ? profileMatch[1].trim() : 'Default',
-                registered_owner: ownerMatch ? ownerMatch[1].trim() : 'Unknown'
-              };
-              console.log(`   ✅ Extracted hardware from log: CPU=${triggerHardware.cpu_name}, GPU=${triggerHardware.gpu_name}, RAM=${triggerHardware.ram_total_gb}GB`);
-            } else {
-              console.log(`   ⚠️ No meaningful hardware extracted from log details for ${code.code}`);
-            }
+            if (Object.keys(triggerHardware).length === 0) triggerHardware = null;
           }
         }
         
-        // IF WALA SA LOGS, TRY SA DEVICES TABLE (FALLBACK)
-        if (!triggerHardware && triggerHwid) {
-          const deviceWithTrigger = await this.get(
-            'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
-            [triggerHwid]
-          );
-          
-          if (deviceWithTrigger) {
-            triggerHardware = {
-              cpu_name: deviceWithTrigger.cpu_name || 'Unknown',
-              gpu_name: deviceWithTrigger.gpu_name || 'Unknown',
-              ram_total_gb: deviceWithTrigger.ram_total_gb || 0,
-              storage_total_gb: deviceWithTrigger.storage_total_gb || 0,
-              device_name: deviceWithTrigger.device_name || 'Unknown',
-              profile_name: deviceWithTrigger.profile_name || 'Default',
-              registered_owner: deviceWithTrigger.registered_owner || 'Unknown'
-            };
-            console.log(`   Found trigger HWID hardware in devices table (fallback) for ${code.code}`);
-          }
-        }
-        
-        // Get HWID count
         const countResult = await this.queuedQuery(`
           SELECT COUNT(*) as count FROM code_hwids WHERE code = $1
         `, [code.code], 5);
         
-        // Get recent logs
         const logsResult = await this.queuedQuery(`
           SELECT 
             l.hwid,
@@ -1432,7 +1369,6 @@ class DeviceDatabase {
           LIMIT 20
         `, [code.code, code.trigger_hwid || ''], 5);
         
-        // Get trigger log
         let triggerLog = null;
         if (code.trigger_hwid) {
           const triggerResult = await this.queuedQuery(`
@@ -1492,7 +1428,6 @@ class DeviceDatabase {
     try {
       console.log(`🗑️ Deleting logs for auto-deactivated code: ${code}`);
       
-      // Get the trigger_hwid first
       const codeInfo = await this.get(
         'SELECT trigger_hwid FROM codes WHERE code = $1',
         [code]
@@ -1500,14 +1435,12 @@ class DeviceDatabase {
       
       let deletedCount = 0;
       
-      // Delete hwid_logs for this code
       const hwidResult = await this.run(
         'DELETE FROM hwid_logs WHERE code = $1',
         [code]
       );
       deletedCount += hwidResult.changes || 0;
       
-      // If there's a trigger_hwid, delete its logs too
       if (codeInfo && codeInfo.trigger_hwid) {
         const triggerResult = await this.run(
           'DELETE FROM hwid_logs WHERE hwid = $1',
@@ -1516,7 +1449,6 @@ class DeviceDatabase {
         deletedCount += triggerResult.changes || 0;
       }
       
-      // Also clear the notes (existing HWIDs) para fresh start
       await this.run(
         'UPDATE codes SET notes = NULL WHERE code = $1',
         [code]
@@ -1539,7 +1471,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // CODE MANAGEMENT
+  // CODE MANAGEMENT - WITH OWNER CLEAR
   // ============================================
 
   calculateExpiration(startDate, subscriptionType) {
@@ -1689,6 +1621,10 @@ class DeviceDatabase {
     }
   }
 
+  // ============================================
+  // DEACTIVATE CODE - WITH OWNER CLEAR
+  // ============================================
+
   async deactivateCode(code) {
     try {
       const countResult = await this.get(
@@ -1696,6 +1632,12 @@ class DeviceDatabase {
         [code]
       );
       const deviceCount = countResult ? parseInt(countResult.count) : 0;
+      
+      // CLEAR OWNERS FROM DEVICES BEFORE DELETING
+      await this.run(
+        'UPDATE devices SET registered_owner = NULL, profile_name = NULL, device_name = NULL WHERE code = $1',
+        [code]
+      );
       
       await this.run('DELETE FROM code_hwids WHERE code = $1', [code]);
       await this.run('DELETE FROM devices WHERE code = $1', [code]);
@@ -1708,7 +1650,7 @@ class DeviceDatabase {
       await this.refreshCache();
       
       if (result.changes > 0) {
-        console.log(`✅ Code deactivated: ${code} - ${deviceCount} devices removed`);
+        console.log(`✅ Code deactivated: ${code} - ${deviceCount} devices removed. Owners cleared.`);
         return { success: true, devicesRemoved: deviceCount };
       }
       return { success: false, devicesRemoved: 0 };
@@ -1718,12 +1660,22 @@ class DeviceDatabase {
     }
   }
 
+  // ============================================
+  // REACTIVATE CODE - WITH OWNER CLEAR
+  // ============================================
+
   async reactivateCode(code, subscriptionType = 'Lifetime') {
     try {
       const codeInfo = await this.getCodeInfo(code);
       if (!codeInfo) {
         return { success: false, error: 'Code not found' };
       }
+
+      // CLEAR OWNERS FROM DEVICES BEFORE REACTIVATING
+      await this.run(
+        'UPDATE devices SET registered_owner = NULL, profile_name = NULL, device_name = NULL WHERE code = $1',
+        [code]
+      );
 
       if (!codeInfo.is_active || codeInfo.status === 'inactive' || codeInfo.status.includes('auto_deactivated')) {
         await this.run(
@@ -1757,7 +1709,7 @@ class DeviceDatabase {
       await this.refreshCache();
       
       if (result.changes > 0) {
-        console.log(`✅ Code reactivated: ${code} (${subscriptionType})`);
+        console.log(`✅ Code reactivated: ${code} (${subscriptionType}). Owners cleared.`);
         return { success: true };
       }
       return { success: false };

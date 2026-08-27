@@ -460,7 +460,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - OPTIMIZED (NO WALLPAPER) - UPDATED
+// REGISTER DEVICE - OPTIMIZED (NO WALLPAPER)
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -542,7 +542,6 @@ app.post('/api/register', async (req, res) => {
                     console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
                     console.log(`   NEW HWID (Trigger): ${hwid.substring(0, 16)}...`);
                     
-                    // Get hardware details from the request body (for the NEW HWID)
                     let hwidDetailsFromRequest = null;
                     if (hardware) {
                         try {
@@ -562,14 +561,11 @@ app.post('/api/register', async (req, res) => {
                         }
                     }
                     
-                    // Use hardware from request
                     const finalHwidDetails = hwidDetailsFromRequest;
                     console.log(`   Final HWID Details for NEW HWID:`, finalHwidDetails);
                     
-                    // UPDATE THE LOG WITH HARDWARE DETAILS - IMPROVED VERSION
                     if (finalHwidDetails) {
                         try {
-                            // Hanapin ang latest auto_deactivation_trigger log para sa HWID na ito
                             const logResult = await db.queuedQuery(
                                 `SELECT id FROM hwid_logs 
                                  WHERE hwid = $1 AND action = 'auto_deactivation_trigger' 
@@ -580,18 +576,12 @@ app.post('/api/register', async (req, res) => {
                             
                             if (logResult.rows.length > 0) {
                                 const logId = logResult.rows[0].id;
-                                
-                                // I-construct ang details string na may hardware
                                 const detailsString = `🚨 HWID limit reached - TRIGGERED AUTO-DEACTIVATION | NEW HWID: ${hwid.substring(0, 16)}... | CPU: ${finalHwidDetails.cpu || 'N/A'} | GPU: ${finalHwidDetails.gpu || 'N/A'} | RAM: ${finalHwidDetails.ram || 0}GB | Storage: ${finalHwidDetails.storage || 0}GB | Device: ${finalHwidDetails.device || 'N/A'} | Profile: ${finalHwidDetails.profile || 'N/A'} | Owner: ${finalHwidDetails.owner || 'N/A'}`;
-                                
-                                // Update ang log
                                 await db.run(
                                     `UPDATE hwid_logs SET details = $1 WHERE id = $2`,
                                     [detailsString, logId]
                                 );
-                                console.log(`✅ Updated log with hardware details for NEW HWID: ${detailsString.substring(0, 100)}...`);
-                            } else {
-                                console.log(`⚠️ No log found to update for HWID ${hwid.substring(0, 16)}...`);
+                                console.log(`✅ Updated log with hardware details for NEW HWID`);
                             }
                         } catch (updateError) {
                             console.log('⚠️ Failed to update log with hardware details:', updateError.message);
@@ -1285,7 +1275,7 @@ app.put('/api/code/:code/subscription', isApiAuthenticated, async (req, res) => 
 });
 
 // ============================================
-// DEACTIVATE / REACTIVATE / DELETE CODE
+// DEACTIVATE / REACTIVATE / DELETE CODE - WITH OWNER CLEAR
 // ============================================
 
 app.post('/api/code/:code/deactivate', isApiAuthenticated, async (req, res) => {
@@ -1299,11 +1289,11 @@ app.post('/api/code/:code/deactivate', isApiAuthenticated, async (req, res) => {
         
         if (result.success) {
             await db.logUsage('admin', code, 'code_deactivated', 
-                `Code ${code} deactivated by ${req.session.username}. ${hwidCount} HWIDs removed.`);
+                `Code ${code} deactivated by ${req.session.username}. ${hwidCount} HWIDs removed. Owners cleared.`);
             
             res.json({ 
                 success: true, 
-                message: `Code ${code} deactivated! ${result.devicesRemoved} devices removed, ${hwidCount} HWIDs removed.`,
+                message: `Code ${code} deactivated! ${result.devicesRemoved} devices removed, ${hwidCount} HWIDs removed. Owners cleared.`,
                 devices_removed: result.devicesRemoved,
                 hwids_removed: hwidCount
             });
@@ -1330,7 +1320,7 @@ app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
         const hwidCount = hwids.length;
         
         if (!codeInfo.is_active || codeInfo.status === 'inactive' || codeInfo.status.includes('auto_deactivated')) {
-            console.log(`🔄 Reactivating code ${code} - Removing ${hwidCount} HWIDs`);
+            console.log(`🔄 Reactivating code ${code} - Removing ${hwidCount} HWIDs and clearing owners`);
             
             for (const h of hwids) {
                 await db.run(
@@ -1344,11 +1334,16 @@ app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
                 [code]
             );
             
+            await db.run(
+                'UPDATE devices SET registered_owner = NULL, profile_name = NULL, device_name = NULL WHERE code = $1',
+                [code]
+            );
+            
             await db.logUsage(
                 'admin', 
                 code, 
                 'hwid_reset_on_reactivate', 
-                `🗑️ ${hwidCount} HWIDs removed during reactivation of code ${code}`
+                `🗑️ ${hwidCount} HWIDs removed and owners cleared during reactivation of code ${code}`
             );
         }
         
@@ -1372,12 +1367,12 @@ app.post('/api/code/:code/reactivate', isApiAuthenticated, async (req, res) => {
         
         if (result.changes > 0) {
             await db.logUsage('admin', code, 'code_reactivated_with_hwid_reset', 
-                `Code ${code} reactivated with ${subscriptionType} by ${req.session.username}. ${hwidCount} HWIDs removed.`);
+                `Code ${code} reactivated with ${subscriptionType} by ${req.session.username}. ${hwidCount} HWIDs removed. Owners cleared.`);
             await db.refreshCache();
             
             res.json({ 
                 success: true, 
-                message: `Code reactivated with ${subscriptionType}. ${hwidCount} HWID(s) removed.`,
+                message: `Code reactivated with ${subscriptionType}. ${hwidCount} HWID(s) removed. Owners cleared.`,
                 hwids_removed: hwidCount,
                 code: code
             });
@@ -2590,6 +2585,7 @@ createDefaultAdmin().then(() => {
         console.log('✅ NO WALLPAPER - Clean & Fast');
         console.log('✅ Auto-Deactivated Tab with Trigger HWID');
         console.log('✅ Delete Logs Only (Not Code)');
+        console.log('✅ Owners Auto-Clear on Deactivate/Reactivate');
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');
