@@ -121,7 +121,6 @@
         .hwid-spec-detail.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
         .hwid-spec-detail.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
         .hwid-spec-detail.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
-        .hwid-spec-detail.storage { background: rgba(0,188,212,0.15); color: #00BCD4; }
         .hwid-spec-detail.device { background: rgba(255,87,34,0.15); color: #FF5722; }
         .hwid-spec-detail.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
         .hwid-spec-detail.owner { background: rgba(255,87,34,0.15); color: #FF5722; }
@@ -325,7 +324,6 @@
         .hwid-spec-item.cpu { background: rgba(76,175,80,0.15); color: #4CAF50; }
         .hwid-spec-item.gpu { background: rgba(156,39,176,0.15); color: #9C27B0; }
         .hwid-spec-item.ram { background: rgba(255,152,0,0.15); color: #FF9800; }
-        .hwid-spec-item.storage { background: rgba(0,188,212,0.15); color: #00BCD4; }
         .hwid-spec-item.device { background: rgba(255,87,34,0.15); color: #FF5722; }
         .hwid-spec-item.profile { background: rgba(0,188,212,0.15); color: #00BCD4; }
         .hwid-spec-item.owner { background: rgba(255,87,34,0.15); color: #FF5722; }
@@ -1005,6 +1003,7 @@
         let editingCode = null;
         let allCodes = [];
         let allDevices = [];
+        let autoDeactivatedCodes = [];
         let codeHwidsMap = {};
         let isLoading = false;
         let loadError = false;
@@ -1013,6 +1012,7 @@
         let hwidDetailsCache = {};
         let svipSearchTerm = '';
         let vipSearchTerm = '';
+        let detailCodeData = null;
 
         // ============================================
         // DEACTIVATION REASON MAPPING
@@ -1092,7 +1092,7 @@
             } else if (tab === 'newhwid') {
                 loadNewHwids();
             } else if (tab === 'autodeactivated') {
-                loadAutoDeactivatedCodes();
+                renderAutoDeactivatedCodes(autoDeactivatedCodes);
             } else {
                 renderCurrentTab();
             }
@@ -1194,14 +1194,13 @@
         }
 
         // ============================================
-        // GET OWNERS FOR A CODE - IMPROVED
+        // GET OWNERS FOR A CODE
         // ============================================
         function getOwnersForCode(code) {
             const owners = [];
-            const devices = allDevices.filter(d => d.code === code);
+            const devices = allDevices.filter(d => d.code === code && d.status === 'approved');
             for (const device of devices) {
                 if (device.registered_owner && device.registered_owner !== 'Unknown' && device.registered_owner !== 'N/A' && device.registered_owner !== '') {
-                    // Check if owner already exists
                     if (!owners.includes(device.registered_owner)) {
                         owners.push(device.registered_owner);
                     }
@@ -1211,7 +1210,7 @@
         }
 
         // ============================================
-        // RENDER OWNERS LIST (VERTICAL) - WITH COUNT
+        // RENDER OWNERS LIST (VERTICAL)
         // ============================================
         function renderOwnersList(owners) {
             if (!owners || owners.length === 0) {
@@ -1252,15 +1251,21 @@
                 filterVIP();
                 updateStats();
                 
-                // Load auto-deactivated count
+                // Load auto-deactivated codes
                 try {
-                    const autoResponse = await fastFetch('/api/auto-deactivated-codes?limit=1');
+                    const autoResponse = await fastFetch('/api/auto-deactivated-codes?limit=100');
                     const autoData = await autoResponse.json();
                     if (autoData.success) {
+                        autoDeactivatedCodes = autoData.codes || [];
                         const countEl = document.getElementById('auto-deactivated-count');
                         if (countEl) {
-                            countEl.textContent = (autoData.count || 0) + ' codes';
-                            countEl.className = 'badge badge-new-count' + ((autoData.count || 0) === 0 ? ' zero' : '');
+                            countEl.textContent = autoDeactivatedCodes.length + ' codes';
+                            countEl.className = 'badge badge-new-count' + (autoDeactivatedCodes.length === 0 ? ' zero' : '');
+                        }
+                        // If we're on the auto-deactivated tab, render the data
+                        const activeTab = document.querySelector('.tab-content.active');
+                        if (activeTab && activeTab.id === 'tab-autodeactivated') {
+                            renderAutoDeactivatedCodes(autoDeactivatedCodes);
                         }
                     }
                 } catch (e) {}
@@ -1796,7 +1801,6 @@
                 const cpu = hardware.cpu || 'N/A';
                 const gpu = hardware.gpu || 'N/A';
                 const ram = hardware.ram_gb ? hardware.ram_gb + ' GB' : 'N/A';
-                const storage = hardware.storage_gb ? hardware.storage_gb + ' GB' : 'N/A';
                 const deviceName = hardware.device_name || 'N/A';
                 const profile = hardware.profile_name || 'N/A';
                 const registeredOwner = hardware.registered_owner || 'N/A';
@@ -1814,7 +1818,6 @@
                                 <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
                                 <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
                                 <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
-                                <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
                                 <div><span class="hwid-spec-detail device">💻 Device: ${deviceName}</span></div>
                                 <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
                                 <div><span class="hwid-spec-detail owner">👔 Owner: ${registeredOwner}</span></div>
@@ -1958,13 +1961,12 @@
                 const hwid = log.hwid || '';
                 const hwidDisplay = hwid ? hwid.substring(0, 16) + '...' : 'N/A';
                 
-                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A', owner = 'N/A';
+                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', device = 'N/A', profile = 'N/A', owner = 'N/A';
                 
                 if (log.details) {
                     const cpuMatch = log.details.match(/CPU:\s*([^,|]+)/i);
                     const gpuMatch = log.details.match(/GPU:\s*([^,|]+)/i);
                     const ramMatch = log.details.match(/RAM:\s*([^,|]+)\s*GB/i);
-                    const storageMatch = log.details.match(/Storage:\s*([^,|]+)\s*GB/i);
                     const deviceMatch = log.details.match(/Device:\s*([^,|]+)/i);
                     const profileMatch = log.details.match(/Profile:\s*([^,|]+)/i);
                     const ownerMatch = log.details.match(/Owner:\s*([^,|]+)/i);
@@ -1972,7 +1974,6 @@
                     if (cpuMatch) cpu = cpuMatch[1].trim();
                     if (gpuMatch) gpu = gpuMatch[1].trim();
                     if (ramMatch) ram = ramMatch[1].trim() + ' GB';
-                    if (storageMatch) storage = storageMatch[1].trim() + ' GB';
                     if (deviceMatch) device = deviceMatch[1].trim();
                     if (profileMatch) profile = profileMatch[1].trim();
                     if (ownerMatch) owner = ownerMatch[1].trim();
@@ -1988,7 +1989,6 @@
                         ${cpu !== 'N/A' ? `<span class="hwid-spec-item cpu">🔧 ${cpu}</span>` : ''}
                         ${gpu !== 'N/A' ? `<span class="hwid-spec-item gpu">🎮 ${gpu}</span>` : ''}
                         ${ram !== 'N/A' ? `<span class="hwid-spec-item ram">💾 ${ram}</span>` : ''}
-                        ${storage !== 'N/A' ? `<span class="hwid-spec-item storage">💿 ${storage}</span>` : ''}
                         ${device !== 'N/A' ? `<span class="hwid-spec-item device">💻 ${device}</span>` : ''}
                         ${profile !== 'N/A' ? `<span class="hwid-spec-item profile">👤 ${profile}</span>` : ''}
                         ${owner !== 'N/A' ? `<span class="hwid-spec-item owner">👔 ${owner}</span>` : ''}
@@ -2062,13 +2062,12 @@
                 const hwidDisplay = hwid ? hwid.substring(0, 16) + '...' + hwid.substring(48) : 'N/A';
                 const time = item.created_at ? new Date(item.created_at).toLocaleString() : 'N/A';
                 
-                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', storage = 'N/A', device = 'N/A', profile = 'N/A', owner = 'N/A';
+                let cpu = 'N/A', gpu = 'N/A', ram = 'N/A', device = 'N/A', profile = 'N/A', owner = 'N/A';
                 
                 if (item.details) {
                     const cpuMatch = item.details.match(/CPU:\s*([^,|]+)/i);
                     const gpuMatch = item.details.match(/GPU:\s*([^,|]+)/i);
                     const ramMatch = item.details.match(/RAM:\s*([^,|]+)\s*GB/i);
-                    const storageMatch = item.details.match(/Storage:\s*([^,|]+)\s*GB/i);
                     const deviceMatch = item.details.match(/Device:\s*([^,|]+)/i);
                     const profileMatch = item.details.match(/Profile:\s*([^,|]+)/i);
                     const ownerMatch = item.details.match(/Owner:\s*([^,|]+)/i);
@@ -2076,7 +2075,6 @@
                     if (cpuMatch) cpu = cpuMatch[1].trim();
                     if (gpuMatch) gpu = gpuMatch[1].trim();
                     if (ramMatch) ram = ramMatch[1].trim() + ' GB';
-                    if (storageMatch) storage = storageMatch[1].trim() + ' GB';
                     if (deviceMatch) device = deviceMatch[1].trim();
                     if (profileMatch) profile = profileMatch[1].trim();
                     if (ownerMatch) owner = ownerMatch[1].trim();
@@ -2104,7 +2102,6 @@
                                 <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
                                 <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
                                 <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
-                                <div><span class="hwid-spec-detail storage">💿 Storage: ${storage}</span></div>
                                 <div><span class="hwid-spec-detail device">💻 Device: ${device}</span></div>
                                 <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
                                 <div><span class="hwid-spec-detail owner">👔 Owner: ${owner}</span></div>
@@ -2186,15 +2183,33 @@
         }
 
         // ============================================
+        // FORMAT HARDWARE FOR DISPLAY (Device, Profile, Owner only)
+        // ============================================
+        function formatHardwareForDisplay(hardware) {
+            if (!hardware) return 'No hardware specs';
+            const parts = [];
+            if (hardware.device_name && hardware.device_name !== 'Unknown' && hardware.device_name !== 'N/A' && hardware.device_name !== '') 
+                parts.push('💻 ' + hardware.device_name);
+            if (hardware.profile_name && hardware.profile_name !== 'Default' && hardware.profile_name !== 'Unknown' && hardware.profile_name !== 'N/A') 
+                parts.push('👤 ' + hardware.profile_name);
+            if (hardware.registered_owner && hardware.registered_owner !== 'Unknown' && hardware.registered_owner !== 'N/A' && hardware.registered_owner !== '') 
+                parts.push('👔 ' + hardware.registered_owner);
+            return parts.length > 0 ? parts.join(' | ') : 'No hardware specs';
+        }
+
+        // ============================================
         // AUTO-DEACTIVATED CODES FUNCTIONS
         // ============================================
-
-        let autoDeactivatedCodes = [];
-        let detailCodeData = null;
 
         async function loadAutoDeactivatedCodes() {
             const tbody = document.getElementById('auto-deactivated-body');
             if (!tbody) return;
+            
+            // Check if we already have data and it's not empty
+            if (autoDeactivatedCodes.length > 0 && !isLoading) {
+                renderAutoDeactivatedCodes(autoDeactivatedCodes);
+                return;
+            }
             
             tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading auto-deactivated codes...</div></td></tr>';
             
@@ -2222,21 +2237,6 @@
                 console.error('Load auto-deactivated codes error:', error);
                 tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
             }
-        }
-
-        // ============================================
-        // FORMAT HARDWARE FOR DISPLAY (Device, Profile, Owner only)
-        // ============================================
-        function formatHardwareForDisplay(hardware) {
-            if (!hardware) return 'No hardware specs';
-            const parts = [];
-            if (hardware.device_name && hardware.device_name !== 'Unknown' && hardware.device_name !== 'N/A' && hardware.device_name !== '') 
-                parts.push('💻 ' + hardware.device_name);
-            if (hardware.profile_name && hardware.profile_name !== 'Default' && hardware.profile_name !== 'Unknown' && hardware.profile_name !== 'N/A') 
-                parts.push('👤 ' + hardware.profile_name);
-            if (hardware.registered_owner && hardware.registered_owner !== 'Unknown' && hardware.registered_owner !== 'N/A' && hardware.registered_owner !== '') 
-                parts.push('👔 ' + hardware.registered_owner);
-            return parts.length > 0 ? parts.join(' | ') : 'No hardware specs';
         }
 
         function renderAutoDeactivatedCodes(codes) {
@@ -2344,16 +2344,16 @@
         }
 
         // ============================================
-        // DELETE AUTO-DEACTIVATED CODE LOGS (NOT THE CODE)
+        // DELETE AUTO-DEACTIVATED CODE LOGS AND REMOVE FROM AUTO-DEACTIVATED LIST
         // ============================================
 
         async function deleteAutoDeactivatedLogs(code) {
-            if (!confirm(`🗑️ Delete ALL logs for auto-deactivated code ${code}?\n\nThis will only delete the HWID logs, NOT the code itself.`)) {
+            if (!confirm(`🗑️ Delete ALL logs for auto-deactivated code ${code}?\n\nThis will:\n- Delete all HWID logs\n- Remove this code from Auto-Deactivated list\n- The code will remain in All Codes tab as inactive\n\nContinue?`)) {
                 return;
             }
             
             try {
-                showMessage('⏳ Deleting logs...', 'loading');
+                showMessage('⏳ Deleting logs and removing from list...', 'loading');
                 const response = await fastFetch(`/api/auto-deactivated-code/${code}/logs`, {
                     method: 'DELETE'
                 });
@@ -2361,8 +2361,28 @@
                 
                 if (result.success) {
                     showMessage(`✅ ${result.message} (${result.deleted} entries deleted)`, 'success');
-                    await loadAutoDeactivatedCodes();
+                    
+                    // REMOVE THE CODE FROM THE LOCAL autoDeactivatedCodes ARRAY
+                    autoDeactivatedCodes = autoDeactivatedCodes.filter(c => c.code !== code);
+                    
+                    // UPDATE THE TABLE DIRECTLY
+                    if (autoDeactivatedCodes.length === 0) {
+                        document.getElementById('auto-deactivated-body').innerHTML = 
+                            '<tr><td colspan="6" style="text-align:center;color:#4CAF50;padding:30px;">✅ No auto-deactivated codes found</td></tr>';
+                    } else {
+                        renderAutoDeactivatedCodes(autoDeactivatedCodes);
+                    }
+                    
+                    // UPDATE THE COUNT
+                    const countEl = document.getElementById('auto-deactivated-count');
+                    if (countEl) {
+                        countEl.textContent = autoDeactivatedCodes.length + ' codes';
+                        countEl.className = 'badge badge-new-count' + (autoDeactivatedCodes.length === 0 ? ' zero' : '');
+                    }
+                    
+                    // Also reload all data to sync
                     await loadAll();
+                    
                 } else {
                     showMessage('❌ ' + (result.error || 'Failed to delete logs'), 'error');
                 }
