@@ -1264,13 +1264,14 @@ class DeviceDatabase {
           c.triggered_at,
           c.notes
         FROM codes c
-        WHERE c.status IN ('auto_deactivated_limit_exceeded', 'auto_deactivated')
+        WHERE c.status IN ('auto_deactivated_limit_exceeded', 'auto_deactivated', 'auto_deactivated_multiple_hwids', 'auto_deactivated_unauthorized')
         AND c.is_active = false
+        AND c.trigger_hwid IS NOT NULL
         ORDER BY c.created_at DESC
       `, [], 5);
       
       const codes = codesResult.rows || [];
-      console.log(`✅ Found ${codes.length} auto-deactivated codes`);
+      console.log(`✅ Found ${codes.length} auto-deactivated codes with trigger HWID`);
       
       const result = [];
       for (const code of codes) {
@@ -1421,7 +1422,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // DELETE AUTO-DEACTIVATED CODE LOGS (NOT THE CODE)
+  // DELETE AUTO-DEACTIVATED CODE LOGS (NOT THE CODE) - FIXED
   // ============================================
 
   async deleteAutoDeactivatedLogs(code) {
@@ -1435,12 +1436,14 @@ class DeviceDatabase {
       
       let deletedCount = 0;
       
+      // Delete HWID logs for this code
       const hwidResult = await this.run(
         'DELETE FROM hwid_logs WHERE code = $1',
         [code]
       );
       deletedCount += hwidResult.changes || 0;
       
+      // Delete trigger HWID logs if exists
       if (codeInfo && codeInfo.trigger_hwid) {
         const triggerResult = await this.run(
           'DELETE FROM hwid_logs WHERE hwid = $1',
@@ -1449,12 +1452,24 @@ class DeviceDatabase {
         deletedCount += triggerResult.changes || 0;
       }
       
+      // ✅ CRITICAL FIX: Update status so code no longer appears in auto-deactivated list
       await this.run(
-        'UPDATE codes SET notes = NULL WHERE code = $1',
+        `UPDATE codes 
+         SET status = 'inactive', 
+             trigger_hwid = NULL, 
+             trigger_reason = NULL, 
+             triggered_at = NULL,
+             notes = NULL,
+             is_active = false
+         WHERE code = $1`,
         [code]
       );
       
       console.log(`✅ Deleted ${deletedCount} log entries for code ${code}`);
+      console.log(`✅ Code ${code} status changed to 'inactive' (removed from auto-deactivated list)`);
+      
+      // Refresh cache to reflect changes immediately
+      await this.refreshCache();
       
       return {
         success: true,
