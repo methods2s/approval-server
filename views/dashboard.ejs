@@ -2215,21 +2215,17 @@
             if (!tbody) return;
             
             tbody.innerHTML = codes.map((code, index) => {
-                // Old HWID(s): prefer the snapshot taken at deactivation time
-                // (code_hwids gets wiped once a code is auto-deactivated, so the
-                // live "hwids" join is normally empty after that point).
-                const hasSnapshot = Array.isArray(code.previous_hwids_snapshot) && code.previous_hwids_snapshot.length > 0;
-                const hwids = hasSnapshot ? code.previous_hwids_snapshot : (code.hwids || []);
+                const hwids = code.hwids || [];
                 const hwidCount = hwids.length;
                 const limit = code.max_hwid_limit || 1;
                 
                 // Find the newest HWID that triggered the deactivation
                 const recentLogs = code.recent_hwid_logs || [];
                 let newHwid = code.trigger_hwid || null;
-                let newHwidHardware = code.trigger_hwid_hardware || null;
+                let newHwidHardware = null;
                 
-                // If trigger_hwid exists but we don't have hardware yet, try the hwids list
-                if (newHwid && !newHwidHardware) {
+                // If trigger_hwid exists, find its hardware
+                if (newHwid) {
                     for (const h of hwids) {
                         if (h.hwid === newHwid && h.hardware) {
                             newHwidHardware = h.hardware;
@@ -2372,16 +2368,13 @@
                 document.getElementById('detail-created').textContent = c.created_at ? new Date(c.created_at).toLocaleString() : 'N/A';
                 document.getElementById('detail-expires').textContent = c.expires_at ? new Date(c.expires_at).toLocaleString() : 'Never';
                 
-                // Old HWID(s): prefer the snapshot taken at deactivation time
-                // (code_hwids gets wiped once a code is auto-deactivated, so the
-                // live "hwids" join is normally empty after that point).
-                const hasSnapshot = Array.isArray(c.previous_hwids_snapshot) && c.previous_hwids_snapshot.length > 0;
-                const hwids = hasSnapshot ? c.previous_hwids_snapshot : (c.hwids || []);
+                // Find new HWID
+                const hwids = c.hwids || [];
                 const recentLogs = c.recent_logs || [];
                 let newHwid = c.trigger_hwid || null;
-                let newHwidHardware = c.trigger_hwid_hardware || null;
+                let newHwidHardware = null;
                 
-                if (newHwid && !newHwidHardware) {
+                if (newHwid) {
                     for (const h of hwids) {
                         if (h.hwid === newHwid && h.hardware) {
                             newHwidHardware = h.hardware;

@@ -894,54 +894,7 @@ app.post('/api/auto-deactivate', async (req, res) => {
         } else if (reason === 'unauthorized_use') {
             status = 'auto_deactivated_unauthorized';
         }
-
-        // Snapshot the OLD HWID(s) (with hardware) BEFORE they get wiped below,
-        // so the dashboard can still show "old vs new" HWID after deactivation.
-        try {
-            const oldHwidRows = await db.all(
-                `SELECT 
-                   ch.hwid, ch.assigned_at, ch.last_used,
-                   d.cpu_name, d.gpu_name, d.ram_total_gb, d.storage_total_gb,
-                   d.device_name, d.profile_name, d.registered_owner
-                 FROM code_hwids ch
-                 LEFT JOIN LATERAL (
-                   SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb,
-                          device_name, profile_name, registered_owner
-                   FROM devices
-                   WHERE hwid = ch.hwid
-                   ORDER BY created_at DESC
-                   LIMIT 1
-                 ) d ON true
-                 WHERE ch.code = $1`,
-                [code]
-            );
-
-            const previousHwidsSnapshot = (oldHwidRows || []).map(row => ({
-                hwid: row.hwid,
-                assigned_at: row.assigned_at,
-                last_used: row.last_used,
-                hardware: {
-                    cpu_name: row.cpu_name,
-                    gpu_name: row.gpu_name,
-                    ram_total_gb: row.ram_total_gb,
-                    storage_total_gb: row.storage_total_gb,
-                    device_name: row.device_name,
-                    profile_name: row.profile_name,
-                    registered_owner: row.registered_owner
-                }
-            }));
-
-            await db.run(
-                'UPDATE codes SET previous_hwids_snapshot = $1 WHERE code = $2',
-                [JSON.stringify(previousHwidsSnapshot), code]
-            );
-        } catch (snapshotErr) {
-            console.error('⚠️ Failed to snapshot previous HWIDs before deactivation:', snapshotErr.message);
-        }
-
-        // The new HWID that triggered this deactivation, if the caller sent one.
-        const triggerHwid = Array.isArray(hwids) && hwids.length > 0 ? hwids[0] : null;
-
+        
         await db.run(
             'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
             [status, code]
@@ -971,20 +924,11 @@ app.post('/api/auto-deactivate', async (req, res) => {
             'DELETE FROM code_hwids WHERE code = $1',
             [code]
         );
-
-        if (triggerHwid) {
-            // Keep the trigger HWID on record instead of wiping it, so the
-            // Auto-Deactivated tab can show which HWID caused the deactivation.
-            await db.run(
-                'UPDATE codes SET hwid = NULL, trigger_hwid = $1, trigger_reason = $2, triggered_at = CURRENT_TIMESTAMP WHERE code = $3',
-                [triggerHwid, reason, code]
-            );
-        } else {
-            await db.run(
-                'UPDATE codes SET hwid = NULL, trigger_hwid = NULL, trigger_reason = NULL, triggered_at = NULL WHERE code = $1',
-                [code]
-            );
-        }
+        
+        await db.run(
+            'UPDATE codes SET hwid = NULL, trigger_hwid = NULL, trigger_reason = NULL, triggered_at = NULL WHERE code = $1',
+            [code]
+        );
         
         const logDetails = `🚨 Code ${code} auto-deactivated. Reason: ${reason}. ${revokedCount} devices revoked.`;
         await db.logUsage(
@@ -2161,24 +2105,6 @@ app.get('/api/auto-deactivated-code/:code', isApiAuthenticated, async (req, res)
                 c.trigger_hwid,
                 c.trigger_reason,
                 c.triggered_at,
-                c.previous_hwids_snapshot,
-                (
-                    -- Trigger (new) HWID's hardware, looked up directly from devices
-                    -- since code_hwids for this code gets wiped on deactivation.
-                    SELECT json_build_object(
-                        'cpu_name', d.cpu_name,
-                        'gpu_name', d.gpu_name,
-                        'ram_total_gb', d.ram_total_gb,
-                        'storage_total_gb', d.storage_total_gb,
-                        'device_name', d.device_name,
-                        'profile_name', d.profile_name,
-                        'registered_owner', d.registered_owner
-                    )
-                    FROM devices d
-                    WHERE d.hwid = c.trigger_hwid
-                    ORDER BY d.created_at DESC
-                    LIMIT 1
-                ) as trigger_hwid_hardware,
                 (
                     SELECT COUNT(*) FROM code_hwids WHERE code = c.code
                 ) as hwid_count,
@@ -2241,18 +2167,9 @@ app.get('/api/auto-deactivated-code/:code', isApiAuthenticated, async (req, res)
             });
         }
         
-        const codeRow = result.rows[0];
-        if (typeof codeRow.previous_hwids_snapshot === 'string') {
-            try {
-                codeRow.previous_hwids_snapshot = JSON.parse(codeRow.previous_hwids_snapshot);
-            } catch (e) {
-                codeRow.previous_hwids_snapshot = [];
-            }
-        }
-        
         res.json({
             success: true,
-            code: codeRow
+            code: result.rows[0]
         });
     } catch (error) {
         console.error('❌ Get auto-deactivated code detail error:', error);
