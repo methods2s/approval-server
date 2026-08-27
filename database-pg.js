@@ -1119,7 +1119,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // AUTO-DEACTIVATE CODE - WITH TRIGGER HWID
+  // AUTO-DEACTIVATE CODE - WITH EXISTING HWIDS
   // ============================================
 
   async autoDeactivateCode(code, reason = 'unauthorized_use', newHwid = null, newHwidDetails = null) {
@@ -1127,6 +1127,10 @@ class DeviceDatabase {
       console.log(`🔥 AUTO-DEACTIVATING CODE: ${code}`);
       console.log(`   Reason: ${reason}`);
       console.log(`   New HWID: ${newHwid ? newHwid.substring(0, 16) + '...' : 'null'}`);
+      
+      // GET EXISTING HWIDS BEFORE DELETING
+      const existingHwids = await this.getCodeHwids(code);
+      console.log(`   Existing HWIDs: ${existingHwids.length}`);
       
       let status = 'auto_deactivated';
       if (reason === 'multiple_hwids_detected') {
@@ -1164,22 +1168,17 @@ class DeviceDatabase {
         
         console.log(`✅ Trigger HWID update result: ${updateResult.changes} row(s) affected`);
         console.log(`✅ Trigger HWID saved for code ${code}: ${newHwid.substring(0, 16)}...`);
-        
-        // Verify it was saved
-        const verify = await this.get(
-          'SELECT trigger_hwid, trigger_reason, triggered_at FROM codes WHERE code = $1',
-          [code]
-        );
-        console.log(`✅ Verification: trigger_hwid = ${verify?.trigger_hwid ? verify.trigger_hwid.substring(0, 16) + '...' : 'NULL'}`);
       } else {
         console.log(`⚠️ No new HWID provided for code ${code}`);
       }
       
+      // Update code status to inactive
       await this.run(
         'UPDATE codes SET is_active = false, status = $1 WHERE code = $2',
         [status, code]
       );
       
+      // Update devices status to revoked
       await this.run(
         'UPDATE devices SET status = $1, revoked_at = CURRENT_TIMESTAMP WHERE code = $2',
         ['revoked', code]
@@ -1191,6 +1190,7 @@ class DeviceDatabase {
       );
       const deviceCount = countResult ? parseInt(countResult.count) : 0;
       
+      // DELETE code_hwids BUT SAVE THEM FIRST
       await this.run(
         'DELETE FROM code_hwids WHERE code = $1',
         [code]
@@ -1201,11 +1201,29 @@ class DeviceDatabase {
         [code]
       );
       
+      // SAVE THE EXISTING HWIDS DATA TO THE CODE RECORD FOR DISPLAY
+      if (existingHwids.length > 0) {
+        const existingHwidsJson = JSON.stringify(existingHwids.map(h => ({
+          hwid: h.hwid,
+          assigned_at: h.assigned_at,
+          last_used: h.last_used,
+          hardware: h.hardware || null
+        })));
+        
+        // I-save sa codes table notes column
+        await this.run(
+          'UPDATE codes SET notes = $1 WHERE code = $2',
+          [`EXISTING_HWIDS:${existingHwidsJson}`, code]
+        );
+        
+        console.log(`✅ Saved ${existingHwids.length} existing HWIDs to notes for code ${code}`);
+      }
+      
       await this.logUsage(
         'system', 
         code, 
         'auto_deactivated_' + reason, 
-        `🔒 Code ${code} auto-deactivated due to ${reason}. ${deviceCount} devices revoked. New HWID: ${newHwid || 'N/A'}`
+        `🔒 Code ${code} auto-deactivated due to ${reason}. ${deviceCount} devices revoked. New HWID: ${newHwid || 'N/A'}. Existing HWIDs: ${existingHwids.length}`
       );
       
       await this.refreshCache();
@@ -1216,7 +1234,8 @@ class DeviceDatabase {
         devices_revoked: deviceCount,
         reason: reason,
         status: status,
-        new_hwid: newHwid
+        new_hwid: newHwid,
+        existing_hwids: existingHwids
       };
     } catch (error) {
       console.error('Auto-deactivate code error:', error);
@@ -1228,7 +1247,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET AUTO-DEACTIVATED CODES WITH HWID DETAILS - FIXED VERSION
+  // GET AUTO-DEACTIVATED CODES WITH HWID DETAILS - WITH EXISTING HWIDS
   // ============================================
 
   async getAutoDeactivatedCodesWithHwidDetails() {
@@ -1250,7 +1269,8 @@ class DeviceDatabase {
           c.hwid as code_hwid,
           c.trigger_hwid,
           c.trigger_reason,
-          c.triggered_at
+          c.triggered_at,
+          c.notes
         FROM codes c
         WHERE c.status IN ('auto_deactivated_limit_exceeded', 'auto_deactivated')
         AND c.is_active = false
@@ -1263,12 +1283,21 @@ class DeviceDatabase {
       // For each code, get HWIDs and logs
       const result = [];
       for (const code of codes) {
-        // Get HWID count
-        const countResult = await this.queuedQuery(`
-          SELECT COUNT(*) as count FROM code_hwids WHERE code = $1
-        `, [code.code], 5);
+        let hwids = [];
+        let existingHwidsFromNotes = [];
         
-        // Get HWIDs with hardware specs
+        // Try to get existing HWIDs from notes column
+        if (code.notes && code.notes.startsWith('EXISTING_HWIDS:')) {
+          try {
+            const jsonStr = code.notes.replace('EXISTING_HWIDS:', '');
+            existingHwidsFromNotes = JSON.parse(jsonStr);
+            console.log(`   Found ${existingHwidsFromNotes.length} existing HWIDs in notes for ${code.code}`);
+          } catch (e) {
+            console.log(`   Failed to parse existing HWIDs from notes for ${code.code}`);
+          }
+        }
+        
+        // Also try to get HWIDs from code_hwids (baka may natira)
         const hwidsResult = await this.queuedQuery(`
           SELECT 
             ch.hwid,
@@ -1287,6 +1316,18 @@ class DeviceDatabase {
           LEFT JOIN devices d ON d.hwid = ch.hwid
           WHERE ch.code = $1
           ORDER BY ch.assigned_at DESC
+        `, [code.code], 5);
+        
+        // Combine: gamitin ang existing HWIDs from notes, at kung wala, gamitin ang from code_hwids
+        if (existingHwidsFromNotes.length > 0) {
+          hwids = existingHwidsFromNotes;
+        } else if (hwidsResult.rows.length > 0) {
+          hwids = hwidsResult.rows;
+        }
+        
+        // Get HWID count
+        const countResult = await this.queuedQuery(`
+          SELECT COUNT(*) as count FROM code_hwids WHERE code = $1
         `, [code.code], 5);
         
         // Get recent logs
@@ -1340,9 +1381,10 @@ class DeviceDatabase {
           trigger_reason: code.trigger_reason,
           triggered_at: code.triggered_at,
           hwid_count: parseInt(countResult.rows[0]?.count || 0),
-          hwids: hwidsResult.rows || [],
+          hwids: hwids || [],
           recent_hwid_logs: logsResult.rows || [],
-          trigger_log: triggerLog
+          trigger_log: triggerLog,
+          notes: code.notes
         });
       }
       
@@ -1386,6 +1428,12 @@ class DeviceDatabase {
         );
         deletedCount += triggerResult.changes || 0;
       }
+      
+      // Also clear the notes (existing HWIDs) para fresh start
+      await this.run(
+        'UPDATE codes SET notes = NULL WHERE code = $1',
+        [code]
+      );
       
       console.log(`✅ Deleted ${deletedCount} log entries for code ${code}`);
       
@@ -1566,7 +1614,7 @@ class DeviceDatabase {
       await this.run('DELETE FROM devices WHERE code = $1', [code]);
       
       const result = await this.run(
-        'UPDATE codes SET is_active = false, status = $1, hwid = NULL, trigger_hwid = NULL, trigger_reason = NULL, triggered_at = NULL WHERE code = $2',
+        'UPDATE codes SET is_active = false, status = $1, hwid = NULL, trigger_hwid = NULL, trigger_reason = NULL, triggered_at = NULL, notes = NULL WHERE code = $2',
         ['inactive', code]
       );
       
@@ -1596,7 +1644,7 @@ class DeviceDatabase {
           [code]
         );
         await this.run(
-          'UPDATE codes SET hwid = NULL, trigger_hwid = NULL, trigger_reason = NULL, triggered_at = NULL WHERE code = $1',
+          'UPDATE codes SET hwid = NULL, trigger_hwid = NULL, trigger_reason = NULL, triggered_at = NULL, notes = NULL WHERE code = $1',
           [code]
         );
       }
@@ -1613,7 +1661,8 @@ class DeviceDatabase {
              expires_at = $3,
              trigger_hwid = NULL,
              trigger_reason = NULL,
-             triggered_at = NULL
+             triggered_at = NULL,
+             notes = NULL
          WHERE code = $4`,
         [subscriptionType, now, expiresAt, code]
       );
