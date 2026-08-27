@@ -460,7 +460,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - OPTIMIZED (NO WALLPAPER) - UPDATED
+// REGISTER DEVICE - OPTIMIZED (NO WALLPAPER) - FIXED
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -566,17 +566,33 @@ app.post('/api/register', async (req, res) => {
                     const finalHwidDetails = hwidDetailsFromRequest;
                     console.log(`   Final HWID Details for NEW HWID:`, finalHwidDetails);
                     
-                    // UPDATE THE LOG WITH HARDWARE DETAILS
+                    // UPDATE THE LOG WITH HARDWARE DETAILS - FIXED VERSION
                     if (finalHwidDetails) {
-                        await db.run(
-                            `UPDATE hwid_logs SET details = $1 WHERE hwid = $2 AND action = 'auto_deactivation_trigger' AND code = $3 ORDER BY created_at DESC LIMIT 1`,
-                            [
-                                `🚨 HWID limit reached - TRIGGERED AUTO-DEACTIVATION | NEW HWID: ${hwid.substring(0, 16)}... | CPU: ${finalHwidDetails.cpu || 'N/A'} | GPU: ${finalHwidDetails.gpu || 'N/A'} | RAM: ${finalHwidDetails.ram || 0}GB | Storage: ${finalHwidDetails.storage || 0}GB | Device: ${finalHwidDetails.device || 'N/A'} | Profile: ${finalHwidDetails.profile || 'N/A'} | Owner: ${finalHwidDetails.owner || 'N/A'}`,
-                                hwid,
-                                code
-                            ]
-                        );
-                        console.log(`✅ Updated log with hardware details for NEW HWID`);
+                        try {
+                            // Hanapin ang latest auto_deactivation_trigger log para sa HWID na ito
+                            const logResult = await db.queuedQuery(
+                                `SELECT id FROM hwid_logs 
+                                 WHERE hwid = $1 AND action = 'auto_deactivation_trigger' 
+                                 ORDER BY created_at DESC LIMIT 1`,
+                                [hwid],
+                                5
+                            );
+                            
+                            if (logResult.rows.length > 0) {
+                                const logId = logResult.rows[0].id;
+                                // Update ang log gamit ang id
+                                await db.run(
+                                    `UPDATE hwid_logs SET details = $1 WHERE id = $2`,
+                                    [
+                                        `🚨 HWID limit reached - TRIGGERED AUTO-DEACTIVATION | NEW HWID: ${hwid.substring(0, 16)}... | CPU: ${finalHwidDetails.cpu || 'N/A'} | GPU: ${finalHwidDetails.gpu || 'N/A'} | RAM: ${finalHwidDetails.ram || 0}GB | Storage: ${finalHwidDetails.storage || 0}GB | Device: ${finalHwidDetails.device || 'N/A'} | Profile: ${finalHwidDetails.profile || 'N/A'} | Owner: ${finalHwidDetails.owner || 'N/A'}`,
+                                        logId
+                                    ]
+                                );
+                                console.log(`✅ Updated log with hardware details for NEW HWID`);
+                            }
+                        } catch (updateError) {
+                            console.log('⚠️ Failed to update log with hardware details:', updateError.message);
+                        }
                     }
                     
                     const deactivateResult = await db.autoDeactivateCode(
