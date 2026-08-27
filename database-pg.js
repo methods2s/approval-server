@@ -1210,7 +1210,6 @@ class DeviceDatabase {
           hardware: h.hardware || null
         })));
         
-        // I-save sa codes table notes column
         await this.run(
           'UPDATE codes SET notes = $1 WHERE code = $2',
           [`EXISTING_HWIDS:${existingHwidsJson}`, code]
@@ -1247,7 +1246,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // GET AUTO-DEACTIVATED CODES WITH HWID DETAILS - WITH EXISTING HWIDS
+  // GET AUTO-DEACTIVATED CODES WITH HWID DETAILS - WITH HARDWARE FROM LOGS
   // ============================================
 
   async getAutoDeactivatedCodesWithHwidDetails() {
@@ -1325,6 +1324,65 @@ class DeviceDatabase {
           hwids = hwidsResult.rows;
         }
         
+        // GET HARDWARE SPECS FOR TRIGGER HWID FROM HWID_LOGS
+        let triggerHardware = null;
+        let triggerHwid = code.trigger_hwid;
+        
+        if (triggerHwid) {
+          // Hanapin muna sa devices table (kung may nakarehistro)
+          const deviceWithTrigger = await this.get(
+            'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
+            [triggerHwid]
+          );
+          
+          if (deviceWithTrigger) {
+            triggerHardware = {
+              cpu_name: deviceWithTrigger.cpu_name || 'Unknown',
+              gpu_name: deviceWithTrigger.gpu_name || 'Unknown',
+              ram_total_gb: deviceWithTrigger.ram_total_gb || 0,
+              storage_total_gb: deviceWithTrigger.storage_total_gb || 0,
+              device_name: deviceWithTrigger.device_name || 'Unknown',
+              profile_name: deviceWithTrigger.profile_name || 'Default',
+              registered_owner: deviceWithTrigger.registered_owner || 'Unknown'
+            };
+            console.log(`   Found trigger HWID hardware in devices table for ${code.code}`);
+          } else {
+            // Kung wala sa devices, kunin mula sa hwid_logs
+            const logWithHardware = await this.queuedQuery(`
+              SELECT details FROM hwid_logs 
+              WHERE hwid = $1 
+              AND (action = 'auto_deactivation_trigger')
+              ORDER BY created_at DESC 
+              LIMIT 1
+            `, [triggerHwid], 5);
+            
+            if (logWithHardware.rows.length > 0) {
+              const details = logWithHardware.rows[0].details || '';
+              console.log(`   Found trigger HWID details in logs for ${code.code}`);
+              
+              // Extract hardware from details string
+              const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
+              const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
+              const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
+              const storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
+              const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
+              const profileMatch = details.match(/Profile:\s*([^,|]+)/i);
+              const ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
+              
+              triggerHardware = {};
+              if (cpuMatch) triggerHardware.cpu_name = cpuMatch[1].trim();
+              if (gpuMatch) triggerHardware.gpu_name = gpuMatch[1].trim();
+              if (ramMatch) triggerHardware.ram_total_gb = parseFloat(ramMatch[1].trim());
+              if (storageMatch) triggerHardware.storage_total_gb = parseFloat(storageMatch[1].trim());
+              if (deviceMatch) triggerHardware.device_name = deviceMatch[1].trim();
+              if (profileMatch) triggerHardware.profile_name = profileMatch[1].trim();
+              if (ownerMatch) triggerHardware.registered_owner = ownerMatch[1].trim();
+              
+              if (Object.keys(triggerHardware).length === 0) triggerHardware = null;
+            }
+          }
+        }
+        
         // Get HWID count
         const countResult = await this.queuedQuery(`
           SELECT COUNT(*) as count FROM code_hwids WHERE code = $1
@@ -1384,6 +1442,7 @@ class DeviceDatabase {
           hwids: hwids || [],
           recent_hwid_logs: logsResult.rows || [],
           trigger_log: triggerLog,
+          trigger_hardware: triggerHardware,
           notes: code.notes
         });
       }
