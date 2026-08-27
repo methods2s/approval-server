@@ -460,7 +460,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - OPTIMIZED (NO WALLPAPER) - FIXED
+// REGISTER DEVICE - OPTIMIZED (NO WALLPAPER) - UPDATED
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -566,7 +566,7 @@ app.post('/api/register', async (req, res) => {
                     const finalHwidDetails = hwidDetailsFromRequest;
                     console.log(`   Final HWID Details for NEW HWID:`, finalHwidDetails);
                     
-                    // UPDATE THE LOG WITH HARDWARE DETAILS - FIXED VERSION
+                    // UPDATE THE LOG WITH HARDWARE DETAILS - IMPROVED VERSION
                     if (finalHwidDetails) {
                         try {
                             // Hanapin ang latest auto_deactivation_trigger log para sa HWID na ito
@@ -580,15 +580,18 @@ app.post('/api/register', async (req, res) => {
                             
                             if (logResult.rows.length > 0) {
                                 const logId = logResult.rows[0].id;
-                                // Update ang log gamit ang id
+                                
+                                // I-construct ang details string na may hardware
+                                const detailsString = `🚨 HWID limit reached - TRIGGERED AUTO-DEACTIVATION | NEW HWID: ${hwid.substring(0, 16)}... | CPU: ${finalHwidDetails.cpu || 'N/A'} | GPU: ${finalHwidDetails.gpu || 'N/A'} | RAM: ${finalHwidDetails.ram || 0}GB | Storage: ${finalHwidDetails.storage || 0}GB | Device: ${finalHwidDetails.device || 'N/A'} | Profile: ${finalHwidDetails.profile || 'N/A'} | Owner: ${finalHwidDetails.owner || 'N/A'}`;
+                                
+                                // Update ang log
                                 await db.run(
                                     `UPDATE hwid_logs SET details = $1 WHERE id = $2`,
-                                    [
-                                        `🚨 HWID limit reached - TRIGGERED AUTO-DEACTIVATION | NEW HWID: ${hwid.substring(0, 16)}... | CPU: ${finalHwidDetails.cpu || 'N/A'} | GPU: ${finalHwidDetails.gpu || 'N/A'} | RAM: ${finalHwidDetails.ram || 0}GB | Storage: ${finalHwidDetails.storage || 0}GB | Device: ${finalHwidDetails.device || 'N/A'} | Profile: ${finalHwidDetails.profile || 'N/A'} | Owner: ${finalHwidDetails.owner || 'N/A'}`,
-                                        logId
-                                    ]
+                                    [detailsString, logId]
                                 );
-                                console.log(`✅ Updated log with hardware details for NEW HWID`);
+                                console.log(`✅ Updated log with hardware details for NEW HWID: ${detailsString.substring(0, 100)}...`);
+                            } else {
+                                console.log(`⚠️ No log found to update for HWID ${hwid.substring(0, 16)}...`);
                             }
                         } catch (updateError) {
                             console.log('⚠️ Failed to update log with hardware details:', updateError.message);

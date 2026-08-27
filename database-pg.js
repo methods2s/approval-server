@@ -1156,6 +1156,9 @@ class DeviceDatabase {
         );
         
         console.log(`✅ Trigger HWID (NEW HWID) saved: ${newHwid.substring(0, 16)}...`);
+        if (newHwidDetails) {
+          console.log(`   With hardware: CPU=${newHwidDetails.cpu || 'N/A'}, GPU=${newHwidDetails.gpu || 'N/A'}`);
+        }
       } else {
         console.log(`⚠️ No new HWID provided for code ${code}`);
       }
@@ -1332,43 +1335,57 @@ class DeviceDatabase {
             console.log(`   Details: ${details.substring(0, 200)}...`);
             
             // Extract hardware from details string - IMPROVED WITH MULTIPLE PATTERNS
-            const patterns = {
-              cpu: [/CPU:\s*([^,|]+)/i, /CPU:\s*([^\s,|]+)/i],
-              gpu: [/GPU:\s*([^,|]+)/i, /GPU:\s*([^\s,|]+)/i],
-              ram: [/RAM:\s*([^,|]+)\s*GB/i, /RAM:\s*([0-9.]+)\s*GB/i],
-              storage: [/Storage:\s*([^,|]+)\s*GB/i, /Storage:\s*([0-9.]+)\s*GB/i],
-              device: [/Device:\s*([^,|]+)/i],
-              profile: [/Profile:\s*([^,|]+)/i],
-              owner: [/Owner:\s*([^,|]+)/i]
-            };
+            // CPU
+            let cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
+            if (!cpuMatch) cpuMatch = details.match(/CPU:\s*([^\s,|]+)/i);
+            if (!cpuMatch) cpuMatch = details.match(/CPU[:\s]+([A-Za-z0-9\s-]+)/i);
             
-            const extracted = {};
+            // GPU
+            let gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
+            if (!gpuMatch) gpuMatch = details.match(/GPU:\s*([^\s,|]+)/i);
+            if (!gpuMatch) gpuMatch = details.match(/GPU[:\s]+([A-Za-z0-9\s-]+)/i);
             
-            // Try each pattern
-            for (const [key, patternList] of Object.entries(patterns)) {
-              for (const pattern of patternList) {
-                const match = details.match(pattern);
-                if (match) {
-                  extracted[key] = match[1].trim();
-                  break;
-                }
-              }
-            }
+            // RAM
+            let ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
+            if (!ramMatch) ramMatch = details.match(/RAM:\s*([0-9.]+)\s*GB/i);
+            if (!ramMatch) ramMatch = details.match(/RAM[:\s]+([0-9.]+)\s*GB/i);
             
-            // Build hardware object if we found anything
-            if (extracted.cpu || extracted.gpu || extracted.ram || extracted.device) {
+            // Storage
+            let storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
+            if (!storageMatch) storageMatch = details.match(/Storage:\s*([0-9.]+)\s*GB/i);
+            if (!storageMatch) storageMatch = details.match(/Storage[:\s]+([0-9.]+)\s*GB/i);
+            
+            // Device
+            let deviceMatch = details.match(/Device:\s*([^,|]+)/i);
+            if (!deviceMatch) deviceMatch = details.match(/Device[:\s]+([A-Za-z0-9-]+)/i);
+            
+            // Profile
+            let profileMatch = details.match(/Profile:\s*([^,|]+)/i);
+            if (!profileMatch) profileMatch = details.match(/Profile[:\s]+([A-Za-z0-9\s-]+)/i);
+            
+            // Owner
+            let ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
+            if (!ownerMatch) ownerMatch = details.match(/Owner[:\s]+([A-Za-z0-9@.\s-]+)/i);
+            
+            // Build hardware object if we found anything meaningful
+            const hasCpu = cpuMatch && cpuMatch[1].trim() !== 'N/A';
+            const hasGpu = gpuMatch && gpuMatch[1].trim() !== 'N/A';
+            const hasRam = ramMatch && parseFloat(ramMatch[1]) > 0;
+            const hasDevice = deviceMatch && deviceMatch[1].trim() !== 'N/A';
+            
+            if (hasCpu || hasGpu || hasRam || hasDevice) {
               triggerHardware = {
-                cpu_name: extracted.cpu || 'Unknown',
-                gpu_name: extracted.gpu || 'Unknown',
-                ram_total_gb: parseFloat(extracted.ram) || 0,
-                storage_total_gb: parseFloat(extracted.storage) || 0,
-                device_name: extracted.device || 'Unknown',
-                profile_name: extracted.profile || 'Default',
-                registered_owner: extracted.owner || 'Unknown'
+                cpu_name: cpuMatch ? cpuMatch[1].trim() : 'Unknown',
+                gpu_name: gpuMatch ? gpuMatch[1].trim() : 'Unknown',
+                ram_total_gb: ramMatch ? parseFloat(ramMatch[1]) : 0,
+                storage_total_gb: storageMatch ? parseFloat(storageMatch[1]) : 0,
+                device_name: deviceMatch ? deviceMatch[1].trim() : 'Unknown',
+                profile_name: profileMatch ? profileMatch[1].trim() : 'Default',
+                registered_owner: ownerMatch ? ownerMatch[1].trim() : 'Unknown'
               };
               console.log(`   ✅ Extracted hardware from log: CPU=${triggerHardware.cpu_name}, GPU=${triggerHardware.gpu_name}, RAM=${triggerHardware.ram_total_gb}GB`);
             } else {
-              console.log(`   ⚠️ No hardware extracted from log details for ${code.code}`);
+              console.log(`   ⚠️ No meaningful hardware extracted from log details for ${code.code}`);
             }
           }
         }
