@@ -460,7 +460,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - OPTIMIZED (NO WALLPAPER)
+// REGISTER DEVICE - OPTIMIZED (NO WALLPAPER) - UPDATED
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -540,8 +540,7 @@ app.post('/api/register', async (req, res) => {
             if (!assignResult.success) {
                 if (assignResult.auto_deactivate) {
                     console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
-                    console.log(`   New HWID: ${hwid.substring(0, 16)}...`);
-                    console.log(`   HWID Details from assignResult:`, assignResult.new_hwid_details);
+                    console.log(`   NEW HWID (Trigger): ${hwid.substring(0, 16)}...`);
                     
                     // Get hardware details from the request body (for the NEW HWID)
                     let hwidDetailsFromRequest = null;
@@ -557,15 +556,28 @@ app.post('/api/register', async (req, res) => {
                                 profile: browser_profile || hw.profile_name || 'Default',
                                 owner: hw.registered_owner || 'N/A'
                             };
-                            console.log(`✅ Extracted hardware from request:`, hwidDetailsFromRequest);
+                            console.log(`✅ Extracted hardware from request for NEW HWID:`, hwidDetailsFromRequest);
                         } catch (e) {
                             console.log('⚠️ Failed to parse hardware from request:', e.message);
                         }
                     }
                     
-                    // Use hardware from request if assignResult doesn't have it
-                    const finalHwidDetails = assignResult.new_hwid_details || hwidDetailsFromRequest;
-                    console.log(`   Final HWID Details:`, finalHwidDetails);
+                    // Use hardware from request
+                    const finalHwidDetails = hwidDetailsFromRequest;
+                    console.log(`   Final HWID Details for NEW HWID:`, finalHwidDetails);
+                    
+                    // UPDATE THE LOG WITH HARDWARE DETAILS
+                    if (finalHwidDetails) {
+                        await db.run(
+                            `UPDATE hwid_logs SET details = $1 WHERE hwid = $2 AND action = 'auto_deactivation_trigger' AND code = $3 ORDER BY created_at DESC LIMIT 1`,
+                            [
+                                `🚨 HWID limit reached - TRIGGERED AUTO-DEACTIVATION | NEW HWID: ${hwid.substring(0, 16)}... | CPU: ${finalHwidDetails.cpu || 'N/A'} | GPU: ${finalHwidDetails.gpu || 'N/A'} | RAM: ${finalHwidDetails.ram || 0}GB | Storage: ${finalHwidDetails.storage || 0}GB | Device: ${finalHwidDetails.device || 'N/A'} | Profile: ${finalHwidDetails.profile || 'N/A'} | Owner: ${finalHwidDetails.owner || 'N/A'}`,
+                                hwid,
+                                code
+                            ]
+                        );
+                        console.log(`✅ Updated log with hardware details for NEW HWID`);
+                    }
                     
                     const deactivateResult = await db.autoDeactivateCode(
                         code.toUpperCase(), 

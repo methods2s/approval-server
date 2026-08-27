@@ -917,7 +917,7 @@ class DeviceDatabase {
   }
 
   // ============================================
-  // ASSIGN HWID TO CODE - WITH TRIGGER LOGGING
+  // ASSIGN HWID TO CODE - WITH TRIGGER LOGGING (FIXED - NO HARDWARE FROM DEVICES)
   // ============================================
 
   async assignHwidToCode(code, hwid, autoAssign = false) {
@@ -963,42 +963,24 @@ class DeviceDatabase {
           };
         }
         
-        // Get hardware details of the new HWID from devices table
-        const device = await this.get(
-          'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
-          [hwid]
-        );
+        // THIS IS THE NEW HWID - THE ONE THAT TRIGGERED THE DEACTIVATION
+        console.log(`🆕 NEW HWID (TRIGGER): ${hwid.substring(0, 16)}...`);
         
-        let hwidDetails = null;
-        if (device) {
-          hwidDetails = {
-            cpu: device.cpu_name || 'N/A',
-            gpu: device.gpu_name || 'N/A',
-            ram: device.ram_total_gb || 0,
-            storage: device.storage_total_gb || 0,
-            device: device.device_name || 'N/A',
-            profile: device.profile_name || 'N/A',
-            owner: device.registered_owner || 'N/A'
-          };
-          console.log(`✅ Found hardware details for new HWID ${hwid.substring(0, 16)}... in devices table`);
-        } else {
-          console.log(`⚠️ No hardware details found for new HWID ${hwid.substring(0, 16)}... in devices table`);
-        }
-        
-        // Log the new HWID with hardware details before auto-deactivation
+        // Log the NEW HWID with basic info before auto-deactivation
+        // Hardware details will be added from request body in /api/register
         await this.logHwidActivity(
-          hwid,
+          hwid,  // THIS IS THE NEW HWID - THE TRIGGER
           code,
           'system',
           'auto_deactivation_trigger',
           'new',
-          `🚨 HWID limit reached (${currentCount}/${limit}) - TRIGGERED AUTO-DEACTIVATION | CPU: ${hwidDetails?.cpu || 'N/A'} | GPU: ${hwidDetails?.gpu || 'N/A'} | RAM: ${hwidDetails?.ram || 0}GB | Storage: ${hwidDetails?.storage || 0}GB | Device: ${hwidDetails?.device || 'N/A'} | Profile: ${hwidDetails?.profile || 'N/A'} | Owner: ${hwidDetails?.owner || 'N/A'}`,
+          `🚨 HWID limit reached (${currentCount}/${limit}) - TRIGGERED AUTO-DEACTIVATION | NEW HWID: ${hwid.substring(0, 16)}...`,
           null,
           null,
           null
         );
         
-        console.log(`✅ Logged auto_deactivation_trigger for new HWID ${hwid.substring(0, 16)}...`);
+        console.log(`✅ Logged auto_deactivation_trigger for NEW HWID (${hwid.substring(0, 16)}...)`);
         
         return {
           success: false,
@@ -1007,8 +989,8 @@ class DeviceDatabase {
           current_count: currentCount,
           max_limit: limit,
           auto_deactivate: true,
-          new_hwid: hwid,
-          new_hwid_details: hwidDetails
+          new_hwid: hwid,  // THIS IS THE NEW HWID - THE TRIGGER
+          new_hwid_details: null  // Will be filled by /api/register
         };
       }
 
@@ -1131,11 +1113,14 @@ class DeviceDatabase {
     try {
       console.log(`🔥 AUTO-DEACTIVATING CODE: ${code}`);
       console.log(`   Reason: ${reason}`);
-      console.log(`   New HWID: ${newHwid ? newHwid.substring(0, 16) + '...' : 'null'}`);
+      console.log(`   NEW HWID (Trigger): ${newHwid ? newHwid.substring(0, 16) + '...' : 'null'}`);
       
       // GET EXISTING HWIDS BEFORE DELETING
       const existingHwids = await this.getCodeHwids(code);
       console.log(`   Existing HWIDs: ${existingHwids.length}`);
+      if (existingHwids.length > 0) {
+        console.log(`   First existing HWID: ${existingHwids[0].hwid.substring(0, 16)}...`);
+      }
       
       let status = 'auto_deactivated';
       if (reason === 'multiple_hwids_detected') {
@@ -1154,7 +1139,7 @@ class DeviceDatabase {
         }
         
         await this.logHwidActivity(
-          newHwid,
+          newHwid,  // THIS IS THE NEW HWID - THE TRIGGER
           code,
           'system',
           'auto_deactivation_trigger',
@@ -1165,14 +1150,13 @@ class DeviceDatabase {
           null
         );
         
-        // SAVE TRIGGER HWID TO CODES TABLE
+        // SAVE TRIGGER HWID TO CODES TABLE - THE NEW HWID SHOULD BE THE TRIGGER
         const updateResult = await this.run(
           'UPDATE codes SET trigger_hwid = $1, trigger_reason = $2, triggered_at = CURRENT_TIMESTAMP WHERE code = $3',
           [newHwid, reason, code]
         );
         
-        console.log(`✅ Trigger HWID update result: ${updateResult.changes} row(s) affected`);
-        console.log(`✅ Trigger HWID saved for code ${code}: ${newHwid.substring(0, 16)}...`);
+        console.log(`✅ Trigger HWID (NEW HWID) saved: ${newHwid.substring(0, 16)}...`);
       } else {
         console.log(`⚠️ No new HWID provided for code ${code}`);
       }
@@ -1227,7 +1211,7 @@ class DeviceDatabase {
         'system', 
         code, 
         'auto_deactivated_' + reason, 
-        `🔒 Code ${code} auto-deactivated due to ${reason}. ${deviceCount} devices revoked. New HWID: ${newHwid || 'N/A'}. Existing HWIDs: ${existingHwids.length}`
+        `🔒 Code ${code} auto-deactivated due to ${reason}. ${deviceCount} devices revoked. NEW HWID (Trigger): ${newHwid || 'N/A'}. Existing HWIDs: ${existingHwids.length}`
       );
       
       await this.refreshCache();
@@ -1238,7 +1222,7 @@ class DeviceDatabase {
         devices_revoked: deviceCount,
         reason: reason,
         status: status,
-        new_hwid: newHwid,
+        new_hwid: newHwid,  // THIS IS THE NEW HWID - THE TRIGGER
         existing_hwids: existingHwids
       };
     } catch (error) {
@@ -1329,62 +1313,43 @@ class DeviceDatabase {
           hwids = hwidsResult.rows;
         }
         
-        // GET HARDWARE SPECS FOR TRIGGER HWID FROM HWID_LOGS
+        // GET HARDWARE SPECS FOR TRIGGER HWID FROM HWID_LOGS (NOT FROM DEVICES TABLE)
         let triggerHardware = null;
         let triggerHwid = code.trigger_hwid;
         
         if (triggerHwid) {
-          // Hanapin muna sa devices table (kung may nakarehistro)
-          const deviceWithTrigger = await this.get(
-            'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
-            [triggerHwid]
-          );
+          // KUNIN MUNA SA HWID_LOGS (DITO NAKA-SAVE ANG HARDWARE NG BAGONG HWID)
+          const logWithHardware = await this.queuedQuery(`
+            SELECT details FROM hwid_logs 
+            WHERE hwid = $1 
+            AND action = 'auto_deactivation_trigger'
+            ORDER BY created_at DESC 
+            LIMIT 1
+          `, [triggerHwid], 5);
           
-          if (deviceWithTrigger) {
-            triggerHardware = {
-              cpu_name: deviceWithTrigger.cpu_name || 'Unknown',
-              gpu_name: deviceWithTrigger.gpu_name || 'Unknown',
-              ram_total_gb: deviceWithTrigger.ram_total_gb || 0,
-              storage_total_gb: deviceWithTrigger.storage_total_gb || 0,
-              device_name: deviceWithTrigger.device_name || 'Unknown',
-              profile_name: deviceWithTrigger.profile_name || 'Default',
-              registered_owner: deviceWithTrigger.registered_owner || 'Unknown'
-            };
-            console.log(`   Found trigger HWID hardware in devices table for ${code.code}`);
-          } else {
-            // Kung wala sa devices, kunin mula sa hwid_logs
-            const logWithHardware = await this.queuedQuery(`
-              SELECT details FROM hwid_logs 
-              WHERE hwid = $1 
-              AND (action = 'auto_deactivation_trigger')
-              ORDER BY created_at DESC 
-              LIMIT 1
-            `, [triggerHwid], 5);
+          if (logWithHardware.rows.length > 0) {
+            const details = logWithHardware.rows[0].details || '';
+            console.log(`   Found trigger HWID details in logs for ${code.code}`);
             
-            if (logWithHardware.rows.length > 0) {
-              const details = logWithHardware.rows[0].details || '';
-              console.log(`   Found trigger HWID details in logs for ${code.code}`);
-              
-              // Extract hardware from details string
-              const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
-              const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
-              const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
-              const storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
-              const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
-              const profileMatch = details.match(/Profile:\s*([^,|]+)/i);
-              const ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
-              
-              triggerHardware = {};
-              if (cpuMatch) triggerHardware.cpu_name = cpuMatch[1].trim();
-              if (gpuMatch) triggerHardware.gpu_name = gpuMatch[1].trim();
-              if (ramMatch) triggerHardware.ram_total_gb = parseFloat(ramMatch[1].trim());
-              if (storageMatch) triggerHardware.storage_total_gb = parseFloat(storageMatch[1].trim());
-              if (deviceMatch) triggerHardware.device_name = deviceMatch[1].trim();
-              if (profileMatch) triggerHardware.profile_name = profileMatch[1].trim();
-              if (ownerMatch) triggerHardware.registered_owner = ownerMatch[1].trim();
-              
-              if (Object.keys(triggerHardware).length === 0) triggerHardware = null;
-            }
+            // Extract hardware from details string
+            const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
+            const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
+            const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
+            const storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
+            const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
+            const profileMatch = details.match(/Profile:\s*([^,|]+)/i);
+            const ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
+            
+            triggerHardware = {};
+            if (cpuMatch) triggerHardware.cpu_name = cpuMatch[1].trim();
+            if (gpuMatch) triggerHardware.gpu_name = gpuMatch[1].trim();
+            if (ramMatch) triggerHardware.ram_total_gb = parseFloat(ramMatch[1].trim());
+            if (storageMatch) triggerHardware.storage_total_gb = parseFloat(storageMatch[1].trim());
+            if (deviceMatch) triggerHardware.device_name = deviceMatch[1].trim();
+            if (profileMatch) triggerHardware.profile_name = profileMatch[1].trim();
+            if (ownerMatch) triggerHardware.registered_owner = ownerMatch[1].trim();
+            
+            if (Object.keys(triggerHardware).length === 0) triggerHardware = null;
           }
         }
         
@@ -1447,7 +1412,7 @@ class DeviceDatabase {
           hwids: hwids || [],
           recent_hwid_logs: logsResult.rows || [],
           trigger_log: triggerLog,
-          trigger_hardware: triggerHardware,
+          trigger_hardware: triggerHardware,  // FROM LOGS, NOT FROM DEVICES
           notes: code.notes
         });
       }
