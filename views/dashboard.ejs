@@ -69,6 +69,8 @@
         .btn-batch-reactivate:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
         .btn-info { background: #2196F3; color: #fff; }
         .btn-info:hover { background: #1976D2; }
+        .btn-delete-logs { background: #FF9800; color: #fff; border: none; border-radius: 4px; padding: 4px 10px; font-size: 10px; cursor: pointer; transition: all 0.2s; }
+        .btn-delete-logs:hover { background: #e68900; transform: scale(1.05); }
         
         .scroll-table { overflow-x: auto; max-height: 500px; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -718,14 +720,13 @@
                                     <th style="width:90px;">Code</th>
                                     <th>Username</th>
                                     <th style="width:90px;">HWID Limit</th>
-                                    <th style="width:90px;">HWID Count</th>
                                     <th style="min-width:280px;">🆕 New HWID (Trigger)</th>
                                     <th style="min-width:300px;">📋 Existing HWIDs</th>
-                                    <th style="width:220px;">Actions</th>
+                                    <th style="width:280px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="auto-deactivated-body">
-                                <tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">
+                                <tr><td colspan="6" style="text-align:center;color:#888;padding:30px;">
                                     <div class="loading-text"><span class="spinner"></span> Loading auto-deactivated codes...</div>
                                 </td></tr>
                             </tbody>
@@ -2182,7 +2183,7 @@
             const tbody = document.getElementById('auto-deactivated-body');
             if (!tbody) return;
             
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading auto-deactivated codes...</div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading auto-deactivated codes...</div></td></tr>';
             
             try {
                 const response = await fastFetch('/api/auto-deactivated-codes');
@@ -2197,16 +2198,16 @@
                     }
                     
                     if (autoDeactivatedCodes.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#4CAF50;padding:30px;">✅ No auto-deactivated codes found</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#4CAF50;padding:30px;">✅ No auto-deactivated codes found</td></tr>';
                     } else {
                         renderAutoDeactivatedCodes(autoDeactivatedCodes);
                     }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load data') + '</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load data') + '</td></tr>';
                 }
             } catch (error) {
                 console.error('Load auto-deactivated codes error:', error);
-                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
             }
         }
 
@@ -2214,13 +2215,16 @@
             const tbody = document.getElementById('auto-deactivated-body');
             if (!tbody) return;
             
+            if (!codes || codes.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#4CAF50;padding:30px;">✅ No auto-deactivated codes found</td></tr>';
+                return;
+            }
+            
             tbody.innerHTML = codes.map((code, index) => {
                 const hwids = code.hwids || [];
-                const hwidCount = hwids.length;
                 const limit = code.max_hwid_limit || 1;
                 
-                // Find the newest HWID that triggered the deactivation
-                const recentLogs = code.recent_hwid_logs || [];
+                // Find the HWID that triggered the deactivation
                 let newHwid = code.trigger_hwid || null;
                 let newHwidHardware = null;
                 
@@ -2235,38 +2239,33 @@
                 }
                 
                 // If no trigger_hwid, look for trigger log
-                if (!newHwid) {
-                    const triggerLog = recentLogs.find(log => 
-                        log.action === 'auto_deactivation_trigger'
-                    );
-                    if (triggerLog) {
-                        newHwid = triggerLog.hwid;
-                        // Try to extract hardware from details
-                        if (triggerLog.details) {
-                            const details = triggerLog.details;
-                            const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
-                            const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
-                            const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
-                            const storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
-                            const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
-                            const profileMatch = details.match(/Profile:\s*([^,|]+)/i);
-                            const ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
-                            
-                            newHwidHardware = {};
-                            if (cpuMatch) newHwidHardware.cpu_name = cpuMatch[1].trim();
-                            if (gpuMatch) newHwidHardware.gpu_name = gpuMatch[1].trim();
-                            if (ramMatch) newHwidHardware.ram_total_gb = parseFloat(ramMatch[1].trim());
-                            if (storageMatch) newHwidHardware.storage_total_gb = parseFloat(storageMatch[1].trim());
-                            if (deviceMatch) newHwidHardware.device_name = deviceMatch[1].trim();
-                            if (profileMatch) newHwidHardware.profile_name = profileMatch[1].trim();
-                            if (ownerMatch) newHwidHardware.registered_owner = ownerMatch[1].trim();
-                            
-                            if (Object.keys(newHwidHardware).length === 0) newHwidHardware = null;
-                        }
+                if (!newHwid && code.trigger_log) {
+                    newHwid = code.trigger_log.hwid;
+                    // Extract hardware from details if available
+                    if (code.trigger_log.details) {
+                        const details = code.trigger_log.details;
+                        const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
+                        const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
+                        const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                        const storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
+                        const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
+                        const profileMatch = details.match(/Profile:\s*([^,|]+)/i);
+                        const ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
+                        
+                        newHwidHardware = {};
+                        if (cpuMatch) newHwidHardware.cpu_name = cpuMatch[1].trim();
+                        if (gpuMatch) newHwidHardware.gpu_name = gpuMatch[1].trim();
+                        if (ramMatch) newHwidHardware.ram_total_gb = parseFloat(ramMatch[1].trim());
+                        if (storageMatch) newHwidHardware.storage_total_gb = parseFloat(storageMatch[1].trim());
+                        if (deviceMatch) newHwidHardware.device_name = deviceMatch[1].trim();
+                        if (profileMatch) newHwidHardware.profile_name = profileMatch[1].trim();
+                        if (ownerMatch) newHwidHardware.registered_owner = ownerMatch[1].trim();
+                        
+                        if (Object.keys(newHwidHardware).length === 0) newHwidHardware = null;
                     }
                 }
                 
-                // If still no new HWID, use first HWID
+                // If still no new HWID, use first HWID if available
                 if (!newHwid && hwids.length > 0) {
                     newHwid = hwids[0].hwid;
                     newHwidHardware = hwids[0].hardware;
@@ -2284,65 +2283,98 @@
                 const formatHardware = (hardware) => {
                     if (!hardware) return 'No hardware specs';
                     const parts = [];
-                    if (hardware.cpu_name && hardware.cpu_name !== 'Unknown') parts.push('🔧 ' + hardware.cpu_name);
-                    if (hardware.gpu_name && hardware.gpu_name !== 'Unknown') parts.push('🎮 ' + hardware.gpu_name);
-                    if (hardware.ram_total_gb) parts.push('💾 ' + hardware.ram_total_gb + 'GB');
-                    if (hardware.storage_total_gb) parts.push('💿 ' + hardware.storage_total_gb + 'GB');
-                    if (hardware.device_name && hardware.device_name !== 'Unknown') parts.push('💻 ' + hardware.device_name);
-                    if (hardware.profile_name && hardware.profile_name !== 'Default') parts.push('👤 ' + hardware.profile_name);
-                    if (hardware.registered_owner && hardware.registered_owner !== 'Unknown') parts.push('👔 ' + hardware.registered_owner);
+                    if (hardware.cpu_name && hardware.cpu_name !== 'Unknown' && hardware.cpu_name !== 'N/A') 
+                        parts.push('🔧 ' + hardware.cpu_name);
+                    if (hardware.gpu_name && hardware.gpu_name !== 'Unknown' && hardware.gpu_name !== 'N/A') 
+                        parts.push('🎮 ' + hardware.gpu_name);
+                    if (hardware.ram_total_gb && hardware.ram_total_gb > 0) 
+                        parts.push('💾 ' + hardware.ram_total_gb + 'GB');
+                    if (hardware.storage_total_gb && hardware.storage_total_gb > 0) 
+                        parts.push('💿 ' + hardware.storage_total_gb + 'GB');
+                    if (hardware.device_name && hardware.device_name !== 'Unknown' && hardware.device_name !== 'N/A') 
+                        parts.push('💻 ' + hardware.device_name);
+                    if (hardware.profile_name && hardware.profile_name !== 'Default' && hardware.profile_name !== 'Unknown') 
+                        parts.push('👤 ' + hardware.profile_name);
+                    if (hardware.registered_owner && hardware.registered_owner !== 'Unknown' && hardware.registered_owner !== 'N/A') 
+                        parts.push('👔 ' + hardware.registered_owner);
                     return parts.length > 0 ? parts.join(' | ') : 'No hardware specs';
                 };
                 
-                // Build HWID list HTML
-                const buildHwidList = (hwidList, isNew = false) => {
+                // Build HWID list HTML for existing HWIDs
+                const buildExistingHwidList = (hwidList) => {
                     if (!hwidList || hwidList.length === 0) {
-                        return isNew ? '<span style="color:#888;">No new HWID detected</span>' : '<span style="color:#888;">None</span>';
+                        return '<span style="color:#888;">No existing HWIDs</span>';
                     }
                     return hwidList.map(h => {
                         const hwidDisplay = formatHwid(h.hwid);
                         const hardwareStr = formatHardware(h.hardware);
-                        const borderColor = isNew ? '#FF9800' : '#4CAF50';
-                        const bgColor = isNew ? 'rgba(255,152,0,0.1)' : 'rgba(76,175,80,0.05)';
                         return `
-                            <div style="border-left:3px solid ${borderColor};background:${bgColor};padding:8px 12px;margin-bottom:6px;border-radius:4px;font-size:12px;">
-                                <code style="color:${isNew ? '#FF9800' : '#4CAF50'};font-weight:bold;">${hwidDisplay}</code>
+                            <div style="border-left:3px solid #4CAF50;background:rgba(76,175,80,0.05);padding:8px 12px;margin-bottom:6px;border-radius:4px;font-size:12px;">
+                                <code style="color:#4CAF50;font-weight:bold;">${hwidDisplay}</code>
                                 <div style="color:#aaa;font-size:11px;margin-top:2px;">${hardwareStr}</div>
                             </div>
                         `;
                     }).join('');
                 };
                 
+                // New HWID display
                 const newHwidHtml = newHwid ? 
                     `<div style="border-left:3px solid #FF9800;background:rgba(255,152,0,0.1);padding:8px 12px;border-radius:4px;font-size:12px;">
                         <code style="color:#FF9800;font-weight:bold;">${formatHwid(newHwid)}</code>
                         <div style="color:#aaa;font-size:11px;margin-top:2px;">${formatHardware(newHwidHardware)}</div>
                         <span style="color:#f44336;font-size:10px;font-weight:bold;">⚠️ TRIGGERED DEACTIVATION</span>
                     </div>` :
-                    '<span style="color:#888;">No new HWID found</span>';
+                    '<span style="color:#888;">No new HWID detected</span>';
                 
-                const existingHwidsHtml = existingHwids.length > 0 ? 
-                    buildHwidList(existingHwids, false) :
-                    '<span style="color:#888;">No existing HWIDs</span>';
+                const existingHwidsHtml = buildExistingHwidList(existingHwids);
                 
                 return `
                     <tr style="background:rgba(244,67,54,0.05);">
                         <td><strong class="code-font">${code.code}</strong></td>
                         <td>${code.username || '<span class="text-muted">N/A</span>'}</td>
                         <td style="text-align:center;"><span style="color:#FF9800;font-weight:bold;">${limit}</span></td>
-                        <td style="text-align:center;"><span style="color:${hwidCount >= limit ? '#f44336' : '#FF9800'};font-weight:bold;">${hwidCount}</span></td>
                         <td>${newHwidHtml}</td>
                         <td style="max-width:350px;">${existingHwidsHtml}</td>
                         <td>
                             <div class="action-buttons">
                                 <button onclick="viewAutoDeactivatedDetail('${code.code}')" class="btn-small btn-info" style="background:#2196F3;color:#fff;">📋 Details</button>
                                 <button onclick="reactivateAutoDeactivated('${code.code}')" class="btn-small btn-success">🔓 Reactivate</button>
-                                <button onclick="deleteCode('${code.code}')" class="btn-small btn-danger">🗑️</button>
+                                <button onclick="deleteAutoDeactivatedLogs('${code.code}')" class="btn-small btn-delete-logs" style="background:#FF9800;color:#fff;">🗑️ Delete Logs</button>
                             </div>
                         </td>
                     </tr>
                 `;
             }).join('');
+        }
+
+        // ============================================
+        // DELETE AUTO-DEACTIVATED CODE LOGS (NOT THE CODE)
+        // ============================================
+
+        async function deleteAutoDeactivatedLogs(code) {
+            if (!confirm(`🗑️ Delete ALL logs for auto-deactivated code ${code}?\n\nThis will only delete the HWID logs, NOT the code itself.`)) {
+                return;
+            }
+            
+            try {
+                showMessage('⏳ Deleting logs...', 'loading');
+                const response = await fastFetch(`/api/auto-deactivated-code/${code}/logs`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`✅ ${result.message} (${result.deleted} entries deleted)`, 'success');
+                    // Refresh the auto-deactivated list
+                    await loadAutoDeactivatedCodes();
+                    // Also refresh the count
+                    await loadAll();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed to delete logs'), 'error');
+                }
+            } catch (error) {
+                showMessage('❌ Error: ' + error.message, 'error');
+            }
         }
 
         async function viewAutoDeactivatedDetail(code) {

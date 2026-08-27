@@ -21,7 +21,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 app.set('trust proxy', 1);
 
 // ============================================
-// SECURITY & COMPRESSION - OPTIMIZED
+// SECURITY & COMPRESSION
 // ============================================
 
 app.use(compression({
@@ -105,7 +105,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ============================================
-// SESSION - OPTIMIZED
+// SESSION
 // ============================================
 app.use(session({
     secret: process.env.SESSION_SECRET || 'default-secret-change-me',
@@ -119,7 +119,7 @@ app.use(session({
 }));
 
 // ============================================
-// REQUEST TIMEOUT - OPTIMIZED
+// REQUEST TIMEOUT
 // ============================================
 app.use((req, res, next) => {
     req.setTimeout(60000, () => {
@@ -129,7 +129,7 @@ app.use((req, res, next) => {
 });
 
 // ============================================
-// RATE LIMIT - OPTIMIZED FOR 100-200 USERS
+// RATE LIMIT
 // ============================================
 
 const limiter = rateLimit({
@@ -200,7 +200,7 @@ function isApiAuthenticated(req, res, next) {
 }
 
 // ============================================
-// HEALTH CHECK - OPTIMIZED
+// HEALTH CHECK
 // ============================================
 
 app.get('/api/health', async (req, res) => {
@@ -540,7 +540,17 @@ app.post('/api/register', async (req, res) => {
             if (!assignResult.success) {
                 if (assignResult.auto_deactivate) {
                     console.log(`🔥 Auto-deactivating code ${code} due to HWID limit exceeded`);
-                    const deactivateResult = await db.autoDeactivateCode(code.toUpperCase(), 'hwid_limit_exceeded_auto_assign', hwid, null);
+                    console.log(`   New HWID: ${hwid.substring(0, 16)}...`);
+                    console.log(`   HWID Details:`, assignResult.new_hwid_details);
+                    
+                    const deactivateResult = await db.autoDeactivateCode(
+                        code.toUpperCase(), 
+                        'hwid_limit_exceeded_auto_assign', 
+                        hwid,
+                        assignResult.new_hwid_details
+                    );
+                    
+                    console.log(`   Deactivate result:`, deactivateResult);
                     
                     return res.status(403).json({
                         error: `🚨 HWID LIMIT EXCEEDED! Code ${code} has been AUTO-DEACTIVATED.`,
@@ -2181,6 +2191,37 @@ app.get('/api/auto-deactivated-code/:code', isApiAuthenticated, async (req, res)
 });
 
 // ============================================
+// DELETE AUTO-DEACTIVATED CODE LOGS (NOT THE CODE)
+// ============================================
+
+app.delete('/api/auto-deactivated-code/:code/logs', isApiAuthenticated, async (req, res) => {
+    const { code } = req.params;
+    
+    try {
+        const result = await db.deleteAutoDeactivatedLogs(code);
+        
+        if (result.success) {
+            res.json({
+                success: true,
+                message: result.message,
+                deleted: result.deleted
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                error: result.error || 'Failed to delete logs'
+            });
+        }
+    } catch (error) {
+        console.error('❌ Delete auto-deactivated logs error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// ============================================
 // REQUEST HANDLING
 // ============================================
 
@@ -2488,36 +2529,10 @@ createDefaultAdmin().then(() => {
         console.log(`📊 Dashboard: http://localhost:${PORT}/dashboard`);
         console.log(`🔑 Username: ${process.env.ADMIN_USERNAME || 'admin'}`);
         console.log(`🔒 Password: ${process.env.ADMIN_PASSWORD || 'password123'}`);
-        console.log(`🧪 Test API: http://localhost:${PORT}/api/test`);
-        console.log(`📊 Stats API: http://localhost:${PORT}/api/stats`);
-        console.log(`💚 Health: http://localhost:${PORT}/api/health`);
-        console.log(`📈 Metrics: http://localhost:${PORT}/api/metrics`);
-        console.log(`📊 Pool Status: http://localhost:${PORT}/api/pool-status`);
-        console.log(`📊 Connection Stats: http://localhost:${PORT}/api/connection-stats`);
         console.log('='.repeat(60));
-        console.log(`📊 Database Pool: max=${db.pool.options.max}, min=${db.pool.options.min}`);
-        console.log(`⏱️  Cache TTL: ${db.cacheTTL}s`);
-        console.log(`📈 Max Concurrent Queries: ${db.maxConcurrentQueries || 25}`);
-        console.log('='.repeat(60));
-        console.log('✅ CORS: Chrome Extensions allowed');
-        console.log('✅ Supabase Pro Plan Optimized');
-        console.log(`✅ Rate Limits: Register=${registerLimiter.max}/min, API=${apiLimiter.max}/min`);
-        console.log('='.repeat(60));
-        console.log('⚡ OPTIMIZATIONS ENABLED:');
-        console.log('   ✅ Auto-Refresh Dashboard (15s)');
-        console.log('   ✅ Cache TTL: 60 seconds');
-        console.log('   ✅ Dashboard Limit: 100 items');
-        console.log('   ✅ HWID Logs: Pagination (50/page)');
-        console.log('   ✅ Parallel Queries');
-        console.log('   ✅ Batch Updates');
-        console.log('   ✅ Hardware Specs with Registered Owner');
-        console.log('   ✅ Device Info by HWID');
-        console.log('   ✅ Auto-Cleanup HWID Logs (30 days)');
-        console.log('   ✅ Connection Pool: 30 connections');
-        console.log('   ✅ Concurrent Queries: 25');
-        console.log('   ✅ Rate Limits: 50 regs/min, 300 API/min');
-        console.log('   ✅ NO WALLPAPER - Clean & Fast');
-        console.log('   ✅ Auto-Deactivated Tab with Trigger HWID');
+        console.log('✅ NO WALLPAPER - Clean & Fast');
+        console.log('✅ Auto-Deactivated Tab with Trigger HWID');
+        console.log('✅ Delete Logs Only (Not Code)');
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');

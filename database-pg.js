@@ -1275,13 +1275,13 @@ class DeviceDatabase {
             ch.assigned_at,
             ch.last_used,
             json_build_object(
-              'cpu_name', d.cpu_name,
-              'gpu_name', d.gpu_name,
-              'ram_total_gb', d.ram_total_gb,
-              'storage_total_gb', d.storage_total_gb,
-              'device_name', d.device_name,
-              'profile_name', d.profile_name,
-              'registered_owner', d.registered_owner
+              'cpu_name', COALESCE(d.cpu_name, 'Unknown'),
+              'gpu_name', COALESCE(d.gpu_name, 'Unknown'),
+              'ram_total_gb', COALESCE(d.ram_total_gb, 0),
+              'storage_total_gb', COALESCE(d.storage_total_gb, 0),
+              'device_name', COALESCE(d.device_name, 'Unknown'),
+              'profile_name', COALESCE(d.profile_name, 'Default'),
+              'registered_owner', COALESCE(d.registered_owner, 'Unknown')
             ) as hardware
           FROM code_hwids ch
           LEFT JOIN devices d ON d.hwid = ch.hwid
@@ -1326,7 +1326,19 @@ class DeviceDatabase {
         }
         
         result.push({
-          ...code,
+          code: code.code,
+          username: code.username || 'N/A',
+          access_level: code.access_level || 'VIP',
+          subscription_type: code.subscription_type || 'Lifetime',
+          status: code.status,
+          is_active: code.is_active,
+          created_at: code.created_at,
+          expires_at: code.expires_at,
+          max_hwid_limit: code.max_hwid_limit || 1,
+          code_hwid: code.code_hwid,
+          trigger_hwid: code.trigger_hwid,
+          trigger_reason: code.trigger_reason,
+          triggered_at: code.triggered_at,
           hwid_count: parseInt(countResult.rows[0]?.count || 0),
           hwids: hwidsResult.rows || [],
           recent_hwid_logs: logsResult.rows || [],
@@ -1340,6 +1352,54 @@ class DeviceDatabase {
       console.error('❌ Get auto-deactivated codes with HWID details error:', error.message);
       console.error('   Stack:', error.stack);
       return [];
+    }
+  }
+
+  // ============================================
+  // DELETE AUTO-DEACTIVATED CODE LOGS (NOT THE CODE)
+  // ============================================
+
+  async deleteAutoDeactivatedLogs(code) {
+    try {
+      console.log(`🗑️ Deleting logs for auto-deactivated code: ${code}`);
+      
+      // Get the trigger_hwid first
+      const codeInfo = await this.get(
+        'SELECT trigger_hwid FROM codes WHERE code = $1',
+        [code]
+      );
+      
+      let deletedCount = 0;
+      
+      // Delete hwid_logs for this code
+      const hwidResult = await this.run(
+        'DELETE FROM hwid_logs WHERE code = $1',
+        [code]
+      );
+      deletedCount += hwidResult.changes || 0;
+      
+      // If there's a trigger_hwid, delete its logs too
+      if (codeInfo && codeInfo.trigger_hwid) {
+        const triggerResult = await this.run(
+          'DELETE FROM hwid_logs WHERE hwid = $1',
+          [codeInfo.trigger_hwid]
+        );
+        deletedCount += triggerResult.changes || 0;
+      }
+      
+      console.log(`✅ Deleted ${deletedCount} log entries for code ${code}`);
+      
+      return {
+        success: true,
+        deleted: deletedCount,
+        message: `Deleted ${deletedCount} log entries for code ${code}`
+      };
+    } catch (error) {
+      console.error('❌ Delete auto-deactivated logs error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 
