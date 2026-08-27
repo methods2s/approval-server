@@ -545,6 +545,16 @@ class DeviceDatabase {
         console.log('ℹ️ Trigger columns already exist or error:', err.message);
       }
 
+      // Add previous_hwids_snapshot column - captures the OLD HWID(s) (with hardware)
+      // that were assigned to a code at the moment it gets auto-deactivated, since
+      // code_hwids rows get deleted as part of deactivation and would otherwise be lost.
+      try {
+        await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS previous_hwids_snapshot JSONB`);
+        console.log('✅ previous_hwids_snapshot column added to codes table');
+      } catch (err) {
+        console.log('ℹ️ previous_hwids_snapshot column already exists or error:', err.message);
+      }
+
       // ============================================
       // INDEXES
       // ============================================
@@ -1136,6 +1146,51 @@ class DeviceDatabase {
       } else if (reason === 'unauthorized_use') {
         status = 'auto_deactivated_unauthorized';
       }
+
+      // Snapshot the OLD HWID(s) (with hardware) BEFORE they get wiped below,
+      // so the dashboard can still show "old vs new" HWID after deactivation.
+      let previousHwidsSnapshot = [];
+      try {
+        const oldHwidRows = await this.all(
+          `SELECT 
+             ch.hwid, ch.assigned_at, ch.last_used,
+             d.cpu_name, d.gpu_name, d.ram_total_gb, d.storage_total_gb,
+             d.device_name, d.profile_name, d.registered_owner
+           FROM code_hwids ch
+           LEFT JOIN LATERAL (
+             SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb,
+                    device_name, profile_name, registered_owner
+             FROM devices
+             WHERE hwid = ch.hwid
+             ORDER BY created_at DESC
+             LIMIT 1
+           ) d ON true
+           WHERE ch.code = $1`,
+          [code]
+        );
+
+        previousHwidsSnapshot = (oldHwidRows || []).map(row => ({
+          hwid: row.hwid,
+          assigned_at: row.assigned_at,
+          last_used: row.last_used,
+          hardware: {
+            cpu_name: row.cpu_name,
+            gpu_name: row.gpu_name,
+            ram_total_gb: row.ram_total_gb,
+            storage_total_gb: row.storage_total_gb,
+            device_name: row.device_name,
+            profile_name: row.profile_name,
+            registered_owner: row.registered_owner
+          }
+        }));
+
+        await this.run(
+          'UPDATE codes SET previous_hwids_snapshot = $1 WHERE code = $2',
+          [JSON.stringify(previousHwidsSnapshot), code]
+        );
+      } catch (snapshotErr) {
+        console.error('⚠️ Failed to snapshot previous HWIDs before deactivation:', snapshotErr.message);
+      }
       
       // Save trigger HWID to codes table
       if (newHwid) {
@@ -1238,6 +1293,7 @@ class DeviceDatabase {
           c.trigger_hwid,
           c.trigger_reason,
           c.triggered_at,
+          c.previous_hwids_snapshot,
           (
             SELECT COUNT(*) FROM code_hwids WHERE code = c.code
           ) as hwid_count,
@@ -1267,6 +1323,23 @@ class DeviceDatabase {
             FROM code_hwids ch 
             WHERE ch.code = c.code
           ) as hwids,
+          (
+            -- Trigger (new) HWID's hardware, looked up directly from devices
+            -- since code_hwids for this code gets wiped on deactivation.
+            SELECT json_build_object(
+              'cpu_name', d.cpu_name,
+              'gpu_name', d.gpu_name,
+              'ram_total_gb', d.ram_total_gb,
+              'storage_total_gb', d.storage_total_gb,
+              'device_name', d.device_name,
+              'profile_name', d.profile_name,
+              'registered_owner', d.registered_owner
+            )
+            FROM devices d
+            WHERE d.hwid = c.trigger_hwid
+            ORDER BY d.created_at DESC
+            LIMIT 1
+          ) as trigger_hwid_hardware,
           (
             SELECT json_agg(
               json_build_object(
@@ -1302,12 +1375,23 @@ class DeviceDatabase {
             LIMIT 1
           ) as trigger_log
         FROM codes c
-        WHERE c.status IN ('auto_deactivated_limit_exceeded', 'auto_deactivated')
+        WHERE c.status LIKE 'auto_deactivated%'
         AND c.is_active = false
         ORDER BY c.created_at DESC
       `, [], 5);
       
-      return result.rows || [];
+      const rows = result.rows || [];
+      // Normalize previous_hwids_snapshot in case the driver returns it as a raw string
+      for (const row of rows) {
+        if (typeof row.previous_hwids_snapshot === 'string') {
+          try {
+            row.previous_hwids_snapshot = JSON.parse(row.previous_hwids_snapshot);
+          } catch (e) {
+            row.previous_hwids_snapshot = [];
+          }
+        }
+      }
+      return rows;
     } catch (error) {
       console.error('❌ Get auto-deactivated codes with HWID details error:', error.message);
       return [];
