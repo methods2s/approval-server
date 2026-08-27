@@ -1,4 +1,4 @@
-// server.js - COMPLETE CLEAN VERSION (No Wallpaper, HWID + Hardware Only)
+// server.js - COMPLETE CLEAN VERSION (No Wallpaper, No HWID Logs, No New HWID)
 
 require('dotenv').config();
 const express = require('express');
@@ -146,9 +146,6 @@ const limiter = rateLimit({
             '/api/dashboard-data',
             '/api/status/',
             '/api/code/',
-            '/api/hwid-logs',
-            '/api/hwid-log',
-            '/api/hwid-new',
             '/api/device/',
             '/api/auto-deactivated-codes',
             '/api/auto-deactivated-code/'
@@ -234,144 +231,6 @@ app.get('/api/health', async (req, res) => {
 });
 
 // ============================================
-// POOL STATUS MONITORING
-// ============================================
-
-app.get('/api/pool-status', isApiAuthenticated, (req, res) => {
-    const status = db.getPoolStatus();
-    const cached = db.getCachedData();
-    
-    res.json({
-        connections: {
-            total: status.total || 0,
-            idle: status.idle || 0,
-            waiting: status.waiting || 0,
-            max: status.max || 30,
-            min: status.min || 10,
-            used: status.used || 0,
-            utilization: status.max ? Math.round((status.used / status.max) * 100) : 0
-        },
-        cache: {
-            codes: cached.codes?.length || 0,
-            devices: cached.devices?.length || 0,
-            lastUpdate: cached.lastUpdate ? new Date(cached.lastUpdate).toISOString() : 'never',
-            ttl: db.cacheTTL
-        },
-        queue: {
-            active: db.activeQueries || 0,
-            queued: db.queryQueue?.length || 0,
-            maxConcurrent: db.maxConcurrentQueries || 25
-        },
-        uptime: process.uptime(),
-        timestamp: new Date().toISOString()
-    });
-});
-
-// ============================================
-// CONNECTION STATS
-// ============================================
-
-app.get('/api/connection-stats', isApiAuthenticated, (req, res) => {
-    const poolStatus = db.getPoolStatus();
-    const cached = db.getCachedData();
-    
-    res.json({
-        database: {
-            total: poolStatus.total || 0,
-            idle: poolStatus.idle || 0,
-            waiting: poolStatus.waiting || 0,
-            max: poolStatus.max || 30,
-            used: poolStatus.used || 0,
-            utilization: poolStatus.max ? Math.round((poolStatus.used / poolStatus.max) * 100) : 0
-        },
-        cache: {
-            codes: cached.codes?.length || 0,
-            devices: cached.devices?.length || 0,
-            lastUpdate: cached.lastUpdate ? new Date(cached.lastUpdate).toISOString() : 'never',
-            ttl: db.cacheTTL
-        },
-        queue: {
-            active: db.activeQueries || 0,
-            queued: db.queryQueue?.length || 0,
-            maxConcurrent: db.maxConcurrentQueries || 25
-        },
-        timestamp: new Date().toISOString()
-    });
-});
-
-// ============================================
-// TEST ENDPOINTS
-// ============================================
-
-app.get('/api/test', (req, res) => {
-    res.json({
-        success: true,
-        message: 'Server is running!',
-        timestamp: new Date().toISOString(),
-        status: 'online'
-    });
-});
-
-app.get('/api/stats', async (req, res) => {
-    try {
-        const stats = await db.getStats();
-        res.json({
-            success: true,
-            stats: stats,
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        console.error('Stats error:', error);
-        res.status(500).json({ error: 'Failed to get stats' });
-    }
-});
-
-// ============================================
-// SERVE AUTOMATION SCRIPT
-// ============================================
-
-app.get('/real_automation.js', (req, res) => {
-    const deviceId = req.query.deviceId;
-    
-    if (!deviceId) {
-        return res.status(403).send('Access Denied: Missing Device ID');
-    }
-
-    db.getDevice(deviceId).then(device => {
-        if (!device || !device.code) {
-            return res.status(403).send('Access Denied: Unapproved Device');
-        }
-        
-        db.getCodeInfo(device.code).then(codeInfo => {
-            if (!codeInfo || !codeInfo.is_active) {
-                return res.status(403).send('Access Denied: Code Deactivated');
-            }
-
-            if (codeInfo.subscription_type !== 'Lifetime' && codeInfo.expires_at) {
-                const now = new Date();
-                const expires = new Date(codeInfo.expires_at);
-                if (now > expires) {
-                    db.run(`UPDATE codes SET status = 'expired' WHERE code = $1`, [device.code]);
-                    return res.status(403).send('Access Denied: Subscription Expired');
-                }
-            }
-
-            if (codeInfo.status !== 'active') {
-                return res.status(403).send('Access Denied: Code is ' + codeInfo.status);
-            }
-
-            res.setHeader('Content-Type', 'application/javascript');
-            res.setHeader('Cache-Control', 'public, max-age=3600');
-            res.sendFile(path.join(__dirname, 'real_automation.js'));
-        }).catch(() => {
-            res.status(403).send('Access Denied');
-        });
-    }).catch(() => {
-        res.status(403).send('Access Denied');
-    });
-});
-
-// ============================================
 // LOGIN ROUTES
 // ============================================
 
@@ -407,7 +266,7 @@ app.get('/logout', (req, res) => {
 });
 
 // ============================================
-// DASHBOARD - WITH AUTO-REFRESH
+// DASHBOARD
 // ============================================
 
 app.get('/dashboard', isAuthenticated, async (req, res) => {
@@ -460,7 +319,7 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// REGISTER DEVICE - OPTIMIZED (NO WALLPAPER)
+// REGISTER DEVICE - OPTIMIZED (NO WALLPAPER, NO HWID LOGS)
 // ============================================
 
 app.post('/api/register', async (req, res) => {
@@ -510,25 +369,6 @@ app.post('/api/register', async (req, res) => {
         }
 
         const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
-        const existingHwid = await db.get(
-            'SELECT code FROM code_hwids WHERE hwid = $1',
-            [hwid]
-        );
-
-        if (!existingHwid) {
-            console.log(`🆕 NEW HWID DETECTED: ${hwid.substring(0, 16)}...`);
-            await db.logHwidActivity(
-                hwid,
-                code,
-                deviceId,
-                'register_attempt',
-                'new',
-                `New HWID attempting to register with code: ${code}`,
-                ip,
-                userAgent || 'unknown',
-                browser_profile || 'Default'
-            );
-        }
 
         const isAuthorized = await db.isHwidAuthorized(code.toUpperCase(), hwid);
 
@@ -563,30 +403,6 @@ app.post('/api/register', async (req, res) => {
                     
                     const finalHwidDetails = hwidDetailsFromRequest;
                     console.log(`   Final HWID Details for NEW HWID:`, finalHwidDetails);
-                    
-                    if (finalHwidDetails) {
-                        try {
-                            const logResult = await db.queuedQuery(
-                                `SELECT id FROM hwid_logs 
-                                 WHERE hwid = $1 AND action = 'auto_deactivation_trigger' 
-                                 ORDER BY created_at DESC LIMIT 1`,
-                                [hwid],
-                                5
-                            );
-                            
-                            if (logResult.rows.length > 0) {
-                                const logId = logResult.rows[0].id;
-                                const detailsString = `🚨 HWID limit reached - TRIGGERED AUTO-DEACTIVATION | NEW HWID: ${hwid.substring(0, 16)}... | CPU: ${finalHwidDetails.cpu || 'N/A'} | GPU: ${finalHwidDetails.gpu || 'N/A'} | RAM: ${finalHwidDetails.ram || 0}GB | Storage: ${finalHwidDetails.storage || 0}GB | Device: ${finalHwidDetails.device || 'N/A'} | Profile: ${finalHwidDetails.profile || 'N/A'} | Owner: ${finalHwidDetails.owner || 'N/A'}`;
-                                await db.run(
-                                    `UPDATE hwid_logs SET details = $1 WHERE id = $2`,
-                                    [detailsString, logId]
-                                );
-                                console.log(`✅ Updated log with hardware details for NEW HWID`);
-                            }
-                        } catch (updateError) {
-                            console.log('⚠️ Failed to update log with hardware details:', updateError.message);
-                        }
-                    }
                     
                     const deactivateResult = await db.autoDeactivateCode(
                         code.toUpperCase(), 
@@ -1580,11 +1396,6 @@ app.get('/api/hwid/:hwid/details', isApiAuthenticated, async (req, res) => {
     const { hwid } = req.params;
     
     try {
-        const hwidInfo = await db.get(
-            'SELECT * FROM hwid_logs WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
-            [hwid]
-        );
-        
         const device = await db.get(
             'SELECT device_id, cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner, status, code, created_at, last_ping FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
             [hwid]
@@ -1613,8 +1424,7 @@ app.get('/api/hwid/:hwid/details', isApiAuthenticated, async (req, res) => {
                 code: device.code || null,
                 created_at: device.created_at,
                 last_ping: device.last_ping
-            } : null,
-            hwid_info: hwidInfo || null
+            } : null
         });
     } catch (error) {
         console.error('Get HWID details error:', error);
@@ -1831,296 +1641,6 @@ app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) =>
 });
 
 // ============================================
-// HWID LOGS - OPTIMIZED WITH PAGINATION
-// ============================================
-
-app.get('/api/hwid-logs', isApiAuthenticated, async (req, res) => {
-    try {
-        const limit = Math.min(parseInt(req.query.limit) || 50, 100);
-        const page = parseInt(req.query.page) || 1;
-        const offset = (page - 1) * limit;
-        const status = req.query.status || null;
-        
-        console.log(`📊 Fetching HWID logs - Page: ${page}, Limit: ${limit}, Status: ${status}`);
-        
-        const [logs, total, newCount] = await Promise.all([
-            db.getHwidLogsWithAssignment(limit, status, offset),
-            db.getHwidLogsCount(status),
-            db.getUniqueNewHwidCount()
-        ]);
-        
-        res.json({
-            success: true,
-            logs: logs || [],
-            total: total || 0,
-            page: page,
-            limit: limit,
-            total_pages: Math.ceil((total || 0) / limit),
-            new_count: newCount || 0
-        });
-    } catch (error) {
-        console.error('❌ Get HWID logs error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to get HWID logs: ' + error.message,
-            logs: [],
-            total: 0,
-            new_count: 0,
-            page: 1,
-            limit: 50,
-            total_pages: 0
-        });
-    }
-});
-
-app.get('/api/hwid-logs/:hwid', isApiAuthenticated, async (req, res) => {
-    try {
-        const { hwid } = req.params;
-        const limit = Math.min(parseInt(req.query.limit) || 50, 200);
-        const logs = await db.getHwidLogsByHwid(hwid, limit);
-        
-        res.json({
-            success: true,
-            hwid: hwid,
-            logs: logs || [],
-            total: logs ? logs.length : 0
-        });
-    } catch (error) {
-        console.error('❌ Get HWID logs by HWID error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to get HWID logs: ' + error.message,
-            logs: [],
-            total: 0
-        });
-    }
-});
-
-app.post('/api/hwid-logs/mark-seen', isApiAuthenticated, async (req, res) => {
-    try {
-        const { hwid } = req.body;
-        if (!hwid) {
-            return res.status(400).json({ error: 'HWID is required' });
-        }
-        
-        const success = await db.markHwidAsSeen(hwid);
-        res.json({
-            success: success,
-            message: success ? 'HWID marked as seen' : 'Failed to mark HWID as seen'
-        });
-    } catch (error) {
-        console.error('❌ Mark HWID as seen error:', error);
-        res.status(500).json({ error: 'Failed to mark HWID as seen' });
-    }
-});
-
-app.get('/api/hwid-logs/new-count', isApiAuthenticated, async (req, res) => {
-    try {
-        const count = await db.getUniqueNewHwidCount();
-        res.json({
-            success: true,
-            new_count: count || 0
-        });
-    } catch (error) {
-        console.error('❌ Get new HWID count error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to get new HWID count',
-            new_count: 0
-        });
-    }
-});
-
-// ============================================
-// NEW HWID DETECTION - OPTIMIZED
-// ============================================
-
-app.get('/api/hwid-new', isApiAuthenticated, async (req, res) => {
-    try {
-        const limit = Math.min(parseInt(req.query.limit) || 50, 100);
-        const page = parseInt(req.query.page) || 1;
-        const offset = (page - 1) * limit;
-        
-        const [hwids, total] = await Promise.all([
-            db.getNewUniqueHwids(limit, offset),
-            db.getUniqueNewHwidCount()
-        ]);
-        
-        res.json({
-            success: true,
-            hwids: hwids || [],
-            total: total || 0,
-            page: page,
-            limit: limit,
-            total_pages: Math.ceil((total || 0) / limit)
-        });
-    } catch (error) {
-        console.error('❌ Get new HWIDs error:', error);
-        res.status(500).json({ 
-            success: false, 
-            error: 'Failed to get new HWIDs: ' + error.message,
-            hwids: [],
-            total: 0,
-            page: 1,
-            limit: 50,
-            total_pages: 0
-        });
-    }
-});
-
-app.post('/api/hwid-new/assign', isApiAuthenticated, async (req, res) => {
-    const { hwid, code } = req.body;
-    
-    if (!hwid || !code) {
-        return res.status(400).json({ error: 'HWID and code are required' });
-    }
-    
-    try {
-        const existing = await db.get(
-            'SELECT code FROM code_hwids WHERE hwid = $1',
-            [hwid]
-        );
-        
-        if (existing) {
-            return res.status(400).json({ 
-                error: `HWID already assigned to code: ${existing.code}` 
-            });
-        }
-        
-        const result = await db.assignHwidToCode(code.toUpperCase(), hwid, true);
-        
-        if (result.success) {
-            await db.run(
-                "UPDATE hwid_logs SET status = 'assigned' WHERE hwid = $1",
-                [hwid]
-            );
-            
-            await db.logUsage('admin', code, 'hwid_assigned_from_new', 
-                `HWID ${hwid.substring(0, 16)}... assigned from new HWID tab by ${req.session.username}`);
-            
-            await db.refreshCache();
-            
-            res.json({
-                success: true,
-                message: `HWID assigned to code ${code}`,
-                code: code,
-                hwid: hwid
-            });
-        } else {
-            res.status(400).json({ 
-                success: false, 
-                error: result.error || 'Failed to assign HWID' 
-            });
-        }
-    } catch (error) {
-        console.error('❌ Assign new HWID error:', error);
-        res.status(500).json({ error: 'Failed to assign HWID: ' + error.message });
-    }
-});
-
-app.post('/api/hwid-new/mark-seen', isApiAuthenticated, async (req, res) => {
-    const { hwid } = req.body;
-    
-    if (!hwid) {
-        return res.status(400).json({ error: 'HWID is required' });
-    }
-    
-    try {
-        await db.run(
-            "UPDATE hwid_logs SET status = 'seen' WHERE hwid = $1 AND status = 'new'",
-            [hwid]
-        );
-        res.json({ success: true, message: 'HWID marked as seen' });
-    } catch (error) {
-        console.error('❌ Mark HWID as seen error:', error);
-        res.status(500).json({ error: 'Failed to mark HWID as seen' });
-    }
-});
-
-// ============================================
-// HWID LOG - Receive from extension (NO WALLPAPER)
-// ============================================
-
-app.post('/api/hwid-log', async (req, res) => {
-    const { hwid, code, device_id, action, status, details, browser_profile, user_agent, detected_hwids } = req.body;
-    
-    console.log('📥 HWID LOG RECEIVED:');
-    console.log(`   HWID: ${hwid ? hwid.substring(0, 16) + '...' : 'null'}`);
-    console.log(`   Action: ${action}`);
-    console.log(`   Status: ${status}`);
-    console.log(`   Code: ${code || 'null'}`);
-    
-    if (!hwid) {
-        console.log('❌ HWID log failed: No HWID provided');
-        return res.status(400).json({ error: 'HWID is required' });
-    }
-    
-    try {
-        const ip = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress || 'unknown';
-        
-        const existing = await db.get(
-            'SELECT code FROM code_hwids WHERE hwid = $1',
-            [hwid]
-        );
-        
-        let logStatus = status || 'new';
-        if (existing && logStatus === 'new') {
-            logStatus = 'existing';
-        }
-        
-        let fullDetails = details || 'HWID activity logged';
-        
-        const result = await db.logHwidActivity(
-            hwid,
-            code || null,
-            device_id || 'unknown',
-            action || 'hwid_activity',
-            logStatus,
-            fullDetails,
-            ip,
-            user_agent || 'unknown',
-            browser_profile || 'Default'
-        );
-        
-        if (!result) {
-            return res.status(500).json({ error: 'Failed to save to database' });
-        }
-        
-        if (detected_hwids && detected_hwids.length > 1) {
-            for (const extraHwid of detected_hwids) {
-                if (extraHwid !== hwid) {
-                    await db.logHwidActivity(
-                        extraHwid,
-                        code || null,
-                        device_id || 'unknown',
-                        'detected_with_other',
-                        'new',
-                        `Detected alongside HWID: ${hwid.substring(0, 16)}...`,
-                        ip,
-                        user_agent || 'unknown',
-                        browser_profile || 'Default'
-                    );
-                }
-            }
-        }
-        
-        res.json({
-            success: true,
-            message: 'HWID logged successfully',
-            status: logStatus,
-            is_new: logStatus === 'new'
-        });
-        
-    } catch (error) {
-        console.error('❌ HWID log error:', error);
-        res.status(500).json({ 
-            success: false,
-            error: 'Failed to log HWID: ' + error.message 
-        });
-    }
-});
-
-// ============================================
 // GET AUTO-DEACTIVATED CODES WITH HWID DETAILS
 // ============================================
 
@@ -2195,29 +1715,7 @@ app.get('/api/auto-deactivated-code/:code', isApiAuthenticated, async (req, res)
                     ) 
                     FROM code_hwids ch 
                     WHERE ch.code = c.code
-                ) as hwids,
-                (
-                    SELECT json_agg(
-                        json_build_object(
-                            'hwid', l.hwid,
-                            'action', l.action,
-                            'status', l.status,
-                            'details', l.details,
-                            'created_at', l.created_at,
-                            'browser_profile', l.browser_profile,
-                            'ip_address', l.ip_address,
-                            'user_agent', l.user_agent
-                        )
-                        ORDER BY l.created_at DESC
-                        LIMIT 30
-                    )
-                    FROM hwid_logs l 
-                    WHERE l.code = c.code 
-                    OR l.hwid IN (SELECT hwid FROM code_hwids WHERE code = c.code)
-                    OR l.hwid = c.trigger_hwid
-                    ORDER BY l.created_at DESC
-                    LIMIT 30
-                ) as recent_logs
+                ) as hwids
             FROM codes c
             WHERE c.code = $1
         `, [code], 5);
@@ -2253,6 +1751,8 @@ app.delete('/api/auto-deactivated-code/:code/logs', isApiAuthenticated, async (r
         const result = await db.deleteAutoDeactivatedLogs(code);
         
         if (result.success) {
+            await db.refreshCache();
+            
             res.json({
                 success: true,
                 message: result.message,
@@ -2359,106 +1859,6 @@ app.post('/api/delete-all-codes', isApiAuthenticated, async (req, res) => {
 });
 
 // ============================================
-// MONITORING ENDPOINT
-// ============================================
-
-app.post('/api/monitor', async (req, res) => {
-    const data = req.body;
-    
-    if (data.type === 'heartbeat') {
-        console.log(`💓 Heartbeat from ${data.hwid ? data.hwid.substring(0, 16) + '...' : 'unknown'}`);
-        console.log(`   Queue: ${data.event_queue_size || 0}`);
-        console.log(`   Uptime: ${data.uptime_seconds || 0}s`);
-        if (data.system_stats) {
-            console.log(`   CPU: ${data.system_stats.cpu_percent || 0}%`);
-            console.log(`   Memory: ${data.system_stats.memory_percent || 0}%`);
-        }
-        
-        return res.json({ 
-            success: true, 
-            message: 'Heartbeat received',
-            session_id: data.session_id || 'session_' + Date.now()
-        });
-    }
-    
-    if (data.events && data.events.length > 0) {
-        console.log(`📥 Received ${data.events.length} events from ${data.hwid ? data.hwid.substring(0, 16) + '...' : 'unknown'}`);
-        console.log(`   Session: ${data.session_id || 'none'}`);
-        console.log(`   Event types: ${data.events.map(e => e.type).join(', ')}`);
-        
-        const logDir = path.join(__dirname, 'monitor_logs');
-        if (!fs.existsSync(logDir)) {
-            fs.mkdirSync(logDir, { recursive: true });
-        }
-        
-        const logFile = path.join(logDir, `events_${data.hwid || 'unknown'}_${new Date().toISOString().slice(0,10)}.json`);
-        
-        let existing = [];
-        if (fs.existsSync(logFile)) {
-            try {
-                existing = JSON.parse(fs.readFileSync(logFile, 'utf8'));
-            } catch (e) {
-                existing = [];
-            }
-        }
-        
-        existing.push({
-            timestamp: data.timestamp,
-            events: data.events,
-            system_info: data.system_info
-        });
-        
-        fs.writeFileSync(logFile, JSON.stringify(existing, null, 2));
-        
-        return res.json({ 
-            success: true, 
-            message: `Processed ${data.events.length} events`,
-            session_id: data.session_id || 'session_' + Date.now()
-        });
-    }
-    
-    res.json({ success: true, message: 'No events' });
-});
-
-// ============================================
-// AUTO-DELETE OLD LOGS
-// ============================================
-
-async function autoDeleteOldLogs() {
-    try {
-        const result = await db.run(
-            "DELETE FROM hwid_logs WHERE created_at < NOW() - INTERVAL '30 days'"
-        );
-        
-        if (result.changes > 0) {
-            console.log(`🧹 Auto-deleted ${result.changes} old HWID logs (older than 30 days)`);
-        }
-        
-        const usageResult = await db.run(
-            "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '60 days'"
-        );
-        
-        if (usageResult.changes > 0) {
-            console.log(`🧹 Auto-deleted ${usageResult.changes} old usage logs (older than 60 days)`);
-        }
-        
-        return result.changes + usageResult.changes;
-    } catch (error) {
-        console.error('❌ Auto-delete logs error:', error);
-        return 0;
-    }
-}
-
-// Auto-cleanup every 6 hours
-setInterval(async () => {
-    await autoDeleteOldLogs();
-}, 6 * 60 * 60 * 1000);
-
-setTimeout(async () => {
-    await autoDeleteOldLogs();
-}, 5000);
-
-// ============================================
 // CLEANUP LOGS ENDPOINT
 // ============================================
 
@@ -2469,17 +1869,10 @@ app.post('/api/cleanup-logs', isApiAuthenticated, async (req, res) => {
         let message = '';
         
         if (delete_all) {
-            const result = await db.run('DELETE FROM hwid_logs');
+            const result = await db.run('DELETE FROM usage_logs');
             deleted = result.changes || 0;
-            message = `Deleted ALL ${deleted} HWID logs`;
-            console.log(`🧹 Manually deleted ALL ${deleted} HWID logs`);
-            
-            const usageResult = await db.run(
-                "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '60 days'"
-            );
-            if (usageResult.changes > 0) {
-                message += ` and ${usageResult.changes} old usage logs`;
-            }
+            message = `Deleted ALL ${deleted} usage logs`;
+            console.log(`🧹 Manually deleted ALL ${deleted} usage logs`);
             
             res.json({ 
                 success: true, 
@@ -2488,17 +1881,10 @@ app.post('/api/cleanup-logs', isApiAuthenticated, async (req, res) => {
             });
         } else {
             const result = await db.run(
-                "DELETE FROM hwid_logs WHERE created_at < NOW() - INTERVAL '30 days'"
+                "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '30 days'"
             );
             deleted = result.changes || 0;
-            message = `Cleaned up ${deleted} old HWID logs (older than 30 days)`;
-            
-            const usageResult = await db.run(
-                "DELETE FROM usage_logs WHERE created_at < NOW() - INTERVAL '60 days'"
-            );
-            if (usageResult.changes > 0) {
-                message += ` and ${usageResult.changes} old usage logs`;
-            }
+            message = `Cleaned up ${deleted} old usage logs (older than 30 days)`;
             
             res.json({ 
                 success: true, 
@@ -2510,28 +1896,6 @@ app.post('/api/cleanup-logs', isApiAuthenticated, async (req, res) => {
         console.error('❌ Cleanup logs error:', error);
         res.status(500).json({ error: 'Failed to cleanup logs: ' + error.message });
     }
-});
-
-// ============================================
-// METRICS ENDPOINT
-// ============================================
-
-app.get('/api/metrics', isApiAuthenticated, async (req, res) => {
-    const poolStatus = db.getPoolStatus();
-    const cached = db.getCachedData();
-    
-    res.json({
-        connections: poolStatus,
-        cache: {
-            codes: cached.codes?.length || 0,
-            devices: cached.devices?.length || 0,
-            lastUpdate: cached.lastUpdate ? new Date(cached.lastUpdate).toISOString() : 'never',
-            hasData: cached.hasInitialData,
-            ttl: db.cacheTTL
-        },
-        uptime: process.uptime(),
-        timestamp: new Date().toISOString()
-    });
 });
 
 // ============================================
@@ -2583,9 +1947,12 @@ createDefaultAdmin().then(() => {
         console.log(`🔒 Password: ${process.env.ADMIN_PASSWORD || 'password123'}`);
         console.log('='.repeat(60));
         console.log('✅ NO WALLPAPER - Clean & Fast');
+        console.log('✅ NO HWID LOGS - Using usage_logs instead');
+        console.log('✅ NO NEW HWID TAB - Removed');
         console.log('✅ Auto-Deactivated Tab with Trigger HWID');
         console.log('✅ Delete Logs Only (Not Code)');
         console.log('✅ Owners Auto-Clear on Deactivate/Reactivate');
+        console.log('✅ "Reason" Button redirects to Auto-Deactivated Tab');
         console.log('='.repeat(60));
         console.log('⚠️  IMPORTANT: Change your password in Render env vars!');
         console.log('='.repeat(60) + '\n');
