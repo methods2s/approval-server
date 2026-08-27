@@ -2226,42 +2226,38 @@
                 
                 // Find the HWID that triggered the deactivation
                 let newHwid = code.trigger_hwid || null;
-                let newHwidHardware = null;
+                let newHwidHardware = code.trigger_hardware || null;
                 
-                // If trigger_hwid exists, find its hardware
-                if (newHwid) {
+                // If trigger_hardware is null, try to get from trigger_log
+                if (!newHwidHardware && code.trigger_log) {
+                    const details = code.trigger_log.details || '';
+                    const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
+                    const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
+                    const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                    const storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
+                    const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
+                    const profileMatch = details.match(/Profile:\s*([^,|]+)/i);
+                    const ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
+                    
+                    newHwidHardware = {};
+                    if (cpuMatch) newHwidHardware.cpu_name = cpuMatch[1].trim();
+                    if (gpuMatch) newHwidHardware.gpu_name = gpuMatch[1].trim();
+                    if (ramMatch) newHwidHardware.ram_total_gb = parseFloat(ramMatch[1].trim());
+                    if (storageMatch) newHwidHardware.storage_total_gb = parseFloat(storageMatch[1].trim());
+                    if (deviceMatch) newHwidHardware.device_name = deviceMatch[1].trim();
+                    if (profileMatch) newHwidHardware.profile_name = profileMatch[1].trim();
+                    if (ownerMatch) newHwidHardware.registered_owner = ownerMatch[1].trim();
+                    
+                    if (Object.keys(newHwidHardware).length === 0) newHwidHardware = null;
+                }
+                
+                // If still no hardware and we have a newHwid, try to find in hwids list
+                if (!newHwidHardware && newHwid) {
                     for (const h of hwids) {
                         if (h.hwid === newHwid && h.hardware) {
                             newHwidHardware = h.hardware;
                             break;
                         }
-                    }
-                }
-                
-                // If no trigger_hwid, look for trigger log
-                if (!newHwid && code.trigger_log) {
-                    newHwid = code.trigger_log.hwid;
-                    // Extract hardware from details if available
-                    if (code.trigger_log.details) {
-                        const details = code.trigger_log.details;
-                        const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
-                        const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
-                        const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
-                        const storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
-                        const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
-                        const profileMatch = details.match(/Profile:\s*([^,|]+)/i);
-                        const ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
-                        
-                        newHwidHardware = {};
-                        if (cpuMatch) newHwidHardware.cpu_name = cpuMatch[1].trim();
-                        if (gpuMatch) newHwidHardware.gpu_name = gpuMatch[1].trim();
-                        if (ramMatch) newHwidHardware.ram_total_gb = parseFloat(ramMatch[1].trim());
-                        if (storageMatch) newHwidHardware.storage_total_gb = parseFloat(storageMatch[1].trim());
-                        if (deviceMatch) newHwidHardware.device_name = deviceMatch[1].trim();
-                        if (profileMatch) newHwidHardware.profile_name = profileMatch[1].trim();
-                        if (ownerMatch) newHwidHardware.registered_owner = ownerMatch[1].trim();
-                        
-                        if (Object.keys(newHwidHardware).length === 0) newHwidHardware = null;
                     }
                 }
                 
@@ -2283,19 +2279,19 @@
                 const formatHardware = (hardware) => {
                     if (!hardware) return 'No hardware specs';
                     const parts = [];
-                    if (hardware.cpu_name && hardware.cpu_name !== 'Unknown' && hardware.cpu_name !== 'N/A') 
+                    if (hardware.cpu_name && hardware.cpu_name !== 'Unknown' && hardware.cpu_name !== 'N/A' && hardware.cpu_name !== '') 
                         parts.push('🔧 ' + hardware.cpu_name);
-                    if (hardware.gpu_name && hardware.gpu_name !== 'Unknown' && hardware.gpu_name !== 'N/A') 
+                    if (hardware.gpu_name && hardware.gpu_name !== 'Unknown' && hardware.gpu_name !== 'N/A' && hardware.gpu_name !== '') 
                         parts.push('🎮 ' + hardware.gpu_name);
                     if (hardware.ram_total_gb && hardware.ram_total_gb > 0) 
                         parts.push('💾 ' + hardware.ram_total_gb + 'GB');
                     if (hardware.storage_total_gb && hardware.storage_total_gb > 0) 
                         parts.push('💿 ' + hardware.storage_total_gb + 'GB');
-                    if (hardware.device_name && hardware.device_name !== 'Unknown' && hardware.device_name !== 'N/A') 
+                    if (hardware.device_name && hardware.device_name !== 'Unknown' && hardware.device_name !== 'N/A' && hardware.device_name !== '') 
                         parts.push('💻 ' + hardware.device_name);
-                    if (hardware.profile_name && hardware.profile_name !== 'Default' && hardware.profile_name !== 'Unknown') 
+                    if (hardware.profile_name && hardware.profile_name !== 'Default' && hardware.profile_name !== 'Unknown' && hardware.profile_name !== 'N/A') 
                         parts.push('👤 ' + hardware.profile_name);
-                    if (hardware.registered_owner && hardware.registered_owner !== 'Unknown' && hardware.registered_owner !== 'N/A') 
+                    if (hardware.registered_owner && hardware.registered_owner !== 'Unknown' && hardware.registered_owner !== 'N/A' && hardware.registered_owner !== '') 
                         parts.push('👔 ' + hardware.registered_owner);
                     return parts.length > 0 ? parts.join(' | ') : 'No hardware specs';
                 };
@@ -2365,9 +2361,7 @@
                 
                 if (result.success) {
                     showMessage(`✅ ${result.message} (${result.deleted} entries deleted)`, 'success');
-                    // Refresh the auto-deactivated list
                     await loadAutoDeactivatedCodes();
-                    // Also refresh the count
                     await loadAll();
                 } else {
                     showMessage('❌ ' + (result.error || 'Failed to delete logs'), 'error');
@@ -2400,48 +2394,33 @@
                 document.getElementById('detail-created').textContent = c.created_at ? new Date(c.created_at).toLocaleString() : 'N/A';
                 document.getElementById('detail-expires').textContent = c.expires_at ? new Date(c.expires_at).toLocaleString() : 'Never';
                 
-                // Find new HWID
+                // Find new HWID - use trigger_hardware from server
                 const hwids = c.hwids || [];
                 const recentLogs = c.recent_logs || [];
                 let newHwid = c.trigger_hwid || null;
-                let newHwidHardware = null;
+                let newHwidHardware = c.trigger_hardware || null;
                 
-                if (newHwid) {
-                    for (const h of hwids) {
-                        if (h.hwid === newHwid && h.hardware) {
-                            newHwidHardware = h.hardware;
-                            break;
-                        }
-                    }
-                }
-                
-                if (!newHwid) {
-                    const triggerLog = recentLogs.find(log => 
-                        log.action === 'auto_deactivation_trigger'
-                    );
-                    if (triggerLog) {
-                        newHwid = triggerLog.hwid;
-                        if (triggerLog.details) {
-                            const details = triggerLog.details;
-                            const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
-                            const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
-                            const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
-                            const storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
-                            const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
-                            const profileMatch = details.match(/Profile:\s*([^,|]+)/i);
-                            const ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
-                            
-                            newHwidHardware = {};
-                            if (cpuMatch) newHwidHardware.cpu_name = cpuMatch[1].trim();
-                            if (gpuMatch) newHwidHardware.gpu_name = gpuMatch[1].trim();
-                            if (ramMatch) newHwidHardware.ram_total_gb = parseFloat(ramMatch[1].trim());
-                            if (storageMatch) newHwidHardware.storage_total_gb = parseFloat(storageMatch[1].trim());
-                            if (deviceMatch) newHwidHardware.device_name = deviceMatch[1].trim();
-                            if (profileMatch) newHwidHardware.profile_name = profileMatch[1].trim();
-                            if (ownerMatch) newHwidHardware.registered_owner = ownerMatch[1].trim();
-                            if (Object.keys(newHwidHardware).length === 0) newHwidHardware = null;
-                        }
-                    }
+                // If trigger_hardware is null, try to extract from trigger_log
+                if (!newHwidHardware && c.trigger_log) {
+                    const details = c.trigger_log.details || '';
+                    const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
+                    const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
+                    const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
+                    const storageMatch = details.match(/Storage:\s*([^,|]+)\s*GB/i);
+                    const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
+                    const profileMatch = details.match(/Profile:\s*([^,|]+)/i);
+                    const ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
+                    
+                    newHwidHardware = {};
+                    if (cpuMatch) newHwidHardware.cpu_name = cpuMatch[1].trim();
+                    if (gpuMatch) newHwidHardware.gpu_name = gpuMatch[1].trim();
+                    if (ramMatch) newHwidHardware.ram_total_gb = parseFloat(ramMatch[1].trim());
+                    if (storageMatch) newHwidHardware.storage_total_gb = parseFloat(storageMatch[1].trim());
+                    if (deviceMatch) newHwidHardware.device_name = deviceMatch[1].trim();
+                    if (profileMatch) newHwidHardware.profile_name = profileMatch[1].trim();
+                    if (ownerMatch) newHwidHardware.registered_owner = ownerMatch[1].trim();
+                    
+                    if (Object.keys(newHwidHardware).length === 0) newHwidHardware = null;
                 }
                 
                 if (!newHwid && hwids.length > 0) {
@@ -2449,27 +2428,36 @@
                     newHwidHardware = hwids[0].hardware;
                 }
                 
+                // Format hardware for display
+                const formatHardwareDisplay = (hardware) => {
+                    if (!hardware) return 'No hardware specs available';
+                    const parts = [];
+                    if (hardware.cpu_name && hardware.cpu_name !== 'Unknown' && hardware.cpu_name !== 'N/A' && hardware.cpu_name !== '') 
+                        parts.push('🔧 CPU: ' + hardware.cpu_name);
+                    if (hardware.gpu_name && hardware.gpu_name !== 'Unknown' && hardware.gpu_name !== 'N/A' && hardware.gpu_name !== '') 
+                        parts.push('🎮 GPU: ' + hardware.gpu_name);
+                    if (hardware.ram_total_gb && hardware.ram_total_gb > 0) 
+                        parts.push('💾 RAM: ' + hardware.ram_total_gb + 'GB');
+                    if (hardware.storage_total_gb && hardware.storage_total_gb > 0) 
+                        parts.push('💿 Storage: ' + hardware.storage_total_gb + 'GB');
+                    if (hardware.device_name && hardware.device_name !== 'Unknown' && hardware.device_name !== 'N/A' && hardware.device_name !== '') 
+                        parts.push('💻 Device: ' + hardware.device_name);
+                    if (hardware.profile_name && hardware.profile_name !== 'Default' && hardware.profile_name !== 'Unknown' && hardware.profile_name !== 'N/A') 
+                        parts.push('👤 Profile: ' + hardware.profile_name);
+                    if (hardware.registered_owner && hardware.registered_owner !== 'Unknown' && hardware.registered_owner !== 'N/A' && hardware.registered_owner !== '') 
+                        parts.push('👔 Owner: ' + hardware.registered_owner);
+                    return parts.length > 0 ? parts.join('<br>') : 'No hardware specs available';
+                };
+                
                 // Render new HWID
                 const newHwidDiv = document.getElementById('detail-new-hwid');
                 if (newHwid) {
-                    let hardwareHtml = '';
-                    if (newHwidHardware) {
-                        hardwareHtml = `
-                            <div style="color:#aaa;font-size:12px;margin-top:8px;line-height:1.6;">
-                                <div>🔧 CPU: ${newHwidHardware.cpu_name || 'Unknown'}</div>
-                                <div>🎮 GPU: ${newHwidHardware.gpu_name || 'Unknown'}</div>
-                                <div>💾 RAM: ${newHwidHardware.ram_total_gb || 0}GB</div>
-                                <div>💿 Storage: ${newHwidHardware.storage_total_gb || 0}GB</div>
-                                <div>💻 Device: ${newHwidHardware.device_name || 'Unknown'}</div>
-                                <div>👤 Profile: ${newHwidHardware.profile_name || 'Default'}</div>
-                                <div>👔 Owner: ${newHwidHardware.registered_owner || 'Unknown'}</div>
-                            </div>
-                        `;
-                    }
                     newHwidDiv.innerHTML = `
                         <div style="border-left:3px solid #FF9800;padding:10px;background:rgba(255,152,0,0.05);border-radius:4px;">
                             <code style="color:#FF9800;font-weight:bold;word-break:break-all;">${newHwid}</code>
-                            ${hardwareHtml || '<div style="color:#888;margin-top:8px;">No hardware specs available</div>'}
+                            <div style="color:#aaa;font-size:12px;margin-top:8px;line-height:1.6;">
+                                ${formatHardwareDisplay(newHwidHardware)}
+                            </div>
                             <span style="color:#f44336;font-size:12px;font-weight:bold;display:block;margin-top:8px;">⚠️ This HWID triggered the deactivation</span>
                         </div>
                     `;
@@ -2482,24 +2470,12 @@
                 const existingDiv = document.getElementById('detail-existing-hwids');
                 if (existingHwids.length > 0) {
                     existingDiv.innerHTML = existingHwids.map(h => {
-                        let hardwareHtml = '';
-                        if (h.hardware) {
-                            hardwareHtml = `
-                                <div style="color:#aaa;font-size:12px;margin-top:8px;line-height:1.6;">
-                                    <div>🔧 CPU: ${h.hardware.cpu_name || 'Unknown'}</div>
-                                    <div>🎮 GPU: ${h.hardware.gpu_name || 'Unknown'}</div>
-                                    <div>💾 RAM: ${h.hardware.ram_total_gb || 0}GB</div>
-                                    <div>💿 Storage: ${h.hardware.storage_total_gb || 0}GB</div>
-                                    <div>💻 Device: ${h.hardware.device_name || 'Unknown'}</div>
-                                    <div>👤 Profile: ${h.hardware.profile_name || 'Default'}</div>
-                                    <div>👔 Owner: ${h.hardware.registered_owner || 'Unknown'}</div>
-                                </div>
-                            `;
-                        }
                         return `
                             <div style="border-left:3px solid #4CAF50;padding:10px;background:rgba(76,175,80,0.05);border-radius:4px;margin-bottom:8px;">
                                 <code style="color:#4CAF50;font-weight:bold;word-break:break-all;">${h.hwid}</code>
-                                ${hardwareHtml || '<div style="color:#888;margin-top:8px;">No hardware specs available</div>'}
+                                <div style="color:#aaa;font-size:12px;margin-top:8px;line-height:1.6;">
+                                    ${formatHardwareDisplay(h.hardware)}
+                                </div>
                                 <div style="color:#888;font-size:11px;margin-top:4px;">Assigned: ${h.assigned_at ? new Date(h.assigned_at).toLocaleString() : 'N/A'}</div>
                             </div>
                         `;
