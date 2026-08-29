@@ -274,12 +274,19 @@ app.get('/dashboard', isAuthenticated, async (req, res) => {
         db.cleanupInactiveDevices().catch(err => console.error('Cleanup error:', err));
         
         const data = await db.getDashboardData();
+        let autoDeactivated = [];
+        try {
+            autoDeactivated = await db.getAutoDeactivatedCodesWithHwidDetails();
+        } catch (e) {
+            console.error('Dashboard auto-deactivated load error:', e);
+        }
         res.render('dashboard', { 
             username: req.session.username,
             devices: data.devices || [],
             stats: data.stats || {},
             codes: data.codes || [],
             requests: data.requests || [],
+            autoDeactivated: autoDeactivated || [],
             autoRefresh: true,
             refreshInterval: 15000
         });
@@ -918,11 +925,19 @@ app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
             storage_total_gb: device.storage_total_gb
         }));
         
+        let autoDeactivated = [];
+        try {
+            autoDeactivated = await db.getAutoDeactivatedCodesWithHwidDetails();
+        } catch (e) {
+            console.error('Auto-deactivated dashboard fetch error:', e);
+        }
+
         res.json({
             stats: data.stats || {},
             devices: devicesWithoutWallpaper,
             codes: data.codes || [],
             requests: data.requests || [],
+            autoDeactivated: autoDeactivated || [],
             username: req.session.username,
             cache_age: Math.floor((Date.now() - data.lastUpdate) / 1000),
             cache_ttl: db.cacheTTL || 60,

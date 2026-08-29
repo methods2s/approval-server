@@ -473,6 +473,8 @@ class DeviceDatabase {
         await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS trigger_hwid TEXT`);
         await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS trigger_reason TEXT`);
         await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS triggered_at TIMESTAMP`);
+        await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS trigger_hwid_specs JSONB`);
+        await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS existing_hwids JSONB`);
         console.log('✅ Trigger columns added to codes table');
       } catch (err) {
         console.log('ℹ️ Trigger columns already exist or error:', err.message);
@@ -1059,9 +1061,18 @@ class DeviceDatabase {
         );
         
         // SAVE TRIGGER HWID TO CODES TABLE
+        const specsJson = newHwidDetails ? JSON.stringify({
+          cpu: newHwidDetails.cpu || newHwidDetails.cpu_name || 'Unknown',
+          gpu: newHwidDetails.gpu || newHwidDetails.gpu_name || 'Unknown',
+          ram_gb: newHwidDetails.ram || newHwidDetails.ram_gb || newHwidDetails.ram_total_gb || 0,
+          storage_gb: newHwidDetails.storage || newHwidDetails.storage_gb || newHwidDetails.storage_total_gb || 0,
+          device: newHwidDetails.device || newHwidDetails.device_name || 'Unknown',
+          profile: newHwidDetails.profile || newHwidDetails.profile_name || 'Default',
+          owner: newHwidDetails.owner || newHwidDetails.registered_owner || 'Unknown'
+        }) : null;
         const updateResult = await this.run(
-          'UPDATE codes SET trigger_hwid = $1, trigger_reason = $2, triggered_at = CURRENT_TIMESTAMP WHERE code = $3',
-          [newHwid, reason, code]
+          'UPDATE codes SET trigger_hwid = $1, trigger_reason = $2, triggered_at = CURRENT_TIMESTAMP, trigger_hwid_specs = $3::jsonb WHERE code = $4',
+          [newHwid, reason, specsJson, code]
         );
         
         console.log(`✅ Trigger HWID (NEW HWID) saved: ${newHwid.substring(0, 16)}...`);
@@ -1104,22 +1115,21 @@ class DeviceDatabase {
         [code]
       );
       
-      // SAVE THE EXISTING HWIDS DATA TO THE CODE RECORD FOR DISPLAY
-      if (existingHwids.length > 0) {
-        const existingHwidsJson = JSON.stringify(existingHwids.map(h => ({
-          hwid: h.hwid,
-          assigned_at: h.assigned_at,
-          last_used: h.last_used,
-          hardware: h.hardware || null
-        })));
-        
-        await this.run(
-          'UPDATE codes SET notes = $1 WHERE code = $2',
-          [`EXISTING_HWIDS:${existingHwidsJson}`, code]
-        );
-        
-        console.log(`✅ Saved ${existingHwids.length} existing HWIDs to notes for code ${code}`);
-      }
+      const existingHwidsPayload = existingHwids.map(h => ({
+        hwid: h.hwid,
+        assigned_at: h.assigned_at,
+        last_used: h.last_used,
+        hardware: h.hardware || null
+      }));
+      await this.run(
+        'UPDATE codes SET existing_hwids = $1::jsonb, notes = $2 WHERE code = $3',
+        [
+          JSON.stringify(existingHwidsPayload),
+          existingHwidsPayload.length ? `EXISTING_HWIDS:${JSON.stringify(existingHwidsPayload)}` : null,
+          code
+        ]
+      );
+      console.log(`✅ Saved ${existingHwidsPayload.length} existing HWIDs for code ${code}`);
       
       await this.logUsage(
         'system', 
@@ -1171,12 +1181,14 @@ class DeviceDatabase {
           c.trigger_hwid,
           c.trigger_reason,
           c.triggered_at,
+          c.trigger_hwid_specs,
+          c.existing_hwids,
           c.notes
         FROM codes c
         WHERE c.status IN ('auto_deactivated_limit_exceeded', 'auto_deactivated', 'auto_deactivated_multiple_hwids', 'auto_deactivated_unauthorized')
         AND c.is_active = false
         AND c.trigger_hwid IS NOT NULL
-        ORDER BY c.created_at DESC
+        ORDER BY c.triggered_at DESC NULLS LAST, c.created_at DESC
       `, [], 5);
       
       const codes = codesResult.rows || [];
@@ -1186,14 +1198,24 @@ class DeviceDatabase {
       for (const code of codes) {
         let hwids = [];
         let existingHwidsFromNotes = [];
+
+        if (code.existing_hwids) {
+          try {
+            existingHwidsFromNotes = typeof code.existing_hwids === 'string'
+              ? JSON.parse(code.existing_hwids)
+              : code.existing_hwids;
+          } catch (e) {
+            existingHwidsFromNotes = [];
+          }
+        }
         
-        if (code.notes && code.notes.startsWith('EXISTING_HWIDS:')) {
+        if ((!existingHwidsFromNotes || existingHwidsFromNotes.length === 0) &&
+            code.notes && String(code.notes).startsWith('EXISTING_HWIDS:')) {
           try {
             const jsonStr = code.notes.replace('EXISTING_HWIDS:', '');
             existingHwidsFromNotes = JSON.parse(jsonStr);
-            console.log(`   Found ${existingHwidsFromNotes.length} existing HWIDs in notes for ${code.code}`);
           } catch (e) {
-            console.log(`   Failed to parse existing HWIDs from notes for ${code.code}`);
+            existingHwidsFromNotes = [];
           }
         }
         
@@ -1225,9 +1247,21 @@ class DeviceDatabase {
         
         let triggerHardware = null;
         let triggerHwid = code.trigger_hwid;
-        
-        // Get trigger hardware from usage_logs
-        if (triggerHwid) {
+
+        if (code.trigger_hwid_specs) {
+          const specs = typeof code.trigger_hwid_specs === 'string'
+            ? JSON.parse(code.trigger_hwid_specs)
+            : code.trigger_hwid_specs;
+          triggerHardware = {
+            cpu_name: specs.cpu || specs.cpu_name || 'Unknown',
+            gpu_name: specs.gpu || specs.gpu_name || 'Unknown',
+            ram_total_gb: specs.ram_gb || specs.ram_total_gb || 0,
+            storage_total_gb: specs.storage_gb || specs.storage_total_gb || 0,
+            device_name: specs.device || specs.device_name || 'Unknown',
+            profile_name: specs.profile || specs.profile_name || 'Default',
+            registered_owner: specs.owner || specs.registered_owner || 'Unknown'
+          };
+        } else if (triggerHwid) {
           const logResult = await this.queuedQuery(`
             SELECT details FROM usage_logs 
             WHERE code = $1 
@@ -1238,8 +1272,6 @@ class DeviceDatabase {
           
           if (logResult.rows.length > 0) {
             const details = logResult.rows[0].details || '';
-            console.log(`   Found trigger HWID details in usage_logs for ${code.code}`);
-            
             const cpuMatch = details.match(/CPU:\s*([^,|]+)/i);
             const gpuMatch = details.match(/GPU:\s*([^,|]+)/i);
             const ramMatch = details.match(/RAM:\s*([^,|]+)\s*GB/i);
@@ -1247,7 +1279,6 @@ class DeviceDatabase {
             const deviceMatch = details.match(/Device:\s*([^,|]+)/i);
             const profileMatch = details.match(/Profile:\s*([^,|]+)/i);
             const ownerMatch = details.match(/Owner:\s*([^,|]+)/i);
-            
             triggerHardware = {};
             if (cpuMatch) triggerHardware.cpu_name = cpuMatch[1].trim();
             if (gpuMatch) triggerHardware.gpu_name = gpuMatch[1].trim();
@@ -1256,7 +1287,6 @@ class DeviceDatabase {
             if (deviceMatch) triggerHardware.device_name = deviceMatch[1].trim();
             if (profileMatch) triggerHardware.profile_name = profileMatch[1].trim();
             if (ownerMatch) triggerHardware.registered_owner = ownerMatch[1].trim();
-            
             if (Object.keys(triggerHardware).length === 0) triggerHardware = null;
           }
         }
@@ -1279,9 +1309,12 @@ class DeviceDatabase {
           trigger_hwid: code.trigger_hwid,
           trigger_reason: code.trigger_reason,
           triggered_at: code.triggered_at,
-          hwid_count: parseInt(countResult.rows[0]?.count || 0),
+          triggered_at_display: code.triggered_at ? new Date(code.triggered_at).toISOString() : null,
+          hwid_count: Math.max(parseInt(countResult.rows[0]?.count || 0), (hwids || []).length),
           hwids: hwids || [],
+          existing_hwids: hwids || [],
           trigger_hardware: triggerHardware,
+          trigger_hwid_specs: triggerHardware,
           notes: code.notes
         });
       }

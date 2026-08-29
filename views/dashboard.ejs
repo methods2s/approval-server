@@ -651,14 +651,15 @@
                                 <tr>
                                     <th style="width:90px;">Code</th>
                                     <th>Username</th>
+                                    <th style="width:150px;">🗓️ Triggered</th>
                                     <th style="width:90px;">HWID Limit</th>
-                                    <th style="min-width:280px;">🆕 New HWID (Trigger)</th>
+                                    <th style="min-width:300px;">⚡ Trigger HWID + Specs</th>
                                     <th style="min-width:300px;">📋 Existing HWIDs</th>
                                     <th style="width:280px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="auto-deactivated-body">
-                                <tr><td colspan="6" style="text-align:center;color:#888;padding:30px;">
+                                <tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">
                                     <div class="loading-text"><span class="spinner"></span> Loading auto-deactivated codes...</div>
                                 </td></tr>
                             </tbody>
@@ -690,6 +691,8 @@
                     <p><strong>HWID Limit:</strong> <span id="detail-limit"></span></p>
                     <p><strong>Current HWID Count:</strong> <span id="detail-count"></span></p>
                     <p><strong>Created:</strong> <span id="detail-created"></span></p>
+                    <p><strong>Triggered:</strong> <span id="detail-triggered" style="color:#FF9800;"></span></p>
+                    <p><strong>Reason:</strong> <span id="detail-reason"></span></p>
                     <p><strong>Expires:</strong> <span id="detail-expires"></span></p>
                 </div>
                 <div class="detail-section" style="border:1px solid #FF9800;">
@@ -1843,12 +1846,20 @@
         function formatHardwareForDisplay(hardware) {
             if (!hardware) return 'No hardware specs';
             const parts = [];
-            if (hardware.device_name && hardware.device_name !== 'Unknown' && hardware.device_name !== 'N/A' && hardware.device_name !== '') 
-                parts.push('💻 ' + hardware.device_name);
-            if (hardware.profile_name && hardware.profile_name !== 'Default' && hardware.profile_name !== 'Unknown' && hardware.profile_name !== 'N/A') 
-                parts.push('👤 ' + hardware.profile_name);
-            if (hardware.registered_owner && hardware.registered_owner !== 'Unknown' && hardware.registered_owner !== 'N/A' && hardware.registered_owner !== '') 
-                parts.push('👔 ' + hardware.registered_owner);
+            const cpu = hardware.cpu_name || hardware.cpu;
+            const gpu = hardware.gpu_name || hardware.gpu;
+            const ram = hardware.ram_total_gb || hardware.ram_gb;
+            const storage = hardware.storage_total_gb || hardware.storage_gb;
+            const device = hardware.device_name || hardware.device;
+            const profile = hardware.profile_name || hardware.profile;
+            const owner = hardware.registered_owner || hardware.owner;
+            if (cpu && cpu !== 'Unknown' && cpu !== 'N/A') parts.push('🖥️ ' + cpu);
+            if (gpu && gpu !== 'Unknown' && gpu !== 'N/A') parts.push('🎮 ' + gpu);
+            if (ram && Number(ram) > 0) parts.push('💾 ' + ram + 'GB RAM');
+            if (storage && Number(storage) > 0) parts.push('📀 ' + storage + 'GB');
+            if (device && device !== 'Unknown' && device !== 'N/A' && device !== '') parts.push('💻 ' + device);
+            if (profile && profile !== 'Default' && profile !== 'Unknown' && profile !== 'N/A') parts.push('👤 ' + profile);
+            if (owner && owner !== 'Unknown' && owner !== 'N/A' && owner !== '') parts.push('👔 ' + owner);
             return parts.length > 0 ? parts.join(' | ') : 'No hardware specs';
         }
 
@@ -1866,7 +1877,7 @@
                 return;
             }
             
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading auto-deactivated codes...</div></td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;"><div class="loading-text"><span class="spinner"></span> Loading auto-deactivated codes...</div></td></tr>';
             
             try {
                 const response = await fastFetch('/api/auto-deactivated-codes');
@@ -1881,16 +1892,16 @@
                     }
                     
                     if (autoDeactivatedCodes.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#4CAF50;padding:30px;">✅ No auto-deactivated codes found</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#4CAF50;padding:30px;">✅ No auto-deactivated codes found</td></tr>';
                     } else {
                         renderAutoDeactivatedCodes(autoDeactivatedCodes);
                     }
                 } else {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load data') + '</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed to load data') + '</td></tr>';
                 }
             } catch (error) {
                 console.error('Load auto-deactivated codes error:', error);
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#f44336;padding:20px;">Error: ${error.message}</td></tr>`;
             }
         }
 
@@ -1899,17 +1910,18 @@
             if (!tbody) return;
             
             if (!codes || codes.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#4CAF50;padding:30px;">✅ No auto-deactivated codes found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#4CAF50;padding:30px;">✅ No auto-deactivated codes found</td></tr>';
                 return;
             }
             
             tbody.innerHTML = codes.map((code, index) => {
-                const hwids = code.hwids || [];
+                const hwids = (code.existing_hwids && code.existing_hwids.length) ? code.existing_hwids : (code.hwids || []);
                 const limit = code.max_hwid_limit || 1;
+                const triggeredAt = code.triggered_at ? new Date(code.triggered_at).toLocaleString() : 'Unknown';
                 
                 // Find the HWID that triggered the deactivation
                 let newHwid = code.trigger_hwid || null;
-                let newHwidHardware = code.trigger_hardware || null;
+                let newHwidHardware = code.trigger_hardware || code.trigger_hwid_specs || null;
                 
                 // If trigger_hardware is null, try to get from trigger_log
                 if (!newHwidHardware && code.trigger_log) {
@@ -1983,6 +1995,7 @@
                     <tr style="background:rgba(244,67,54,0.05);">
                         <td><strong class="code-font">${code.code}</strong></td>
                         <td>${code.username || '<span class="text-muted">N/A</span>'}</td>
+                        <td style="font-size:12px;color:#FF9800;white-space:nowrap;">${triggeredAt}</td>
                         <td style="text-align:center;"><span style="color:#FF9800;font-weight:bold;">${limit}</span></td>
                         <td>${newHwidHtml}</td>
                         <td style="max-width:350px;">${existingHwidsHtml}</td>
@@ -2023,7 +2036,7 @@
                     // UPDATE THE TABLE DIRECTLY
                     if (autoDeactivatedCodes.length === 0) {
                         document.getElementById('auto-deactivated-body').innerHTML = 
-                            '<tr><td colspan="6" style="text-align:center;color:#4CAF50;padding:30px;">✅ No auto-deactivated codes found</td></tr>';
+                            '<tr><td colspan="7" style="text-align:center;color:#4CAF50;padding:30px;">✅ No auto-deactivated codes found</td></tr>';
                     } else {
                         renderAutoDeactivatedCodes(autoDeactivatedCodes);
                     }
@@ -2067,12 +2080,16 @@
                 document.getElementById('detail-limit').textContent = c.max_hwid_limit || 1;
                 document.getElementById('detail-count').textContent = c.hwid_count || 0;
                 document.getElementById('detail-created').textContent = c.created_at ? new Date(c.created_at).toLocaleString() : 'N/A';
+                const trigEl = document.getElementById('detail-triggered');
+                if (trigEl) trigEl.textContent = c.triggered_at ? new Date(c.triggered_at).toLocaleString() : 'Unknown';
+                const reasonEl = document.getElementById('detail-reason');
+                if (reasonEl) reasonEl.textContent = c.trigger_reason || c.status || 'N/A';
                 document.getElementById('detail-expires').textContent = c.expires_at ? new Date(c.expires_at).toLocaleString() : 'Never';
                 
                 // Find new HWID - use trigger_hardware from server
-                const hwids = c.hwids || [];
+                const hwids = (c.existing_hwids && c.existing_hwids.length) ? c.existing_hwids : (c.hwids || []);
                 let newHwid = c.trigger_hwid || null;
-                let newHwidHardware = c.trigger_hardware || null;
+                let newHwidHardware = c.trigger_hardware || c.trigger_hwid_specs || null;
                 
                 // If trigger_hardware is null, try to extract from trigger_log
                 if (!newHwidHardware && c.trigger_log) {
@@ -2098,12 +2115,20 @@
                 const formatHardwareDisplay = (hardware) => {
                     if (!hardware) return 'No hardware specs available';
                     const parts = [];
-                    if (hardware.device_name && hardware.device_name !== 'Unknown' && hardware.device_name !== 'N/A' && hardware.device_name !== '') 
-                        parts.push('💻 Device: ' + hardware.device_name);
-                    if (hardware.profile_name && hardware.profile_name !== 'Default' && hardware.profile_name !== 'Unknown' && hardware.profile_name !== 'N/A') 
-                        parts.push('👤 Profile: ' + hardware.profile_name);
-                    if (hardware.registered_owner && hardware.registered_owner !== 'Unknown' && hardware.registered_owner !== 'N/A' && hardware.registered_owner !== '') 
-                        parts.push('👔 Owner: ' + hardware.registered_owner);
+                    const cpu = hardware.cpu_name || hardware.cpu;
+                    const gpu = hardware.gpu_name || hardware.gpu;
+                    const ram = hardware.ram_total_gb || hardware.ram_gb;
+                    const storage = hardware.storage_total_gb || hardware.storage_gb;
+                    const device = hardware.device_name || hardware.device;
+                    const profile = hardware.profile_name || hardware.profile;
+                    const owner = hardware.registered_owner || hardware.owner;
+                    if (cpu && cpu !== 'Unknown' && cpu !== 'N/A') parts.push('🖥️ CPU: ' + cpu);
+                    if (gpu && gpu !== 'Unknown' && gpu !== 'N/A') parts.push('🎮 GPU: ' + gpu);
+                    if (ram && Number(ram) > 0) parts.push('💾 RAM: ' + ram + ' GB');
+                    if (storage && Number(storage) > 0) parts.push('📀 Storage: ' + storage + ' GB');
+                    if (device && device !== 'Unknown' && device !== 'N/A' && device !== '') parts.push('💻 Device: ' + device);
+                    if (profile && profile !== 'Default' && profile !== 'Unknown' && profile !== 'N/A') parts.push('👤 Profile: ' + profile);
+                    if (owner && owner !== 'Unknown' && owner !== 'N/A' && owner !== '') parts.push('👔 Owner: ' + owner);
                     return parts.length > 0 ? parts.join('<br>') : 'No hardware specs available';
                 };
                 
