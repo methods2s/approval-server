@@ -740,6 +740,16 @@ class DeviceDatabase {
       await this.logUsage(deviceId, code, 'register', 
         `Device registered | Profile: ${profileName} | Owner: ${registeredOwner}`
       );
+
+      await this.recordNewHwid(hwid, code, 'auto_assign', {
+        cpu: cpuName,
+        gpu: gpuName,
+        ram_gb: ramTotal,
+        storage_gb: storageTotal,
+        device_name: deviceName,
+        profile_name: profileName,
+        registered_owner: registeredOwner
+      });
       
       await this.refreshCache();
 
@@ -888,10 +898,9 @@ class DeviceDatabase {
       if (!hwid) return { success: false };
 
       const exists = await this.get(
-        'SELECT id FROM new_hwids WHERE hwid = $1 AND COALESCE(code, \'\') = COALESCE($2, \'\') AND source = $3 LIMIT 1',
+        'SELECT id, cpu_name, owner FROM new_hwids WHERE hwid = $1 AND COALESCE(code, \'\') = COALESCE($2, \'\') AND source = $3 LIMIT 1',
         [hwid, code, source]
       );
-      if (exists) return { success: true, duplicate: true };
 
       let codeInfo = null;
       if (code) {
@@ -928,6 +937,29 @@ class DeviceDatabase {
       const gpu = hw?.gpu || hw?.gpu_name || null;
       const ram = hw?.ram_gb || hw?.ram_total_gb || null;
       const storage = hw?.storage_gb || hw?.storage_total_gb || null;
+
+      if (exists) {
+        await this.run(
+          `UPDATE new_hwids SET
+            username = COALESCE($1, username),
+            hardware = COALESCE($2::jsonb, hardware),
+            owner = COALESCE($3, owner),
+            device_name = COALESCE($4, device_name),
+            profile_name = COALESCE($5, profile_name),
+            cpu_name = COALESCE($6, cpu_name),
+            gpu_name = COALESCE($7, gpu_name),
+            ram_gb = COALESCE($8, ram_gb),
+            storage_gb = COALESCE($9, storage_gb)
+           WHERE id = $10`,
+          [
+            codeInfo?.username || null,
+            hw ? JSON.stringify(hw) : null,
+            owner, deviceName, profileName, cpu, gpu, ram, storage,
+            exists.id
+          ]
+        );
+        return { success: true, updated: true };
+      }
 
       await this.run(
         `INSERT INTO new_hwids
@@ -970,6 +1002,17 @@ class DeviceDatabase {
     }
   }
 
+  async removeNewHwidsByHwid(hwid) {
+    try {
+      if (!hwid) return { success: false };
+      const result = await this.run('DELETE FROM new_hwids WHERE hwid = $1', [hwid]);
+      return { success: true, deleted: result.changes || 0 };
+    } catch (error) {
+      console.error('Remove new HWIDs by hwid error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
   async deleteNewHwid(id) {
     try {
       const result = await this.run('DELETE FROM new_hwids WHERE id = $1', [id]);
@@ -1005,6 +1048,7 @@ class DeviceDatabase {
           'UPDATE code_hwids SET last_used = CURRENT_TIMESTAMP WHERE code = $1 AND hwid = $2',
           [code, hwid]
         );
+        await this.recordNewHwid(hwid, code, autoAssign ? 'auto_assign' : 'assigned', hardware);
         return { success: true, message: 'HWID already assigned, updated last_used' };
       }
 
