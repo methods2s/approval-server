@@ -1977,6 +1977,7 @@
                 if (s === 'limit_exceeded') return '<span class="badge auto-deactivated">LIMIT</span>';
                 if (s === 'auto_assign') return '<span class="badge active">AUTO</span>';
                 if (s === 'admin') return '<span class="badge vip">ADMIN</span>';
+                if (s === 'extension_open') return '<span class="badge" style="background:rgba(0,188,212,0.2);color:#00BCD4;">OPENED</span>';
                 return '<span class="badge svip">ASSIGNED</span>';
             };
             const mask = (h) => !h ? 'N/A' : (h.length > 24 ? h.substring(0,16)+'...'+h.substring(h.length-8) : h);

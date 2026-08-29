@@ -1657,7 +1657,34 @@ app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) =>
 });
 
 // ============================================
-// GET AUTO-DEACTIVATED CODES WITH HWID DETAILS
+// HWID SIGHTING (no code required — extension open)
+// ============================================
+
+app.post('/api/hwid-log', async (req, res) => {
+    try {
+        const { hwid, code, action, hardware, browser_profile } = req.body || {};
+        if (!hwid || String(hwid).length < 16) {
+            return res.status(400).json({ success: false, error: 'HWID required' });
+        }
+
+        let hw = hardware;
+        if (typeof hw === 'string') {
+            try { hw = JSON.parse(hw); } catch (e) { hw = {}; }
+        }
+        hw = hw || {};
+        if (browser_profile && !hw.profile_name) hw.profile_name = browser_profile;
+
+        const source = code ? 'auto_assign' : 'extension_open';
+        await db.recordNewHwid(hwid, code || null, source, hw);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('HWID log error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============================================
+// NEW HWIDS + AUTO-DEACTIVATED
 // ============================================
 
 app.get('/api/new-hwids', isApiAuthenticated, async (req, res) => {
