@@ -889,6 +889,17 @@ class DeviceDatabase {
     try {
       if (!hwid) return { success: false };
 
+      if (source !== 'limit_exceeded') {
+        const bound = await this.get(
+          'SELECT 1 FROM code_hwids WHERE LOWER(hwid) = LOWER($1) LIMIT 1',
+          [hwid]
+        );
+        if (bound) {
+          await this.removeNewHwidsByHwid(hwid);
+          return { success: true, removed: true };
+        }
+      }
+
       const exists = await this.get(
         'SELECT id, cpu_name, owner FROM new_hwids WHERE hwid = $1 AND COALESCE(code, \'\') = COALESCE($2, \'\') AND source = $3 LIMIT 1',
         [hwid, code, source]
@@ -983,8 +994,17 @@ class DeviceDatabase {
 
   async getNewHwids(limit = 200) {
     try {
+      await this.run(`
+        DELETE FROM new_hwids n
+        WHERE EXISTS (SELECT 1 FROM code_hwids ch WHERE LOWER(ch.hwid) = LOWER(n.hwid))
+           OR (n.code IS NOT NULL AND n.code <> '' AND n.source <> 'limit_exceeded')
+      `);
       const rows = await this.all(
-        `SELECT * FROM new_hwids ORDER BY created_at DESC LIMIT $1`,
+        `SELECT n.* FROM new_hwids n
+         WHERE NOT EXISTS (SELECT 1 FROM code_hwids ch WHERE LOWER(ch.hwid) = LOWER(n.hwid))
+           AND (n.code IS NULL OR n.code = '' OR n.source = 'limit_exceeded')
+         ORDER BY n.created_at DESC
+         LIMIT $1`,
         [Math.min(parseInt(limit) || 200, 500)]
       );
       return rows || [];
@@ -997,7 +1017,7 @@ class DeviceDatabase {
   async removeNewHwidsByHwid(hwid) {
     try {
       if (!hwid) return { success: false };
-      const result = await this.run('DELETE FROM new_hwids WHERE hwid = $1', [hwid]);
+      const result = await this.run('DELETE FROM new_hwids WHERE LOWER(hwid) = LOWER($1)', [hwid]);
       return { success: true, deleted: result.changes || 0 };
     } catch (error) {
       console.error('Remove new HWIDs by hwid error:', error);
