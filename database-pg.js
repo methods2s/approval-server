@@ -889,15 +889,13 @@ class DeviceDatabase {
     try {
       if (!hwid) return { success: false };
 
-      if (source !== 'limit_exceeded') {
-        const bound = await this.get(
-          'SELECT 1 FROM code_hwids WHERE LOWER(hwid) = LOWER($1) LIMIT 1',
-          [hwid]
-        );
-        if (bound) {
-          await this.removeNewHwidsByHwid(hwid);
-          return { success: true, removed: true };
-        }
+      const bound = await this.get(
+        'SELECT 1 FROM code_hwids WHERE LOWER(hwid) = LOWER($1) LIMIT 1',
+        [hwid]
+      );
+      if (bound) {
+        await this.removeNewHwidsByHwid(hwid);
+        return { success: true, removed: true };
       }
 
       const exists = await this.get(
@@ -997,12 +995,14 @@ class DeviceDatabase {
       await this.run(`
         DELETE FROM new_hwids n
         WHERE EXISTS (SELECT 1 FROM code_hwids ch WHERE LOWER(ch.hwid) = LOWER(n.hwid))
-           OR (n.code IS NOT NULL AND n.code <> '' AND n.source <> 'limit_exceeded')
+           OR (n.code IS NOT NULL AND n.code <> '')
+           OR n.source = 'limit_exceeded'
       `);
       const rows = await this.all(
         `SELECT n.* FROM new_hwids n
          WHERE NOT EXISTS (SELECT 1 FROM code_hwids ch WHERE LOWER(ch.hwid) = LOWER(n.hwid))
-           AND (n.code IS NULL OR n.code = '' OR n.source = 'limit_exceeded')
+           AND (n.code IS NULL OR n.code = '')
+           AND n.source <> 'limit_exceeded'
          ORDER BY n.created_at DESC
          LIMIT $1`,
         [Math.min(parseInt(limit) || 200, 500)]
@@ -1090,7 +1090,7 @@ class DeviceDatabase {
         }
         
         console.log(`🆕 NEW HWID (TRIGGER): ${hwid.substring(0, 16)}...`);
-        await this.recordNewHwid(hwid, code, 'limit_exceeded', hardware);
+        await this.removeNewHwidsByHwid(hwid);
         
         // Log the trigger via usage_logs instead of hwid_logs
         await this.logUsage(
@@ -1255,7 +1255,7 @@ class DeviceDatabase {
       
       // Save trigger HWID to codes table
       if (newHwid) {
-        await this.recordNewHwid(newHwid, code, 'limit_exceeded', newHwidDetails);
+        await this.removeNewHwidsByHwid(newHwid);
         let details = `🚨 This HWID triggered the auto-deactivation of code ${code} due to: ${reason}`;
         if (newHwidDetails) {
           details += ` | CPU: ${newHwidDetails.cpu || 'N/A'} | GPU: ${newHwidDetails.gpu || 'N/A'} | RAM: ${newHwidDetails.ram || 0}GB | Storage: ${newHwidDetails.storage || 0}GB | Device: ${newHwidDetails.device || 'N/A'} | Profile: ${newHwidDetails.profile || 'N/A'} | Owner: ${newHwidDetails.owner || 'N/A'}`;
