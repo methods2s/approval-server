@@ -293,6 +293,26 @@ class DeviceDatabase {
         "SELECT * FROM requests WHERE status = 'pending' ORDER BY requested_at ASC LIMIT 50",
         [], 3
       );
+
+      const ownersResult = await this.queuedQuery(`
+        SELECT code,
+               ARRAY_AGG(DISTINCT registered_owner) FILTER (
+                 WHERE registered_owner IS NOT NULL
+                   AND registered_owner <> ''
+                   AND LOWER(registered_owner) NOT IN ('unknown', 'n/a', 'na')
+               ) AS owners
+        FROM devices
+        WHERE code IS NOT NULL
+        GROUP BY code
+      `, [], 3);
+      const ownersByCode = {};
+      for (const row of (ownersResult.rows || [])) {
+        ownersByCode[row.code] = (row.owners || []).filter(Boolean);
+      }
+      const codesWithOwners = (codes.rows || []).map(c => ({
+        ...c,
+        owners: ownersByCode[c.code] || []
+      }));
       
       const statsData = {
         total: parseInt(stats.rows[0]?.total || 0),
@@ -305,7 +325,7 @@ class DeviceDatabase {
       };
       
       this.cache.stats = statsData;
-      this.cache.codes = codes.rows;
+      this.cache.codes = codesWithOwners;
       this.cache.devices = devices.rows;
       this.cache.requests = requests.rows;
       this.cache.lastUpdate = Date.now();
@@ -1487,13 +1507,41 @@ class DeviceDatabase {
     }
   }
 
+  async getOwnersByCode() {
+    try {
+      const result = await this.all(`
+        SELECT code,
+               ARRAY_AGG(DISTINCT registered_owner) FILTER (
+                 WHERE registered_owner IS NOT NULL
+                   AND registered_owner <> ''
+                   AND LOWER(registered_owner) NOT IN ('unknown', 'n/a', 'na')
+               ) AS owners
+        FROM devices
+        WHERE code IS NOT NULL
+        GROUP BY code
+      `);
+      const map = {};
+      for (const row of (result || [])) {
+        map[row.code] = (row.owners || []).filter(Boolean);
+      }
+      return map;
+    } catch (error) {
+      console.error('Get owners by code error:', error);
+      return {};
+    }
+  }
+
   async getAllCodes() {
     try {
       const result = await this.all(
         `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit, trigger_hwid, trigger_reason, triggered_at
          FROM codes ORDER BY created_at DESC LIMIT 500`
       );
-      return result || [];
+      const ownersByCode = await this.getOwnersByCode();
+      return (result || []).map(c => ({
+        ...c,
+        owners: ownersByCode[c.code] || []
+      }));
     } catch (error) {
       console.error('Get all codes error:', error);
       return this.cache.codes || [];

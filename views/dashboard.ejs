@@ -1131,13 +1131,24 @@
         // ============================================
         function getOwnersForCode(code) {
             const owners = [];
-            const devices = allDevices.filter(d => d.code === code && d.status === 'approved');
-            for (const device of devices) {
-                if (device.registered_owner && device.registered_owner !== 'Unknown' && device.registered_owner !== 'N/A' && device.registered_owner !== '') {
-                    if (!owners.includes(device.registered_owner)) {
-                        owners.push(device.registered_owner);
-                    }
-                }
+            const add = (name) => {
+                if (!name) return;
+                const n = String(name).trim();
+                if (!n || ['unknown', 'n/a', 'na', ''].includes(n.toLowerCase())) return;
+                if (!owners.includes(n)) owners.push(n);
+            };
+            const codeRow = (allCodes || []).find(c => c.code === code);
+            if (codeRow && Array.isArray(codeRow.owners)) {
+                codeRow.owners.forEach(add);
+            }
+            const devices = (allDevices || []).filter(d => d.code === code);
+            for (const device of devices) add(device.registered_owner);
+            const cached = hwidDetailsCache[code];
+            if (cached && cached.hwidData && Array.isArray(cached.hwidData.hwids)) {
+                cached.hwidData.hwids.forEach(h => {
+                    const hw = h.hardware || {};
+                    add(hw.registered_owner || hw.owner);
+                });
             }
             return owners;
         }
