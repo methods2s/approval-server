@@ -1825,14 +1825,7 @@
                             <code style="font-size:11px;font-weight:bold;color:#4CAF50;word-break:break-all;" title="${hwidFull}">${hwidMasked}</code>
                         </td>
                         <td style="font-size:11px;line-height:1.8;">
-                            ${hasSpecs ? `
-                                <div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>
-                                <div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>
-                                <div><span class="hwid-spec-detail ram">💾 RAM: ${ram}</span></div>
-                                <div><span class="hwid-spec-detail device">💻 Device: ${deviceName}</span></div>
-                                <div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>
-                                <div><span class="hwid-spec-detail owner">👔 Owner: ${registeredOwner}</span></div>
-                            ` : `
+                            ${hasSpecs ? hardwareSpecLines(hardware) : `
                                 <div style="color:#888;font-style:italic;">No hardware specs available. Please register a device first.</div>
                             `}
                         </td>
@@ -1934,11 +1927,37 @@
             if (cpu && cpu !== 'Unknown' && cpu !== 'N/A') parts.push('🖥️ ' + cpu);
             if (gpu && gpu !== 'Unknown' && gpu !== 'N/A') parts.push('🎮 ' + gpu);
             if (ram && Number(ram) > 0) parts.push('💾 ' + ram + 'GB RAM');
-            if (storage && Number(storage) > 0) parts.push('📀 ' + storage + 'GB');
             if (device && device !== 'Unknown' && device !== 'N/A' && device !== '') parts.push('💻 ' + device);
             if (profile && profile !== 'Default' && profile !== 'Unknown' && profile !== 'N/A') parts.push('👤 ' + profile);
             if (owner && owner !== 'Unknown' && owner !== 'N/A' && owner !== '') parts.push('👔 ' + owner);
             return parts.length > 0 ? parts.join(' | ') : 'No hardware specs';
+        }
+
+        function isBlankSpec(v) {
+            if (v === null || v === undefined) return true;
+            const s = String(v).trim();
+            if (!s) return true;
+            const low = s.toLowerCase();
+            return low === 'unknown' || low === 'n/a' || low === 'na' || low === 'default' || low === '0' || low === '0 gb';
+        }
+
+        function hardwareSpecLines(hardware) {
+            const hw = hardware || {};
+            const rows = [];
+            const cpu = hw.cpu_name || hw.cpu;
+            const gpu = hw.gpu_name || hw.gpu;
+            const ram = hw.ram_total_gb || hw.ram_gb;
+            const device = hw.device_name || hw.device;
+            const profile = hw.profile_name || hw.profile;
+            const owner = hw.registered_owner || hw.owner;
+            if (!isBlankSpec(cpu)) rows.push(`<div><span class="hwid-spec-detail cpu">🔧 CPU: ${cpu}</span></div>`);
+            if (!isBlankSpec(gpu)) rows.push(`<div><span class="hwid-spec-detail gpu">🎮 GPU: ${gpu}</span></div>`);
+            if (ram && Number(ram) > 0) rows.push(`<div><span class="hwid-spec-detail ram">💾 RAM: ${ram} GB</span></div>`);
+            if (!isBlankSpec(device)) rows.push(`<div><span class="hwid-spec-detail device">💻 Device: ${device}</span></div>`);
+            if (!isBlankSpec(profile)) rows.push(`<div><span class="hwid-spec-detail profile">👤 Profile: ${profile}</span></div>`);
+            if (!isBlankSpec(owner)) rows.push(`<div><span class="hwid-spec-detail owner">👔 Owner: ${owner}</span></div>`);
+            if (!rows.length) return '<div style="color:#888;font-style:italic;">No hardware specs</div>';
+            return rows.join('');
         }
 
         // ============================================
@@ -2146,18 +2165,10 @@
                     }
                     return hwidList.map(h => {
                         const hwidDisplay = formatHwid(h.hwid);
-                        const hw = h.hardware || {};
                         return `
                             <div style="border-left:3px solid #4CAF50;background:rgba(76,175,80,0.05);padding:8px 10px;margin-bottom:6px;border-radius:4px;font-size:11px;">
                                 <code style="color:#4CAF50;font-weight:bold;">${hwidDisplay}</code>
-                                <div style="margin-top:6px;line-height:1.8;">
-                                    <div><span class="hwid-spec-detail cpu">🔧 CPU: ${hw.cpu_name || hw.cpu || 'N/A'}</span></div>
-                                    <div><span class="hwid-spec-detail gpu">🎮 GPU: ${hw.gpu_name || hw.gpu || 'N/A'}</span></div>
-                                    <div><span class="hwid-spec-detail ram">💾 RAM: ${hw.ram_total_gb || hw.ram_gb || 0} GB</span></div>
-                                    <div><span class="hwid-spec-detail device">💻 Device: ${hw.device_name || hw.device || 'N/A'}</span></div>
-                                    <div><span class="hwid-spec-detail profile">👤 Profile: ${hw.profile_name || hw.profile || 'N/A'}</span></div>
-                                    <div><span class="hwid-spec-detail owner">👔 Owner: ${hw.registered_owner || hw.owner || 'N/A'}</span></div>
-                                </div>
+                                <div style="margin-top:6px;line-height:1.8;">${hardwareSpecLines(h.hardware)}</div>
                             </div>
                         `;
                     }).join('');
@@ -2308,7 +2319,6 @@
                     if (cpu && cpu !== 'Unknown' && cpu !== 'N/A') parts.push('🖥️ CPU: ' + cpu);
                     if (gpu && gpu !== 'Unknown' && gpu !== 'N/A') parts.push('🎮 GPU: ' + gpu);
                     if (ram && Number(ram) > 0) parts.push('💾 RAM: ' + ram + ' GB');
-                    if (storage && Number(storage) > 0) parts.push('📀 Storage: ' + storage + ' GB');
                     if (device && device !== 'Unknown' && device !== 'N/A' && device !== '') parts.push('💻 Device: ' + device);
                     if (profile && profile !== 'Default' && profile !== 'Unknown' && profile !== 'N/A') parts.push('👤 Profile: ' + profile);
                     if (owner && owner !== 'Unknown' && owner !== 'N/A' && owner !== '') parts.push('👔 Owner: ' + owner);
@@ -2339,21 +2349,12 @@
                 const existingDiv = document.getElementById('detail-existing-hwids');
                 if (existingHwids.length > 0) {
                     existingDiv.innerHTML = existingHwids.map((h, i) => {
-                        const hw = h.hardware || {};
                         return `
                             <div style="border-left:3px solid #4CAF50;padding:12px;background:rgba(76,175,80,0.05);border-radius:4px;margin-bottom:10px;">
-                                <div style="font-size:11px;color:#888;margin-bottom:4px;">Existing #${i + 1} of ${existingHwids.length}</div>
+                                <div style="font-size:11px;color:#888;margin-bottom:4px;">Existing #${i + 1}</div>
                                 <code style="color:#4CAF50;font-weight:bold;word-break:break-all;">${h.hwid}</code>
-                                <div style="margin-top:8px;line-height:1.9;font-size:12px;">
-                                    <div><span class="hwid-spec-detail cpu">🔧 CPU: ${hw.cpu_name || hw.cpu || 'N/A'}</span></div>
-                                    <div><span class="hwid-spec-detail gpu">🎮 GPU: ${hw.gpu_name || hw.gpu || 'N/A'}</span></div>
-                                    <div><span class="hwid-spec-detail ram">💾 RAM: ${hw.ram_total_gb || hw.ram_gb || 0} GB</span></div>
-                                    <div><span class="hwid-spec-detail ram">📀 Storage: ${hw.storage_total_gb || hw.storage_gb || 0} GB</span></div>
-                                    <div><span class="hwid-spec-detail device">💻 Device: ${hw.device_name || hw.device || 'N/A'}</span></div>
-                                    <div><span class="hwid-spec-detail profile">👤 Profile: ${hw.profile_name || hw.profile || 'N/A'}</span></div>
-                                    <div><span class="hwid-spec-detail owner">👔 Owner: ${hw.registered_owner || hw.owner || 'N/A'}</span></div>
-                                </div>
-                                <div style="color:#888;font-size:11px;margin-top:6px;">Assigned: ${h.assigned_at ? new Date(h.assigned_at).toLocaleString() : 'N/A'} · Last used: ${h.last_used ? new Date(h.last_used).toLocaleString() : 'N/A'}</div>
+                                <div style="margin-top:8px;line-height:1.8;font-size:12px;">${hardwareSpecLines(h.hardware)}</div>
+                                <div style="color:#888;font-size:11px;margin-top:6px;">Assigned: ${h.assigned_at ? new Date(h.assigned_at).toLocaleString() : 'N/A'}</div>
                             </div>
                         `;
                     }).join('');
