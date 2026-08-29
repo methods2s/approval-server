@@ -741,15 +741,7 @@ class DeviceDatabase {
         `Device registered | Profile: ${profileName} | Owner: ${registeredOwner}`
       );
 
-      await this.recordNewHwid(hwid, code, 'auto_assign', {
-        cpu: cpuName,
-        gpu: gpuName,
-        ram_gb: ramTotal,
-        storage_gb: storageTotal,
-        device_name: deviceName,
-        profile_name: profileName,
-        registered_owner: registeredOwner
-      });
+      await this.removeNewHwidsByHwid(hwid);
       
       await this.refreshCache();
 
@@ -1048,7 +1040,7 @@ class DeviceDatabase {
           'UPDATE code_hwids SET last_used = CURRENT_TIMESTAMP WHERE code = $1 AND hwid = $2',
           [code, hwid]
         );
-        await this.recordNewHwid(hwid, code, autoAssign ? 'auto_assign' : 'assigned', hardware);
+        await this.removeNewHwidsByHwid(hwid);
         return { success: true, message: 'HWID already assigned, updated last_used' };
       }
 
@@ -1112,7 +1104,7 @@ class DeviceDatabase {
         [hwid, code]
       );
 
-      await this.recordNewHwid(hwid, code, autoAssign ? 'auto_assign' : 'assigned', hardware);
+      await this.removeNewHwidsByHwid(hwid);
 
       await this.refreshCache();
       return { success: true, message: 'HWID assigned successfully', auto_assigned: autoAssign };

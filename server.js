@@ -1674,8 +1674,11 @@ app.post('/api/hwid-log', async (req, res) => {
         hw = hw || {};
         if (browser_profile && !hw.profile_name) hw.profile_name = browser_profile;
 
-        const source = code ? 'auto_assign' : 'extension_open';
-        await db.recordNewHwid(hwid, code || null, source, hw);
+        if (code) {
+            await db.removeNewHwidsByHwid(hwid);
+        } else {
+            await db.recordNewHwid(hwid, null, 'extension_open', hw);
+        }
         res.json({ success: true });
     } catch (error) {
         console.error('HWID log error:', error);
