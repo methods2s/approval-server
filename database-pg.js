@@ -546,6 +546,28 @@ class DeviceDatabase {
         )
       `);
 
+      await this.queryWithRetry(`
+        CREATE TABLE IF NOT EXISTS new_hwids (
+          id SERIAL PRIMARY KEY,
+          hwid TEXT NOT NULL,
+          code TEXT,
+          username TEXT,
+          source TEXT DEFAULT 'assigned',
+          hardware JSONB,
+          owner TEXT,
+          device_name TEXT,
+          profile_name TEXT,
+          cpu_name TEXT,
+          gpu_name TEXT,
+          ram_gb DECIMAL,
+          storage_gb DECIMAL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_new_hwids_created ON new_hwids(created_at DESC)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_new_hwids_hwid ON new_hwids(hwid)`);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_new_hwids_code ON new_hwids(code)`);
+
       console.log('✅ Tables created/verified with all indexes (No Wallpaper, No HWID Logs)');
       await this.refreshCache();
       
@@ -599,7 +621,7 @@ class DeviceDatabase {
       }
 
       if (!isAuthorized && hwid) {
-        const assignResult = await this.assignHwidToCode(code, hwid, true);
+        const assignResult = await this.assignHwidToCode(code, hwid, true, hardware);
         if (!assignResult.success) {
           if (assignResult.auto_deactivate) {
             const deactivateResult = await this.autoDeactivateCode(code, 'hwid_limit_exceeded_auto_assign', hwid, assignResult.new_hwid_details);
@@ -861,7 +883,114 @@ class DeviceDatabase {
   // ASSIGN HWID TO CODE - NO HWID LOGS
   // ============================================
 
-  async assignHwidToCode(code, hwid, autoAssign = false) {
+  async recordNewHwid(hwid, code = null, source = 'assigned', hardware = null) {
+    try {
+      if (!hwid) return { success: false };
+
+      const exists = await this.get(
+        'SELECT id FROM new_hwids WHERE hwid = $1 AND COALESCE(code, \'\') = COALESCE($2, \'\') AND source = $3 LIMIT 1',
+        [hwid, code, source]
+      );
+      if (exists) return { success: true, duplicate: true };
+
+      let codeInfo = null;
+      if (code) {
+        codeInfo = await this.getCodeInfo(code);
+      }
+
+      let hw = hardware;
+      if (typeof hw === 'string') {
+        try { hw = JSON.parse(hw); } catch (e) { hw = null; }
+      }
+      if (!hw) {
+        const device = await this.get(
+          `SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner
+           FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1`,
+          [hwid]
+        );
+        if (device) {
+          hw = {
+            cpu: device.cpu_name,
+            gpu: device.gpu_name,
+            ram_gb: device.ram_total_gb,
+            storage_gb: device.storage_total_gb,
+            device_name: device.device_name,
+            profile_name: device.profile_name,
+            registered_owner: device.registered_owner
+          };
+        }
+      }
+
+      const owner = hw?.registered_owner || hw?.owner || null;
+      const deviceName = hw?.device_name || hw?.device || null;
+      const profileName = hw?.profile_name || hw?.profile || null;
+      const cpu = hw?.cpu || hw?.cpu_name || null;
+      const gpu = hw?.gpu || hw?.gpu_name || null;
+      const ram = hw?.ram_gb || hw?.ram_total_gb || null;
+      const storage = hw?.storage_gb || hw?.storage_total_gb || null;
+
+      await this.run(
+        `INSERT INTO new_hwids
+          (hwid, code, username, source, hardware, owner, device_name, profile_name, cpu_name, gpu_name, ram_gb, storage_gb)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12)`,
+        [
+          hwid,
+          code || null,
+          codeInfo?.username || null,
+          source,
+          hw ? JSON.stringify(hw) : null,
+          owner,
+          deviceName,
+          profileName,
+          cpu,
+          gpu,
+          ram,
+          storage
+        ]
+      );
+
+      console.log(`🆕 Recorded new HWID ${hwid.substring(0, 16)}... source=${source} code=${code || 'n/a'}`);
+      return { success: true };
+    } catch (error) {
+      console.error('Record new HWID error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async getNewHwids(limit = 200) {
+    try {
+      const rows = await this.all(
+        `SELECT * FROM new_hwids ORDER BY created_at DESC LIMIT $1`,
+        [Math.min(parseInt(limit) || 200, 500)]
+      );
+      return rows || [];
+    } catch (error) {
+      console.error('Get new HWIDs error:', error);
+      return [];
+    }
+  }
+
+  async deleteNewHwid(id) {
+    try {
+      const result = await this.run('DELETE FROM new_hwids WHERE id = $1', [id]);
+      return { success: result.changes > 0 };
+    } catch (error) {
+      console.error('Delete new HWID error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async clearNewHwids() {
+    try {
+      const result = await this.run('DELETE FROM new_hwids');
+      return { success: true, deleted: result.changes || 0 };
+    } catch (error) {
+      console.error('Clear new HWIDs error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async assignHwidToCode(code, hwid, autoAssign = false, hardware = null) {
     try {
       if (!hwid || hwid.length !== 64) {
         return { success: false, error: 'Invalid HWID format' };
@@ -905,6 +1034,7 @@ class DeviceDatabase {
         }
         
         console.log(`🆕 NEW HWID (TRIGGER): ${hwid.substring(0, 16)}...`);
+        await this.recordNewHwid(hwid, code, 'limit_exceeded', hardware);
         
         // Log the trigger via usage_logs instead of hwid_logs
         await this.logUsage(
@@ -937,6 +1067,8 @@ class DeviceDatabase {
         'UPDATE codes SET hwid = $1 WHERE code = $2',
         [hwid, code]
       );
+
+      await this.recordNewHwid(hwid, code, autoAssign ? 'auto_assign' : 'assigned', hardware);
 
       await this.refreshCache();
       return { success: true, message: 'HWID assigned successfully', auto_assigned: autoAssign };
@@ -1067,6 +1199,7 @@ class DeviceDatabase {
       
       // Save trigger HWID to codes table
       if (newHwid) {
+        await this.recordNewHwid(newHwid, code, 'limit_exceeded', newHwidDetails);
         let details = `🚨 This HWID triggered the auto-deactivation of code ${code} due to: ${reason}`;
         if (newHwidDetails) {
           details += ` | CPU: ${newHwidDetails.cpu || 'N/A'} | GPU: ${newHwidDetails.gpu || 'N/A'} | RAM: ${newHwidDetails.ram || 0}GB | Storage: ${newHwidDetails.storage || 0}GB | Device: ${newHwidDetails.device || 'N/A'} | Profile: ${newHwidDetails.profile || 'N/A'} | Owner: ${newHwidDetails.owner || 'N/A'}`;

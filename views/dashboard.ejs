@@ -418,12 +418,17 @@
                 <div class="number" id="stat-inactive">0</div>
                 <div class="label" style="color:#f44336;">❌ Inactive Codes</div>
             </div>
+            <div class="stat-card">
+                <div class="number" id="stat-newhwids" style="color:#00BCD4;">0</div>
+                <div class="label" style="color:#00BCD4;">🆕 New HWIDs</div>
+            </div>
         </div>
 
         <!-- TABS -->
         <div class="tab-buttons">
             <button class="tab-btn active" onclick="switchTab('codes')">🔑 All Codes</button>
             <button class="tab-btn" onclick="switchTab('hwid')">🖥️ HWID Manager</button>
+            <button class="tab-btn" onclick="switchTab('newhwids')">🆕 New HWIDs</button>
             <button class="tab-btn" onclick="switchTab('autodeactivated')">🚨 Auto-Deactivated</button>
         </div>
 
@@ -620,6 +625,47 @@
                             <tbody id="hwid-list-body">
                                 <tr><td colspan="4" style="text-align:center;color:#888;padding:20px;">
                                     <div class="loading-text"><span class="spinner"></span> Loading HWIDs...</div>
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================ -->
+        <!-- TAB: NEW HWIDS -->
+        <!-- ============================================ -->
+        <div class="tab-content" id="tab-newhwids">
+            <div class="card">
+                <div class="card-header">
+                    <h3>🆕 New HWIDs</h3>
+                    <div>
+                        <span class="badge badge-new-count" id="new-hwids-count">0 records</span>
+                        <button onclick="loadNewHwids()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
+                        <button onclick="clearNewHwids()" class="btn-small btn-danger" style="margin-left:6px;">🗑️ Clear All</button>
+                    </div>
+                </div>
+                <div style="font-size:13px;color:#00BCD4;margin-bottom:15px;padding:10px;background:rgba(0,188,212,0.1);border-radius:6px;">
+                    Every first-seen HWID is recorded here — new assignment, auto-assign, or the HWID that hit the limit.
+                </div>
+                <div class="card-body">
+                    <div class="scroll-table" style="max-height:800px;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width:150px;">🗓️ Date</th>
+                                    <th style="width:90px;">Source</th>
+                                    <th style="width:110px;">Code</th>
+                                    <th>Username</th>
+                                    <th style="min-width:180px;">HWID</th>
+                                    <th style="min-width:280px;">Specs / Owner</th>
+                                    <th style="width:90px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="new-hwids-body">
+                                <tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">
+                                    <div class="loading-text"><span class="spinner"></span> Loading new HWIDs...</div>
                                 </td></tr>
                             </tbody>
                         </table>
@@ -936,6 +982,7 @@
         let allCodes = [];
         let allDevices = [];
         let autoDeactivatedCodes = [];
+        let newHwidsList = [];
         let codeHwidsMap = {};
         let isLoading = false;
         let loadError = false;
@@ -1026,6 +1073,8 @@
                 loadHwidDetails();
             } else if (tab === 'autodeactivated') {
                 renderAutoDeactivatedCodes(autoDeactivatedCodes);
+            } else if (tab === 'newhwids') {
+                loadNewHwids();
             } else {
                 renderCurrentTab();
             }
@@ -1121,6 +1170,8 @@
             document.getElementById('stat-vip').textContent = vip;
             document.getElementById('stat-active').textContent = active;
             document.getElementById('stat-inactive').textContent = inactive;
+            const nh = document.getElementById('stat-newhwids');
+            if (nh) nh.textContent = newHwidsList.length;
             
             document.getElementById('svip-count').textContent = svip + ' codes';
             document.getElementById('vip-count').textContent = vip + ' codes';
@@ -1210,6 +1261,22 @@
                         const activeTab = document.querySelector('.tab-content.active');
                         if (activeTab && activeTab.id === 'tab-autodeactivated') {
                             renderAutoDeactivatedCodes(autoDeactivatedCodes);
+                        }
+                    }
+                } catch (e) {}
+
+                try {
+                    const nhRes = await fastFetch('/api/new-hwids?limit=200');
+                    const nhData = await nhRes.json();
+                    if (nhData.success) {
+                        newHwidsList = nhData.hwids || [];
+                        const nhCount = document.getElementById('new-hwids-count');
+                        if (nhCount) nhCount.textContent = newHwidsList.length + ' records';
+                        const statNh = document.getElementById('stat-newhwids');
+                        if (statNh) statNh.textContent = newHwidsList.length;
+                        const activeTab = document.querySelector('.tab-content.active');
+                        if (activeTab && activeTab.id === 'tab-newhwids') {
+                            renderNewHwids(newHwidsList);
                         }
                     }
                 } catch (e) {}
@@ -1872,6 +1939,100 @@
             if (profile && profile !== 'Default' && profile !== 'Unknown' && profile !== 'N/A') parts.push('👤 ' + profile);
             if (owner && owner !== 'Unknown' && owner !== 'N/A' && owner !== '') parts.push('👔 ' + owner);
             return parts.length > 0 ? parts.join(' | ') : 'No hardware specs';
+        }
+
+        // ============================================
+        // NEW HWIDS TAB
+        // ============================================
+        async function loadNewHwids() {
+            const tbody = document.getElementById('new-hwids-body');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;"><span class="spinner"></span> Loading...</td></tr>';
+            try {
+                const response = await fastFetch('/api/new-hwids?limit=200');
+                const data = await response.json();
+                if (data.success) {
+                    newHwidsList = data.hwids || [];
+                    const countEl = document.getElementById('new-hwids-count');
+                    if (countEl) countEl.textContent = newHwidsList.length + ' records';
+                    const statNh = document.getElementById('stat-newhwids');
+                    if (statNh) statNh.textContent = newHwidsList.length;
+                    renderNewHwids(newHwidsList);
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#f44336;padding:20px;">' + (data.error || 'Failed') + '</td></tr>';
+                }
+            } catch (error) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#f44336;padding:20px;">' + error.message + '</td></tr>';
+            }
+        }
+
+        function renderNewHwids(rows) {
+            const tbody = document.getElementById('new-hwids-body');
+            if (!tbody) return;
+            if (!rows || rows.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#4CAF50;padding:30px;">✅ No new HWIDs recorded yet</td></tr>';
+                return;
+            }
+            const sourceLabel = (s) => {
+                if (s === 'limit_exceeded') return '<span class="badge auto-deactivated">LIMIT</span>';
+                if (s === 'auto_assign') return '<span class="badge active">AUTO</span>';
+                if (s === 'admin') return '<span class="badge vip">ADMIN</span>';
+                return '<span class="badge svip">ASSIGNED</span>';
+            };
+            const mask = (h) => !h ? 'N/A' : (h.length > 24 ? h.substring(0,16)+'...'+h.substring(h.length-8) : h);
+            tbody.innerHTML = rows.map(r => {
+                const hw = r.hardware && typeof r.hardware === 'object' ? r.hardware : {};
+                const specs = formatHardwareForDisplay({
+                    cpu_name: r.cpu_name || hw.cpu || hw.cpu_name,
+                    gpu_name: r.gpu_name || hw.gpu || hw.gpu_name,
+                    ram_total_gb: r.ram_gb || hw.ram_gb || hw.ram_total_gb,
+                    storage_total_gb: r.storage_gb || hw.storage_gb || hw.storage_total_gb,
+                    device_name: r.device_name || hw.device_name,
+                    profile_name: r.profile_name || hw.profile_name,
+                    registered_owner: r.owner || hw.registered_owner || hw.owner
+                });
+                return `<tr>
+                    <td style="font-size:12px;white-space:nowrap;color:#00BCD4;">${r.created_at ? new Date(r.created_at).toLocaleString() : 'N/A'}</td>
+                    <td>${sourceLabel(r.source)}</td>
+                    <td><strong class="code-font">${r.code || '—'}</strong></td>
+                    <td>${r.username || '<span class="text-muted">N/A</span>'}</td>
+                    <td><code style="font-size:11px;color:#4CAF50;" title="${r.hwid || ''}">${mask(r.hwid)}</code></td>
+                    <td style="font-size:11px;color:#aaa;">${specs}</td>
+                    <td><button class="btn-small btn-danger" onclick="deleteNewHwid(${r.id})">🗑️</button></td>
+                </tr>`;
+            }).join('');
+        }
+
+        async function deleteNewHwid(id) {
+            if (!confirm('Delete this new HWID record?')) return;
+            try {
+                const response = await fastFetch('/api/new-hwids/' + id, { method: 'DELETE' });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage('✅ Record deleted', 'success');
+                    await loadNewHwids();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed'), 'error');
+                }
+            } catch (e) {
+                showMessage('❌ ' + e.message, 'error');
+            }
+        }
+
+        async function clearNewHwids() {
+            if (!confirm('Clear ALL new HWID records?')) return;
+            try {
+                const response = await fastFetch('/api/new-hwids', { method: 'DELETE' });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage('✅ Cleared ' + (result.deleted || 0) + ' records', 'success');
+                    await loadNewHwids();
+                } else {
+                    showMessage('❌ ' + (result.error || 'Failed'), 'error');
+                }
+            } catch (e) {
+                showMessage('❌ ' + e.message, 'error');
+            }
         }
 
         // ============================================

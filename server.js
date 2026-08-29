@@ -382,7 +382,7 @@ app.post('/api/register', async (req, res) => {
         if (!isAuthorized) {
             console.log(`🔄 HWID not authorized for code ${code}, attempting auto-assignment...`);
             
-            const assignResult = await db.assignHwidToCode(code.toUpperCase(), hwid, true);
+            const assignResult = await db.assignHwidToCode(code.toUpperCase(), hwid, true, hardware);
             
             if (!assignResult.success) {
                 if (assignResult.auto_deactivate) {
@@ -1660,6 +1660,34 @@ app.delete('/api/code/:code/hwid/:hwid', isApiAuthenticated, async (req, res) =>
 // GET AUTO-DEACTIVATED CODES WITH HWID DETAILS
 // ============================================
 
+app.get('/api/new-hwids', isApiAuthenticated, async (req, res) => {
+    try {
+        const rows = await db.getNewHwids(req.query.limit || 200);
+        res.json({ success: true, hwids: rows || [], count: (rows || []).length });
+    } catch (error) {
+        console.error('Get new HWIDs error:', error);
+        res.status(500).json({ success: false, error: error.message, hwids: [], count: 0 });
+    }
+});
+
+app.delete('/api/new-hwids/:id', isApiAuthenticated, async (req, res) => {
+    try {
+        const result = await db.deleteNewHwid(req.params.id);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/new-hwids', isApiAuthenticated, async (req, res) => {
+    try {
+        const result = await db.clearNewHwids();
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 app.get('/api/auto-deactivated-codes', isApiAuthenticated, async (req, res) => {
     try {
         const codes = await db.getAutoDeactivatedCodesWithHwidDetails();
@@ -1702,6 +1730,8 @@ app.get('/api/auto-deactivated-code/:code', isApiAuthenticated, async (req, res)
                 c.trigger_hwid,
                 c.trigger_reason,
                 c.triggered_at,
+                c.trigger_hwid_specs,
+                c.existing_hwids,
                 c.notes,
                 (
                     SELECT COUNT(*) FROM code_hwids WHERE code = c.code
@@ -1743,9 +1773,28 @@ app.get('/api/auto-deactivated-code/:code', isApiAuthenticated, async (req, res)
             });
         }
         
+        const row = result.rows[0];
+        let specs = row.trigger_hwid_specs;
+        if (typeof specs === 'string') {
+            try { specs = JSON.parse(specs); } catch (e) { specs = null; }
+        }
+        if (specs) {
+            row.trigger_hardware = {
+                cpu_name: specs.cpu || specs.cpu_name || 'Unknown',
+                gpu_name: specs.gpu || specs.gpu_name || 'Unknown',
+                ram_total_gb: specs.ram_gb || specs.ram_total_gb || 0,
+                storage_total_gb: specs.storage_gb || specs.storage_total_gb || 0,
+                device_name: specs.device || specs.device_name || 'Unknown',
+                profile_name: specs.profile || specs.profile_name || 'Default',
+                registered_owner: specs.owner || specs.registered_owner || 'Unknown'
+            };
+        }
+        if ((!row.hwids || !row.hwids.length) && row.existing_hwids) {
+            row.hwids = typeof row.existing_hwids === 'string' ? JSON.parse(row.existing_hwids) : row.existing_hwids;
+        }
         res.json({
             success: true,
-            code: result.rows[0]
+            code: row
         });
     } catch (error) {
         console.error('❌ Get auto-deactivated code detail error:', error);
