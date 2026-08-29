@@ -751,7 +751,7 @@
             
             <div class="detail-section">
                 <h4 style="color:#4CAF50;">📋 Existing HWIDs (Before Deactivation)</h4>
-                <div id="detail-existing-hwids" style="max-height:300px;overflow-y:auto;">
+                <div id="detail-existing-hwids" style="max-height:520px;overflow-y:auto;">
                     <p style="color:#888;">No existing HWIDs found</p>
                 </div>
             </div>
@@ -2128,7 +2128,10 @@
                 }
                 
                 // Find existing HWIDs (all except the new one)
-                const existingHwids = hwids.filter(h => h.hwid !== newHwid);
+                let existingHwids = hwids.filter(h => h.hwid && h.hwid !== newHwid);
+                if ((!existingHwids || existingHwids.length === 0) && hwids.length) {
+                    existingHwids = hwids.slice();
+                }
                 
                 // Format HWID display
                 const formatHwid = (hwid) => {
@@ -2143,11 +2146,18 @@
                     }
                     return hwidList.map(h => {
                         const hwidDisplay = formatHwid(h.hwid);
-                        const hardwareStr = formatHardwareForDisplay(h.hardware);
+                        const hw = h.hardware || {};
                         return `
-                            <div style="border-left:3px solid #4CAF50;background:rgba(76,175,80,0.05);padding:6px 10px;margin-bottom:4px;border-radius:4px;font-size:11px;">
+                            <div style="border-left:3px solid #4CAF50;background:rgba(76,175,80,0.05);padding:8px 10px;margin-bottom:6px;border-radius:4px;font-size:11px;">
                                 <code style="color:#4CAF50;font-weight:bold;">${hwidDisplay}</code>
-                                ${hardwareStr !== 'No hardware specs' ? `<span style="color:#aaa;font-size:10px;margin-left:8px;">${hardwareStr}</span>` : ''}
+                                <div style="margin-top:6px;line-height:1.8;">
+                                    <div><span class="hwid-spec-detail cpu">🔧 CPU: ${hw.cpu_name || hw.cpu || 'N/A'}</span></div>
+                                    <div><span class="hwid-spec-detail gpu">🎮 GPU: ${hw.gpu_name || hw.gpu || 'N/A'}</span></div>
+                                    <div><span class="hwid-spec-detail ram">💾 RAM: ${hw.ram_total_gb || hw.ram_gb || 0} GB</span></div>
+                                    <div><span class="hwid-spec-detail device">💻 Device: ${hw.device_name || hw.device || 'N/A'}</span></div>
+                                    <div><span class="hwid-spec-detail profile">👤 Profile: ${hw.profile_name || hw.profile || 'N/A'}</span></div>
+                                    <div><span class="hwid-spec-detail owner">👔 Owner: ${hw.registered_owner || hw.owner || 'N/A'}</span></div>
+                                </div>
                             </div>
                         `;
                     }).join('');
@@ -2322,17 +2332,28 @@
                 }
                 
                 // Render existing HWIDs
-                const existingHwids = hwids.filter(h => h.hwid !== newHwid);
+                let existingHwids = hwids.filter(h => h.hwid && h.hwid !== newHwid);
+                if ((!existingHwids || existingHwids.length === 0) && hwids.length) {
+                    existingHwids = hwids.slice();
+                }
                 const existingDiv = document.getElementById('detail-existing-hwids');
                 if (existingHwids.length > 0) {
-                    existingDiv.innerHTML = existingHwids.map(h => {
+                    existingDiv.innerHTML = existingHwids.map((h, i) => {
+                        const hw = h.hardware || {};
                         return `
-                            <div style="border-left:3px solid #4CAF50;padding:10px;background:rgba(76,175,80,0.05);border-radius:4px;margin-bottom:8px;">
+                            <div style="border-left:3px solid #4CAF50;padding:12px;background:rgba(76,175,80,0.05);border-radius:4px;margin-bottom:10px;">
+                                <div style="font-size:11px;color:#888;margin-bottom:4px;">Existing #${i + 1} of ${existingHwids.length}</div>
                                 <code style="color:#4CAF50;font-weight:bold;word-break:break-all;">${h.hwid}</code>
-                                <div style="color:#aaa;font-size:12px;margin-top:8px;line-height:1.6;">
-                                    ${formatHardwareDisplay(h.hardware)}
+                                <div style="margin-top:8px;line-height:1.9;font-size:12px;">
+                                    <div><span class="hwid-spec-detail cpu">🔧 CPU: ${hw.cpu_name || hw.cpu || 'N/A'}</span></div>
+                                    <div><span class="hwid-spec-detail gpu">🎮 GPU: ${hw.gpu_name || hw.gpu || 'N/A'}</span></div>
+                                    <div><span class="hwid-spec-detail ram">💾 RAM: ${hw.ram_total_gb || hw.ram_gb || 0} GB</span></div>
+                                    <div><span class="hwid-spec-detail ram">📀 Storage: ${hw.storage_total_gb || hw.storage_gb || 0} GB</span></div>
+                                    <div><span class="hwid-spec-detail device">💻 Device: ${hw.device_name || hw.device || 'N/A'}</span></div>
+                                    <div><span class="hwid-spec-detail profile">👤 Profile: ${hw.profile_name || hw.profile || 'N/A'}</span></div>
+                                    <div><span class="hwid-spec-detail owner">👔 Owner: ${hw.registered_owner || hw.owner || 'N/A'}</span></div>
                                 </div>
-                                <div style="color:#888;font-size:11px;margin-top:4px;">Assigned: ${h.assigned_at ? new Date(h.assigned_at).toLocaleString() : 'N/A'}</div>
+                                <div style="color:#888;font-size:11px;margin-top:6px;">Assigned: ${h.assigned_at ? new Date(h.assigned_at).toLocaleString() : 'N/A'} · Last used: ${h.last_used ? new Date(h.last_used).toLocaleString() : 'N/A'}</div>
                             </div>
                         `;
                     }).join('');

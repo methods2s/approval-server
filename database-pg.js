@@ -1324,12 +1324,29 @@ class DeviceDatabase {
         [code]
       );
       
-      const existingHwidsPayload = existingHwids.map(h => ({
-        hwid: h.hwid,
-        assigned_at: h.assigned_at,
-        last_used: h.last_used,
-        hardware: h.hardware || null
-      }));
+      const existingHwidsPayload = existingHwids.map(h => {
+        const hw = h.hardware || {};
+        const hardware = {
+          cpu: hw.cpu || hw.cpu_name || null,
+          cpu_name: hw.cpu_name || hw.cpu || null,
+          gpu: hw.gpu || hw.gpu_name || null,
+          gpu_name: hw.gpu_name || hw.gpu || null,
+          ram_gb: hw.ram_gb || hw.ram_total_gb || 0,
+          ram_total_gb: hw.ram_total_gb || hw.ram_gb || 0,
+          storage_gb: hw.storage_gb || hw.storage_total_gb || 0,
+          storage_total_gb: hw.storage_total_gb || hw.storage_gb || 0,
+          device_name: hw.device_name || hw.device || null,
+          profile_name: hw.profile_name || hw.profile || null,
+          registered_owner: hw.registered_owner || hw.owner || null,
+          owner: hw.registered_owner || hw.owner || null
+        };
+        return {
+          hwid: h.hwid,
+          assigned_at: h.assigned_at,
+          last_used: h.last_used,
+          hardware
+        };
+      });
       await this.run(
         'UPDATE codes SET existing_hwids = $1::jsonb, notes = $2 WHERE code = $3',
         [
