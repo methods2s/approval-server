@@ -289,7 +289,7 @@ class DeviceDatabase {
       ]);
       
       const codes = await this.queuedQuery(
-        'SELECT code, username, access_level, subscription_type, status, is_active, created_at, max_hwid_limit FROM codes ORDER BY created_at DESC LIMIT 100',
+        'SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, created_at, max_hwid_limit FROM codes ORDER BY created_at DESC LIMIT 100',
         [], 3
       );
       
@@ -513,6 +513,18 @@ class DeviceDatabase {
       // ============================================
       // INDEXES - NO HWID LOGS INDEXES
       // ============================================
+      await this.queryWithRetry(`
+        CREATE TABLE IF NOT EXISTS group_chat (
+          id SERIAL PRIMARY KEY,
+          device_id TEXT,
+          username TEXT,
+          access_level TEXT,
+          message TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_group_chat_created ON group_chat(id)`);
+
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_hwid ON codes(hwid)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_devices_hwid ON devices(hwid)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_codes_username ON codes(username)`);
@@ -2307,6 +2319,46 @@ class DeviceDatabase {
   // ============================================
   // CLEANUP
   // ============================================
+
+  async getChatMessages(afterId = 0, limit = 40) {
+    try {
+      const rows = await this.all(
+        `SELECT id, username, access_level, message, created_at
+         FROM group_chat
+         WHERE id > $1
+         ORDER BY id ASC
+         LIMIT $2`,
+        [parseInt(afterId, 10) || 0, Math.min(80, parseInt(limit, 10) || 40)]
+      );
+      return rows || [];
+    } catch (e) {
+      console.error('getChatMessages:', e.message);
+      return [];
+    }
+  }
+
+  async addChatMessage(deviceId, message) {
+    const text = String(message || '').trim().slice(0, 200);
+    if (!text) return { success: false, error: 'Empty message' };
+    const device = await this.get(
+      'SELECT device_id, code, status FROM devices WHERE device_id = $1',
+      [deviceId]
+    );
+    if (!device || !device.code || device.status === 'revoked') {
+      return { success: false, error: 'Not approved' };
+    }
+    const codeInfo = await this.getCodeInfo(device.code);
+    if (!codeInfo || !codeInfo.is_active || codeInfo.status !== 'active') {
+      return { success: false, error: 'Code inactive' };
+    }
+    const row = await this.get(
+      `INSERT INTO group_chat (device_id, username, access_level, message)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, username, access_level, message, created_at`,
+      [deviceId, codeInfo.username || 'User', codeInfo.access_level || 'VIP', text]
+    );
+    return { success: true, message: row };
+  }
 
   async cleanupInactiveDevices(daysInactive = 14) {
     try {

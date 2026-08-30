@@ -1601,7 +1601,7 @@
                     }
                 }
 
-                if (currentCode && currentCode.subscription_type !== subscriptionType) {
+                if (currentCode) {
                     const response = await fastFetch(`/api/code/${code}/subscription`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
@@ -1612,6 +1612,9 @@
                         showMessage('❌ ' + (result.error || 'Failed to update subscription'), 'error');
                         return;
                     }
+                    currentCode.subscription_type = subscriptionType;
+                    currentCode.expires_at = result.expires_at || (subscriptionType === 'Lifetime' ? null : currentCode.expires_at);
+                    currentCode.subscription_started_at = result.subscription_started_at || currentCode.subscription_started_at;
                 }
 
                 if (currentCode && currentCode.max_hwid_limit !== hwidLimit) {
@@ -2448,7 +2451,7 @@
                 if (!isLoading) {
                     loadAll();
                 }
-            }, 20000);
+            }, 120000);
             
             setInterval(function() {
                 hwidDetailsCache = {};

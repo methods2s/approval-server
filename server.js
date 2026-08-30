@@ -369,6 +369,37 @@ app.post('/api/force-refresh', isApiAuthenticated, async (req, res) => {
 // REGISTER DEVICE - OPTIMIZED (NO WALLPAPER, NO HWID LOGS)
 // ============================================
 
+const chatLastSend = new Map();
+
+app.get('/api/chat/messages', async (req, res) => {
+    try {
+        const afterId = parseInt(req.query.afterId, 10) || 0;
+        const messages = await db.getChatMessages(afterId, 40);
+        res.json({ success: true, messages });
+    } catch (e) {
+        res.status(500).json({ success: false, error: 'Failed to load chat' });
+    }
+});
+
+app.post('/api/chat/send', async (req, res) => {
+    try {
+        const deviceId = String((req.body && req.body.deviceId) || '');
+        const message = String((req.body && req.body.message) || '');
+        if (!deviceId) return res.status(400).json({ success: false, error: 'Missing device' });
+        const now = Date.now();
+        const last = chatLastSend.get(deviceId) || 0;
+        if (now - last < 2000) {
+            return res.status(429).json({ success: false, error: 'Slow down' });
+        }
+        const result = await db.addChatMessage(deviceId, message);
+        if (!result.success) return res.status(403).json(result);
+        chatLastSend.set(deviceId, now);
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ success: false, error: 'Failed to send' });
+    }
+});
+
 app.post('/api/register', async (req, res) => {
     console.log('📥 REGISTER REQUEST RECEIVED');
     console.log('📌 Origin:', req.headers.origin);
@@ -1133,9 +1164,13 @@ app.put('/api/code/:code/subscription', isApiAuthenticated, async (req, res) => 
             await db.logUsage('admin', code, 'subscription_updated', 
                 `Subscription updated to ${subscriptionType} for code ${code} by ${req.session.username}`);
             
+            const updated = await db.getCodeInfo(code);
             res.json({ 
                 success: true, 
-                message: `Subscription updated to ${subscriptionType}` 
+                message: `Subscription updated to ${subscriptionType}`,
+                subscription_type: subscriptionType,
+                subscription_started_at: updated && updated.subscription_started_at,
+                expires_at: updated && updated.expires_at
             });
         } else {
             res.status(404).json({ error: 'Code not found' });
