@@ -4,12 +4,23 @@ const { Pool } = require('pg');
 
 class DeviceDatabase {
   constructor() {
-    const sslConfig = process.env.DATABASE_SSL === 'false' ? false : {
-      rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'true'
-    };
-    
+    if (!process.env.PGSSLMODE) {
+      process.env.PGSSLMODE = 'no-verify';
+    }
+
+    let connectionString = process.env.DATABASE_URL || '';
+    try {
+      const u = new URL(connectionString);
+      u.searchParams.delete('sslmode');
+      u.searchParams.delete('ssl');
+      connectionString = u.toString();
+    } catch (e) { /* keep original */ }
+
+    const useSsl = process.env.DATABASE_SSL !== 'false';
+    const sslConfig = useSsl ? { rejectUnauthorized: false } : false;
+
     let connectionConfig = {
-      connectionString: process.env.DATABASE_URL,
+      connectionString,
       ssl: sslConfig,
       max: parseInt(process.env.DATABASE_POOL_MAX) || 30,
       min: parseInt(process.env.DATABASE_POOL_MIN) || 10,
