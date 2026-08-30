@@ -2102,10 +2102,19 @@ class DeviceDatabase {
   // ✅ FIX: Add updatePing function
   async updatePing(deviceId) {
     try {
-      await this.run(
-        'UPDATE devices SET last_ping = CURRENT_TIMESTAMP, ping_count = ping_count + 1, updated_at = CURRENT_TIMESTAMP WHERE device_id = $1',
+      const row = await this.get(
+        `UPDATE devices
+         SET last_ping = CURRENT_TIMESTAMP, ping_count = ping_count + 1, updated_at = CURRENT_TIMESTAMP
+         WHERE device_id = $1
+         RETURNING code, hwid`,
         [deviceId]
       );
+      if (row && row.code && row.hwid) {
+        await this.run(
+          'UPDATE code_hwids SET last_used = CURRENT_TIMESTAMP WHERE code = $1 AND hwid = $2',
+          [row.code, row.hwid]
+        );
+      }
     } catch (error) {
       console.error('Update ping error:', error);
     }
@@ -2289,30 +2298,57 @@ class DeviceDatabase {
   // CLEANUP
   // ============================================
 
-  async cleanupInactiveDevices() {
+  async cleanupInactiveDevices(daysInactive = 14) {
     try {
+      const days = Math.max(7, parseInt(daysInactive, 10) || 14);
+
+      const staleHwids = await this.query(`
+        DELETE FROM code_hwids
+        WHERE COALESCE(last_used, assigned_at) < NOW() - ($1 * INTERVAL '1 day')
+        RETURNING code, hwid
+      `, [days]);
+
       const result = await this.query(`
-        DELETE FROM devices 
-        WHERE last_ping < NOW() - INTERVAL '30 days'
-        AND status != 'revoked'
-        RETURNING device_id, code
-      `);
-      
-      if (result.rowCount > 0) {
-        console.log(`🧹 Cleaned up ${result.rowCount} inactive devices`);
-        
+        DELETE FROM devices
+        WHERE COALESCE(last_ping, updated_at, created_at) < NOW() - ($1 * INTERVAL '1 day')
+        RETURNING device_id, code, hwid
+      `, [days]);
+
+      const removedHwids = staleHwids.rowCount || 0;
+      const removedDevices = result.rowCount || 0;
+
+      if (removedDevices > 0) {
+        const codes = new Set();
         for (const row of result.rows) {
+          if (row.code) codes.add(row.code);
+          if (row.hwid && row.code) {
+            await this.query(
+              'DELETE FROM code_hwids WHERE code = $1 AND hwid = $2',
+              [row.code, row.hwid]
+            );
+          }
+        }
+        for (const code of codes) {
+          const left = await this.get(
+            'SELECT COUNT(*) as count FROM devices WHERE code = $1',
+            [code]
+          );
           await this.query(
-            `UPDATE codes SET used_count = used_count - 1 WHERE code = $1`,
-            [row.code]
+            'UPDATE codes SET used_count = $1 WHERE code = $2',
+            [parseInt(left && left.count, 10) || 0, code]
           );
         }
       }
-      
-      return result.rowCount;
+
+      if (removedDevices || removedHwids) {
+        console.log(`🧹 Inactive cleanup (${days}d): ${removedDevices} devices, ${removedHwids} HWID slots`);
+        await this.refreshCache();
+      }
+
+      return { devices: removedDevices, hwids: removedHwids, days };
     } catch (error) {
       console.error('Cleanup inactive devices error:', error);
-      return 0;
+      return { devices: 0, hwids: 0, error: error.message };
     }
   }
 

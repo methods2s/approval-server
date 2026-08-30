@@ -14,6 +14,7 @@ const db = require('./database-pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const INACTIVE_DEVICE_DAYS = Math.max(7, parseInt(process.env.INACTIVE_DEVICE_DAYS, 10) || 14);
 
 // SSL Fix - Allow self-signed certificates
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
@@ -271,7 +272,7 @@ app.get('/logout', (req, res) => {
 
 app.get('/dashboard', isAuthenticated, async (req, res) => {
     try {
-        db.cleanupInactiveDevices().catch(err => console.error('Cleanup error:', err));
+        db.cleanupInactiveDevices(INACTIVE_DEVICE_DAYS).catch(err => console.error('Cleanup error:', err));
         
         const data = await db.getDashboardData();
         let autoDeactivated = [];
@@ -906,7 +907,7 @@ app.get('/api/codes', isApiAuthenticated, async (req, res) => {
 
 app.get('/api/dashboard-data', isApiAuthenticated, async (req, res) => {
     try {
-        db.cleanupInactiveDevices().catch(err => console.error('Cleanup error:', err));
+        db.cleanupInactiveDevices(INACTIVE_DEVICE_DAYS).catch(err => console.error('Cleanup error:', err));
         
         const data = await db.getDashboardData();
         
@@ -2033,6 +2034,10 @@ async function createDefaultAdmin() {
 
 createDefaultAdmin().then(() => {
     app.listen(PORT, () => {
+        db.cleanupInactiveDevices(INACTIVE_DEVICE_DAYS).catch(err => console.error('Cleanup error:', err));
+        setInterval(() => {
+            db.cleanupInactiveDevices(INACTIVE_DEVICE_DAYS).catch(err => console.error('Cleanup error:', err));
+        }, 6 * 60 * 60 * 1000);
         console.log('\n' + '='.repeat(60));
         console.log('🚀 SERVER IS RUNNING!');
         console.log('='.repeat(60));
