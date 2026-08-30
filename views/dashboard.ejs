@@ -504,6 +504,7 @@
                                 <tr>
                                     <th style="width:90px;">Code</th>
                                     <th>Username</th>
+                                    <th style="width:110px;">Access</th>
                                     <th>Subscription</th>
                                     <th>Expires</th>
                                     <th style="width:120px;">HWID Status</th>
@@ -513,7 +514,7 @@
                                 </tr>
                             </thead>
                             <tbody id="svip-body">
-                                <tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">
+                                <tr><td colspan="9" style="text-align:center;color:#888;padding:20px;">
                                     <div class="loading-text"><span class="spinner"></span> Loading SVIP codes...</div>
                                 </td></tr>
                             </tbody>
@@ -546,6 +547,7 @@
                                 <tr>
                                     <th style="width:90px;">Code</th>
                                     <th>Username</th>
+                                    <th style="width:110px;">Access</th>
                                     <th>Subscription</th>
                                     <th>Expires</th>
                                     <th style="width:120px;">HWID Status</th>
@@ -555,7 +557,7 @@
                                 </tr>
                             </thead>
                             <tbody id="vip-body">
-                                <tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">
+                                <tr><td colspan="9" style="text-align:center;color:#888;padding:20px;">
                                     <div class="loading-text"><span class="spinner"></span> Loading VIP codes...</div>
                                 </td></tr>
                             </tbody>
@@ -1336,7 +1338,7 @@
             
             if (filteredSVIP.length === 0) {
                 const msg = svipSearchTerm ? `No SVIP codes found for username: "${svipSearchTerm}"` : 'No SVIP codes found';
-                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">${msg}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:#888;padding:20px;">${msg}</td></tr>`;
                 return;
             }
             
@@ -1376,6 +1378,12 @@
                             <td><strong class="code-font">${c.code}</strong></td>
                             <td><input class="edit-input" id="edit-username-${c.code}" value="${c.username || ''}" placeholder="Username"></td>
                             <td>
+                                <select class="edit-select" id="edit-access-${c.code}">
+                                    <option value="VIP" ${(c.access_level || 'VIP') === 'VIP' ? 'selected' : ''}>🔶 VIP</option>
+                                    <option value="SVIP" ${c.access_level === 'SVIP' ? 'selected' : ''}>⭐ SVIP</option>
+                                </select>
+                            </td>
+                            <td>
                                 <select class="edit-select" id="edit-subscription-${c.code}">
                                     <option value="Lifetime" ${c.subscription_type === 'Lifetime' ? 'selected' : ''}>♾️ Lifetime</option>
                                     <option value="3 Months" ${c.subscription_type === '3 Months' ? 'selected' : ''}>3 Months</option>
@@ -1407,6 +1415,7 @@
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
                         <td>${username || '<span class="text-muted">N/A</span>'}</td>
+                        <td>${c.access_level === 'SVIP' ? '<span class="badge svip">SVIP</span>' : '<span class="badge vip">VIP</span>'}</td>
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${hwidStatusHtml}</td>
@@ -1438,7 +1447,7 @@
             
             if (filteredVIP.length === 0) {
                 const msg = vipSearchTerm ? `No VIP codes found for username: "${vipSearchTerm}"` : 'No VIP codes found';
-                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#888;padding:20px;">${msg}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:#888;padding:20px;">${msg}</td></tr>`;
                 return;
             }
             
@@ -1478,6 +1487,12 @@
                             <td><strong class="code-font">${c.code}</strong></td>
                             <td><input class="edit-input" id="edit-username-${c.code}" value="${c.username || ''}" placeholder="Username"></td>
                             <td>
+                                <select class="edit-select" id="edit-access-${c.code}">
+                                    <option value="VIP" ${(c.access_level || 'VIP') === 'VIP' ? 'selected' : ''}>🔶 VIP</option>
+                                    <option value="SVIP" ${c.access_level === 'SVIP' ? 'selected' : ''}>⭐ SVIP</option>
+                                </select>
+                            </td>
+                            <td>
                                 <select class="edit-select" id="edit-subscription-${c.code}">
                                     <option value="Lifetime" ${c.subscription_type === 'Lifetime' ? 'selected' : ''}>♾️ Lifetime</option>
                                     <option value="3 Months" ${c.subscription_type === '3 Months' ? 'selected' : ''}>3 Months</option>
@@ -1509,6 +1524,7 @@
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
                         <td>${username || '<span class="text-muted">N/A</span>'}</td>
+                        <td>${c.access_level === 'SVIP' ? '<span class="badge svip">SVIP</span>' : '<span class="badge vip">VIP</span>'}</td>
                         <td>${c.subscription_type || 'Lifetime'}</td>
                         <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>${hwidStatusHtml}</td>
@@ -1551,6 +1567,7 @@
 
         async function saveEdit(code) {
             const username = document.getElementById(`edit-username-${code}`).value.trim();
+            const accessLevel = (document.getElementById(`edit-access-${code}`) || {}).value || 'VIP';
             const subscriptionType = document.getElementById(`edit-subscription-${code}`).value;
             const hwidLimit = parseInt(document.getElementById(`edit-hwid-limit-${code}`).value) || 1;
             
@@ -1571,6 +1588,19 @@
                     }
                 }
                 
+                if (currentCode && (currentCode.access_level || 'VIP') !== accessLevel) {
+                    const response = await fastFetch(`/api/code/${code}/access`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ accessLevel })
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                        showMessage('❌ ' + (result.error || 'Failed to update access'), 'error');
+                        return;
+                    }
+                }
+
                 if (currentCode && currentCode.subscription_type !== subscriptionType) {
                     const response = await fastFetch(`/api/code/${code}/subscription`, {
                         method: 'PUT',
