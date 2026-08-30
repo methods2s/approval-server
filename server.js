@@ -16,9 +16,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const INACTIVE_DEVICE_DAYS = Math.max(7, parseInt(process.env.INACTIVE_DEVICE_DAYS, 10) || 14);
 
-// SSL Fix - Allow self-signed certificates
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
 app.set('trust proxy', 1);
 
 // ============================================
@@ -108,12 +105,54 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // ============================================
 // SESSION
 // ============================================
+class PgSessionStore extends session.Store {
+    constructor(pool) {
+        super();
+        this.pool = pool;
+        this.pool.query(`
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                sid VARCHAR(255) PRIMARY KEY,
+                sess JSONB NOT NULL,
+                expire TIMESTAMP NOT NULL
+            )
+        `).then(() => this.pool.query(
+            `CREATE INDEX IF NOT EXISTS idx_user_sessions_expire ON user_sessions(expire)`
+        )).catch(err => console.error('Session table error:', err.message));
+    }
+    get(sid, cb) {
+        this.pool.query(
+            'SELECT sess FROM user_sessions WHERE sid = $1 AND expire > NOW()',
+            [sid]
+        ).then(r => cb(null, r.rows[0] ? r.rows[0].sess : null)).catch(cb);
+    }
+    set(sid, sess, cb) {
+        const expire = new Date(Date.now() + (sess.cookie && sess.cookie.maxAge ? sess.cookie.maxAge : 86400000));
+        this.pool.query(
+            `INSERT INTO user_sessions (sid, sess, expire) VALUES ($1, $2, $3)
+             ON CONFLICT (sid) DO UPDATE SET sess = EXCLUDED.sess, expire = EXCLUDED.expire`,
+            [sid, sess, expire]
+        ).then(() => cb && cb(null)).catch(cb);
+    }
+    destroy(sid, cb) {
+        this.pool.query('DELETE FROM user_sessions WHERE sid = $1', [sid])
+            .then(() => cb && cb(null)).catch(cb);
+    }
+    touch(sid, sess, cb) {
+        const expire = new Date(Date.now() + (sess.cookie && sess.cookie.maxAge ? sess.cookie.maxAge : 86400000));
+        this.pool.query(
+            'UPDATE user_sessions SET expire = $2 WHERE sid = $1',
+            [sid, expire]
+        ).then(() => cb && cb(null)).catch(cb);
+    }
+}
+
 app.use(session({
+    store: new PgSessionStore(db.pool),
     secret: process.env.SESSION_SECRET || 'default-secret-change-me',
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: false,
+        secure: process.env.NODE_ENV === 'production' || !!process.env.RENDER,
         maxAge: 24 * 60 * 60 * 1000,
         sameSite: 'lax'
     }

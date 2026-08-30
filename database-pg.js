@@ -5,8 +5,7 @@ const { Pool } = require('pg');
 class DeviceDatabase {
   constructor() {
     const sslConfig = process.env.DATABASE_SSL === 'false' ? false : {
-      rejectUnauthorized: false,
-      sslmode: 'require'
+      rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'true'
     };
     
     let connectionConfig = {
