@@ -1410,7 +1410,7 @@
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
-                        <td>${username || '<span class="text-muted">N/A</span>'}</td>
+                        <td><input class="edit-input" value="${(username || '').replace(/"/g, '&quot;')}" placeholder="Username" onchange="autoSaveCodeField('${c.code}','username',this.value)" onblur="autoSaveCodeField('${c.code}','username',this.value)"></td>
                         <td>
                                 <select class="edit-select" onchange="autoSaveCodeField('${c.code}','access',this.value)">
                                     <option value="VIP" ${(c.access_level || 'VIP') === 'VIP' ? 'selected' : ''}>🔶 VIP</option>
@@ -1530,7 +1530,7 @@
                 return `
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
-                        <td>${username || '<span class="text-muted">N/A</span>'}</td>
+                        <td><input class="edit-input" value="${(username || '').replace(/"/g, '&quot;')}" placeholder="Username" onchange="autoSaveCodeField('${c.code}','username',this.value)" onblur="autoSaveCodeField('${c.code}','username',this.value)"></td>
                         <td>
                                 <select class="edit-select" onchange="autoSaveCodeField('${c.code}','access',this.value)">
                                     <option value="VIP" ${(c.access_level || 'VIP') === 'VIP' ? 'selected' : ''}>🔶 VIP</option>
@@ -1589,7 +1589,10 @@
             try {
                 let url = '';
                 let body = {};
-                if (field === 'access') {
+                if (field === 'username') {
+                    url = '/api/code/' + code + '/username';
+                    body = { username: String(value || '').trim() };
+                } else if (field === 'access') {
                     url = '/api/code/' + code + '/access';
                     body = { accessLevel: value };
                 } else if (field === 'subscription') {
@@ -1611,6 +1614,7 @@
                 }
                 const row = allCodes.find(c => c.code === code);
                 if (row) {
+                    if (field === 'username') row.username = String(value || '').trim();
                     if (field === 'access') row.access_level = value;
                     if (field === 'hwid') row.max_hwid_limit = parseInt(value) || 1;
                     if (field === 'subscription') {
