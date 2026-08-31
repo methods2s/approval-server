@@ -690,10 +690,6 @@ class DeviceDatabase {
       }
 
       const existingDevice = await this.getDevice(deviceId);
-      const existingByHwid = await this.get(
-        'SELECT device_id FROM devices WHERE code = $1 AND hwid = $2 ORDER BY created_at DESC LIMIT 1',
-        [code, hwid]
-      );
 
       if (existingDevice) {
         await this.run(
@@ -733,42 +729,6 @@ class DeviceDatabase {
             deviceId
           ]
         );
-      } else if (existingByHwid) {
-        await this.run(
-          `UPDATE devices SET
-            device_id = $1,
-            user_agent = $2,
-            ip_address = $3,
-            browser_info = $4,
-            status = 'approved',
-            updated_at = CURRENT_TIMESTAMP,
-            last_ping = CURRENT_TIMESTAMP,
-            browser_profile = $5,
-            cpu_name = $6,
-            gpu_name = $7,
-            ram_total_gb = $8,
-            storage_total_gb = $9,
-            profile_name = $10,
-            device_name = $11,
-            registered_owner = $12,
-            revoked_at = NULL
-          WHERE device_id = $13`,
-          [
-            deviceId,
-            userAgent || '',
-            ip || '',
-            JSON.stringify(browserInfo || {}),
-            profileName,
-            cpuName,
-            gpuName,
-            ramTotal,
-            storageTotal,
-            profileName,
-            deviceName,
-            registeredOwner,
-            existingByHwid.device_id
-          ]
-        );
       } else {
         await this.run(
           `INSERT INTO devices (
@@ -796,7 +756,7 @@ class DeviceDatabase {
           ]
         );
       }
-      
+
       await this.logUsage(deviceId, code, 'register', 
         `Device registered | Profile: ${profileName} | Owner: ${registeredOwner}`
       );
