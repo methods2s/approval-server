@@ -689,31 +689,72 @@ class DeviceDatabase {
         registeredOwner = hw.registered_owner || 'Unknown';
       }
 
+      const existingDevice = await this.getDevice(deviceId);
       const existingByHwid = await this.get(
         'SELECT device_id FROM devices WHERE code = $1 AND hwid = $2 ORDER BY created_at DESC LIMIT 1',
         [code, hwid]
       );
 
-      if (existingByHwid) {
+      if (existingDevice) {
         await this.run(
           `UPDATE devices SET
             user_agent = $1,
             ip_address = $2,
             browser_info = $3,
+            code = $4,
+            hwid = $5,
             status = 'approved',
             updated_at = CURRENT_TIMESTAMP,
             last_ping = CURRENT_TIMESTAMP,
-            browser_profile = $4,
-            cpu_name = $5,
-            gpu_name = $6,
-            ram_total_gb = $7,
-            storage_total_gb = $8,
-            profile_name = $9,
-            device_name = $10,
-            registered_owner = $11,
+            browser_profile = $6,
+            cpu_name = $7,
+            gpu_name = $8,
+            ram_total_gb = $9,
+            storage_total_gb = $10,
+            profile_name = $11,
+            device_name = $12,
+            registered_owner = $13,
             revoked_at = NULL
-          WHERE code = $12 AND hwid = $13`,
+          WHERE device_id = $14`,
           [
+            userAgent || '',
+            ip || '',
+            JSON.stringify(browserInfo || {}),
+            code,
+            hwid,
+            profileName,
+            cpuName,
+            gpuName,
+            ramTotal,
+            storageTotal,
+            profileName,
+            deviceName,
+            registeredOwner,
+            deviceId
+          ]
+        );
+      } else if (existingByHwid) {
+        await this.run(
+          `UPDATE devices SET
+            device_id = $1,
+            user_agent = $2,
+            ip_address = $3,
+            browser_info = $4,
+            status = 'approved',
+            updated_at = CURRENT_TIMESTAMP,
+            last_ping = CURRENT_TIMESTAMP,
+            browser_profile = $5,
+            cpu_name = $6,
+            gpu_name = $7,
+            ram_total_gb = $8,
+            storage_total_gb = $9,
+            profile_name = $10,
+            device_name = $11,
+            registered_owner = $12,
+            revoked_at = NULL
+          WHERE device_id = $13`,
+          [
+            deviceId,
             userAgent || '',
             ip || '',
             JSON.stringify(browserInfo || {}),
@@ -725,8 +766,7 @@ class DeviceDatabase {
             profileName,
             deviceName,
             registeredOwner,
-            code,
-            hwid
+            existingByHwid.device_id
           ]
         );
       } else {
@@ -739,7 +779,7 @@ class DeviceDatabase {
           ) VALUES ($1, $2, $3, $4, $5, $6, 'approved', CURRENT_TIMESTAMP, $7,
             $8, $9, $10, $11, $12, $13, $14)`,
           [
-            existingByHwid ? existingByHwid.device_id : (deviceId || hwid),
+            deviceId || hwid,
             userAgent || '',
             ip || '',
             JSON.stringify(browserInfo || {}),
