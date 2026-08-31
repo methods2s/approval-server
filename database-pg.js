@@ -689,35 +689,34 @@ class DeviceDatabase {
         registeredOwner = hw.registered_owner || 'Unknown';
       }
 
-      const existingDevice = await this.getDevice(deviceId);
-      
-      if (existingDevice) {
+      const existingByHwid = await this.get(
+        'SELECT device_id FROM devices WHERE code = $1 AND hwid = $2 ORDER BY created_at DESC LIMIT 1',
+        [code, hwid]
+      );
+
+      if (existingByHwid) {
         await this.run(
-          `UPDATE devices SET 
-            user_agent = $1, 
-            ip_address = $2, 
-            browser_info = $3, 
-            code = $4,
-            hwid = $5,
+          `UPDATE devices SET
+            user_agent = $1,
+            ip_address = $2,
+            browser_info = $3,
             status = 'approved',
             updated_at = CURRENT_TIMESTAMP,
-            browser_profile = $6,
-            cpu_name = $7,
-            gpu_name = $8,
-            ram_total_gb = $9,
-            storage_total_gb = $10,
-            profile_name = $11,
-            device_name = $12,
-            registered_owner = $13,
-            approved_at = CURRENT_TIMESTAMP,
+            last_ping = CURRENT_TIMESTAMP,
+            browser_profile = $4,
+            cpu_name = $5,
+            gpu_name = $6,
+            ram_total_gb = $7,
+            storage_total_gb = $8,
+            profile_name = $9,
+            device_name = $10,
+            registered_owner = $11,
             revoked_at = NULL
-          WHERE device_id = $14`,
+          WHERE code = $12 AND hwid = $13`,
           [
             userAgent || '',
             ip || '',
             JSON.stringify(browserInfo || {}),
-            code,
-            hwid,
             profileName,
             cpuName,
             gpuName,
@@ -726,7 +725,8 @@ class DeviceDatabase {
             profileName,
             deviceName,
             registeredOwner,
-            deviceId
+            code,
+            hwid
           ]
         );
       } else {
@@ -739,7 +739,7 @@ class DeviceDatabase {
           ) VALUES ($1, $2, $3, $4, $5, $6, 'approved', CURRENT_TIMESTAMP, $7,
             $8, $9, $10, $11, $12, $13, $14)`,
           [
-            deviceId,
+            existingByHwid ? existingByHwid.device_id : (deviceId || hwid),
             userAgent || '',
             ip || '',
             JSON.stringify(browserInfo || {}),
@@ -756,8 +756,6 @@ class DeviceDatabase {
           ]
         );
       }
-
-      await this.run('UPDATE codes SET used_count = used_count + 1 WHERE code = $1', [code]);
       
       await this.logUsage(deviceId, code, 'register', 
         `Device registered | Profile: ${profileName} | Owner: ${registeredOwner}`
