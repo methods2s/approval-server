@@ -455,9 +455,7 @@
                             <label>📅 Subscription</label>
                             <select id="gen-subscription">
                                 <option value="Lifetime">♾️ Lifetime</option>
-                                <option value="3 Months">3 Months</option>
-                                <option value="6 Months">6 Months</option>
-                                <option value="12 Months">12 Months</option>
+                                <option value="1 Month">1 Month</option>
                             </select>
                         </div>
                     </div>
@@ -1386,9 +1384,7 @@
                             <td>
                                 <select class="edit-select" id="edit-subscription-${c.code}">
                                     <option value="Lifetime" ${c.subscription_type === 'Lifetime' ? 'selected' : ''}>♾️ Lifetime</option>
-                                    <option value="3 Months" ${c.subscription_type === '3 Months' ? 'selected' : ''}>3 Months</option>
-                                    <option value="6 Months" ${c.subscription_type === '6 Months' ? 'selected' : ''}>6 Months</option>
-                                    <option value="12 Months" ${c.subscription_type === '12 Months' ? 'selected' : ''}>12 Months</option>
+                                    <option value="1 Month" ${c.subscription_type === '1 Month' || c.subscription_type === 'Per Month' ? 'selected' : ''}>1 Month</option>
                                 </select>
                             </td>
                             <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : 'Never'}</td>
@@ -1415,10 +1411,24 @@
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
                         <td>${username || '<span class="text-muted">N/A</span>'}</td>
-                        <td>${c.access_level === 'SVIP' ? '<span class="badge svip">SVIP</span>' : '<span class="badge vip">VIP</span>'}</td>
-                        <td>${c.subscription_type || 'Lifetime'}</td>
-                        <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
-                        <td>${hwidStatusHtml}</td>
+                        <td>
+                                <select class="edit-select" onchange="autoSaveCodeField('${c.code}','access',this.value)">
+                                    <option value="VIP" ${(c.access_level || 'VIP') === 'VIP' ? 'selected' : ''}>🔶 VIP</option>
+                                    <option value="SVIP" ${c.access_level === 'SVIP' ? 'selected' : ''}>⭐ SVIP</option>
+                                </select>
+                            </td>
+                        <td>
+                                <select class="edit-select" onchange="autoSaveCodeField('${c.code}','subscription',this.value)">
+                                    <option value="Lifetime" ${c.subscription_type === 'Lifetime' ? 'selected' : ''}>♾️ Lifetime</option>
+                                    <option value="1 Month" ${c.subscription_type === '1 Month' || c.subscription_type === 'Per Month' || c.subscription_type === '3 Months' || c.subscription_type === '6 Months' || c.subscription_type === '12 Months' ? 'selected' : ''}>1 Month</option>
+                                </select>
+                            </td>
+                        <td id="expires-${c.code}">${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
+                        <td>
+                                <input class="edit-input" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;"
+                                    onchange="autoSaveCodeField('${c.code}','hwid',this.value)" onblur="autoSaveCodeField('${c.code}','hwid',this.value)">
+                                <div style="margin-top:4px;">${hwidStatusHtml}</div>
+                            </td>
                         <td class="owner-cell">${ownersHtml}</td>
                         <td>${deactivationDisplay}</td>
                         <td>
@@ -1495,9 +1505,7 @@
                             <td>
                                 <select class="edit-select" id="edit-subscription-${c.code}">
                                     <option value="Lifetime" ${c.subscription_type === 'Lifetime' ? 'selected' : ''}>♾️ Lifetime</option>
-                                    <option value="3 Months" ${c.subscription_type === '3 Months' ? 'selected' : ''}>3 Months</option>
-                                    <option value="6 Months" ${c.subscription_type === '6 Months' ? 'selected' : ''}>6 Months</option>
-                                    <option value="12 Months" ${c.subscription_type === '12 Months' ? 'selected' : ''}>12 Months</option>
+                                    <option value="1 Month" ${c.subscription_type === '1 Month' || c.subscription_type === 'Per Month' ? 'selected' : ''}>1 Month</option>
                                 </select>
                             </td>
                             <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : 'Never'}</td>
@@ -1524,10 +1532,24 @@
                     <tr>
                         <td><strong class="code-font">${c.code}</strong></td>
                         <td>${username || '<span class="text-muted">N/A</span>'}</td>
-                        <td>${c.access_level === 'SVIP' ? '<span class="badge svip">SVIP</span>' : '<span class="badge vip">VIP</span>'}</td>
-                        <td>${c.subscription_type || 'Lifetime'}</td>
-                        <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
-                        <td>${hwidStatusHtml}</td>
+                        <td>
+                                <select class="edit-select" onchange="autoSaveCodeField('${c.code}','access',this.value)">
+                                    <option value="VIP" ${(c.access_level || 'VIP') === 'VIP' ? 'selected' : ''}>🔶 VIP</option>
+                                    <option value="SVIP" ${c.access_level === 'SVIP' ? 'selected' : ''}>⭐ SVIP</option>
+                                </select>
+                            </td>
+                        <td>
+                                <select class="edit-select" onchange="autoSaveCodeField('${c.code}','subscription',this.value)">
+                                    <option value="Lifetime" ${c.subscription_type === 'Lifetime' ? 'selected' : ''}>♾️ Lifetime</option>
+                                    <option value="1 Month" ${c.subscription_type === '1 Month' || c.subscription_type === 'Per Month' || c.subscription_type === '3 Months' || c.subscription_type === '6 Months' || c.subscription_type === '12 Months' ? 'selected' : ''}>1 Month</option>
+                                </select>
+                            </td>
+                        <td id="expires-${c.code}">${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
+                        <td>
+                                <input class="edit-input" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;"
+                                    onchange="autoSaveCodeField('${c.code}','hwid',this.value)" onblur="autoSaveCodeField('${c.code}','hwid',this.value)">
+                                <div style="margin-top:4px;">${hwidStatusHtml}</div>
+                            </td>
                         <td class="owner-cell">${ownersHtml}</td>
                         <td>${deactivationDisplay}</td>
                         <td>
@@ -1563,6 +1585,51 @@
             editingCode = null;
             filterSVIP();
             filterVIP();
+        }
+
+        async function autoSaveCodeField(code, field, value) {
+            try {
+                let url = '';
+                let body = {};
+                if (field === 'access') {
+                    url = '/api/code/' + code + '/access';
+                    body = { accessLevel: value };
+                } else if (field === 'subscription') {
+                    url = '/api/code/' + code + '/subscription';
+                    body = { subscriptionType: value };
+                } else if (field === 'hwid') {
+                    url = '/api/code/' + code + '/hwid-limit';
+                    body = { limit: parseInt(value) || 1 };
+                } else return;
+                const response = await fastFetch(url, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const result = await response.json();
+                if (!result.success) {
+                    showMessage('❌ ' + (result.error || 'Save failed'), 'error');
+                    return;
+                }
+                const row = allCodes.find(c => c.code === code);
+                if (row) {
+                    if (field === 'access') row.access_level = value;
+                    if (field === 'hwid') row.max_hwid_limit = parseInt(value) || 1;
+                    if (field === 'subscription') {
+                        row.subscription_type = value;
+                        row.expires_at = result.expires_at || null;
+                        const cell = document.getElementById('expires-' + code);
+                        if (cell) cell.innerHTML = row.expires_at ? new Date(row.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>';
+                    }
+                }
+                showMessage('✅ Saved', 'success');
+                if (field === 'access') {
+                    filterSVIP();
+                    filterVIP();
+                }
+            } catch (e) {
+                showMessage('❌ ' + e.message, 'error');
+            }
         }
 
         async function saveEdit(code) {

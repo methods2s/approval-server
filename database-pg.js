@@ -1638,6 +1638,8 @@ class DeviceDatabase {
   calculateExpiration(startDate, subscriptionType) {
     const date = new Date(startDate);
     const months = {
+      '1 Month': 1,
+      'Per Month': 1,
       '3 Months': 3,
       '6 Months': 6,
       '9 Months': 9,
