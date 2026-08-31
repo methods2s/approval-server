@@ -1111,8 +1111,12 @@ class DeviceDatabase {
         };
       }
 
-      const currentCount = await this.getCodeHwidCount(code);
+      let currentCount = await this.getCodeHwidCount(code);
       const limit = await this.getCodeHwidLimit(code);
+      const codeRow = await this.get('SELECT hwid FROM codes WHERE code = $1', [code]);
+      if (codeRow && codeRow.hwid && codeRow.hwid !== hwid && currentCount < 1) {
+        currentCount = 1;
+      }
 
       if (currentCount >= limit) {
         if (!autoAssign) {
@@ -1273,9 +1277,13 @@ class DeviceDatabase {
       console.log(`   Reason: ${reason}`);
       console.log(`   NEW HWID (Trigger): ${newHwid ? newHwid.substring(0, 16) + '...' : 'null'}`);
       
-      // GET EXISTING HWIDS BEFORE DELETING
       const existingHwids = await this.getCodeHwids(code);
-      console.log(`   Existing HWIDs: ${existingHwids.length}`);
+      const codeHwidRow = await this.get('SELECT hwid FROM codes WHERE code = $1', [code]);
+      if (codeHwidRow && codeHwidRow.hwid && !(existingHwids || []).some(h => h.hwid === codeHwidRow.hwid)) {
+        existingHwids.push({ hwid: codeHwidRow.hwid, assigned_at: null, last_used: null, hardware: null });
+      }
+      const existingOnly = (existingHwids || []).filter(h => h && h.hwid && h.hwid !== newHwid);
+      console.log(`   Existing HWIDs: ${existingOnly.length}`);
       if (existingHwids.length > 0) {
         console.log(`   First existing HWID: ${existingHwids[0].hwid.substring(0, 16)}...`);
       }
@@ -1360,7 +1368,24 @@ class DeviceDatabase {
         [code]
       );
       
-      const existingHwidsPayload = existingHwids.map(h => {
+      for (const h of existingOnly) {
+        if (h.hardware) continue;
+        const device = await this.get(
+          'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
+          [h.hwid]
+        );
+        if (device) {
+          h.hardware = {
+            cpu: device.cpu_name,
+            gpu: device.gpu_name,
+            ram_gb: device.ram_total_gb || 0,
+            device_name: device.device_name,
+            profile_name: device.profile_name,
+            registered_owner: device.registered_owner
+          };
+        }
+      }
+      const existingHwidsPayload = existingOnly.map(h => {
         const hw = h.hardware || {};
         const hardware = {
           cpu: hw.cpu || hw.cpu_name || null,
