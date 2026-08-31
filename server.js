@@ -1895,7 +1895,32 @@ app.get('/api/auto-deactivated-code/:code', isApiAuthenticated, async (req, res)
             };
         }
         if ((!row.hwids || !row.hwids.length) && row.existing_hwids) {
-            row.hwids = typeof row.existing_hwids === 'string' ? JSON.parse(row.existing_hwids) : row.existing_hwids;
+            try {
+                row.hwids = typeof row.existing_hwids === 'string' ? JSON.parse(row.existing_hwids) : row.existing_hwids;
+            } catch (e) {
+                row.hwids = [];
+            }
+        }
+        if (!row.hwids || !row.hwids.length) {
+            const devs = await db.queuedQuery(
+                `SELECT hwid, cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner
+                 FROM devices WHERE code = $1 AND hwid IS NOT NULL AND hwid <> ''`,
+                [code], 5
+            );
+            row.hwids = (devs.rows || [])
+                .filter(d => d.hwid && d.hwid !== row.trigger_hwid)
+                .map(d => ({
+                    hwid: d.hwid,
+                    hardware: {
+                        cpu_name: d.cpu_name,
+                        gpu_name: d.gpu_name,
+                        ram_total_gb: d.ram_total_gb,
+                        device_name: d.device_name,
+                        profile_name: d.profile_name,
+                        registered_owner: d.registered_owner
+                    }
+                }));
+            row.existing_hwids = row.hwids;
         }
         res.json({
             success: true,

@@ -863,8 +863,26 @@ class DeviceDatabase {
         'SELECT hwid, assigned_at, last_used FROM code_hwids WHERE code = $1 ORDER BY assigned_at DESC',
         [code]
       );
+
+      const extra = await this.all(
+        `SELECT DISTINCT hwid FROM (
+           SELECT hwid FROM codes WHERE code = $1 AND hwid IS NOT NULL AND hwid <> ''
+           UNION
+           SELECT hwid FROM devices WHERE code = $1 AND hwid IS NOT NULL AND hwid <> ''
+         ) x`,
+        [code]
+      );
+
+      const seen = new Set((result || []).map(r => r.hwid));
+      const merged = (result || []).slice();
+      for (const row of extra || []) {
+        if (row.hwid && !seen.has(row.hwid)) {
+          seen.add(row.hwid);
+          merged.push({ hwid: row.hwid, assigned_at: null, last_used: null });
+        }
+      }
       
-      const hwidsWithSpecs = await Promise.all(result.map(async (h) => {
+      const hwidsWithSpecs = await Promise.all(merged.map(async (h) => {
         const device = await this.get(
           'SELECT cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1',
           [h.hwid]
@@ -1491,6 +1509,26 @@ class DeviceDatabase {
           hwids = existingHwidsFromNotes;
         } else if (hwidsResult.rows.length > 0) {
           hwids = hwidsResult.rows;
+        } else {
+          const devs = await this.queuedQuery(
+            `SELECT hwid, cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner
+             FROM devices WHERE code = $1 AND hwid IS NOT NULL AND hwid <> ''`,
+            [code.code], 5
+          );
+          hwids = (devs.rows || [])
+            .filter(d => d.hwid && d.hwid !== code.trigger_hwid)
+            .map(d => ({
+              hwid: d.hwid,
+              hardware: {
+                cpu_name: d.cpu_name,
+                gpu_name: d.gpu_name,
+                ram_total_gb: d.ram_total_gb,
+                storage_total_gb: d.storage_total_gb,
+                device_name: d.device_name,
+                profile_name: d.profile_name,
+                registered_owner: d.registered_owner
+              }
+            }));
         }
         
         let triggerHardware = null;
