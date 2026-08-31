@@ -1901,25 +1901,24 @@ app.get('/api/auto-deactivated-code/:code', isApiAuthenticated, async (req, res)
                 row.hwids = [];
             }
         }
-        if (!row.hwids || !row.hwids.length) {
-            const devs = await db.queuedQuery(
+        if ((!row.hwids || !row.hwids.length) && row.code_hwid && row.code_hwid !== row.trigger_hwid) {
+            const dres = await db.queuedQuery(
                 `SELECT hwid, cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner
-                 FROM devices WHERE code = $1 AND hwid IS NOT NULL AND hwid <> ''`,
-                [code], 5
+                 FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1`,
+                [row.code_hwid], 5
             );
-            row.hwids = (devs.rows || [])
-                .filter(d => d.hwid && d.hwid !== row.trigger_hwid)
-                .map(d => ({
-                    hwid: d.hwid,
-                    hardware: {
-                        cpu_name: d.cpu_name,
-                        gpu_name: d.gpu_name,
-                        ram_total_gb: d.ram_total_gb,
-                        device_name: d.device_name,
-                        profile_name: d.profile_name,
-                        registered_owner: d.registered_owner
-                    }
-                }));
+            const d = (dres.rows && dres.rows[0]) || { hwid: row.code_hwid };
+            row.hwids = [{
+                hwid: d.hwid || row.code_hwid,
+                hardware: {
+                    cpu_name: d.cpu_name,
+                    gpu_name: d.gpu_name,
+                    ram_total_gb: d.ram_total_gb,
+                    device_name: d.device_name,
+                    profile_name: d.profile_name,
+                    registered_owner: d.registered_owner
+                }
+            }];
             row.existing_hwids = row.hwids;
         }
         res.json({

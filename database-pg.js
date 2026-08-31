@@ -865,11 +865,7 @@ class DeviceDatabase {
       );
 
       const extra = await this.all(
-        `SELECT DISTINCT hwid FROM (
-           SELECT hwid FROM codes WHERE code = $1 AND hwid IS NOT NULL AND hwid <> ''
-           UNION
-           SELECT hwid FROM devices WHERE code = $1 AND hwid IS NOT NULL AND hwid <> ''
-         ) x`,
+        `SELECT hwid FROM codes WHERE code = $1 AND hwid IS NOT NULL AND hwid <> ''`,
         [code]
       );
 
@@ -1509,26 +1505,23 @@ class DeviceDatabase {
           hwids = existingHwidsFromNotes;
         } else if (hwidsResult.rows.length > 0) {
           hwids = hwidsResult.rows;
-        } else {
-          const devs = await this.queuedQuery(
+        } else if (code.code_hwid && code.code_hwid !== code.trigger_hwid) {
+          const d = await this.get(
             `SELECT hwid, cpu_name, gpu_name, ram_total_gb, storage_total_gb, device_name, profile_name, registered_owner
-             FROM devices WHERE code = $1 AND hwid IS NOT NULL AND hwid <> ''`,
-            [code.code], 5
+             FROM devices WHERE hwid = $1 ORDER BY created_at DESC LIMIT 1`,
+            [code.code_hwid]
           );
-          hwids = (devs.rows || [])
-            .filter(d => d.hwid && d.hwid !== code.trigger_hwid)
-            .map(d => ({
-              hwid: d.hwid,
-              hardware: {
-                cpu_name: d.cpu_name,
-                gpu_name: d.gpu_name,
-                ram_total_gb: d.ram_total_gb,
-                storage_total_gb: d.storage_total_gb,
-                device_name: d.device_name,
-                profile_name: d.profile_name,
-                registered_owner: d.registered_owner
-              }
-            }));
+          hwids = d ? [{
+            hwid: d.hwid || code.code_hwid,
+            hardware: {
+              cpu_name: d.cpu_name,
+              gpu_name: d.gpu_name,
+              ram_total_gb: d.ram_total_gb,
+              device_name: d.device_name,
+              profile_name: d.profile_name,
+              registered_owner: d.registered_owner
+            }
+          }] : [{ hwid: code.code_hwid, hardware: null }];
         }
         
         let triggerHardware = null;
