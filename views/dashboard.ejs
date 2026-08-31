@@ -2209,7 +2209,19 @@
             }
             
             tbody.innerHTML = codes.map((code, index) => {
-                const hwids = (code.existing_hwids && code.existing_hwids.length) ? code.existing_hwids : (code.hwids || []);
+                let rawExisting = code.existing_hwids || code.hwids || [];
+                if (typeof rawExisting === 'string') {
+                    try { rawExisting = JSON.parse(rawExisting); } catch (e) { rawExisting = []; }
+                }
+                if (!Array.isArray(rawExisting)) rawExisting = [];
+                const hwids = rawExisting.map(h => {
+                    if (!h) return null;
+                    if (typeof h === 'string') return { hwid: h, hardware: null };
+                    return {
+                        hwid: h.hwid || h.id || '',
+                        hardware: h.hardware || h.specs || h
+                    };
+                }).filter(h => h && h.hwid);
                 const limit = code.max_hwid_limit || 1;
                 const triggeredAt = code.triggered_at ? new Date(code.triggered_at).toLocaleString() : 'Unknown';
                 
@@ -2256,8 +2268,10 @@
                 
                 // Format HWID display
                 const formatHwid = (hwid) => {
-                    if (!hwid) return 'N/A';
-                    return hwid.substring(0, 16) + '...' + hwid.substring(48);
+                    const s = String(hwid || '');
+                    if (!s) return 'N/A';
+                    if (s.length <= 20) return s;
+                    return s.substring(0, 16) + '...' + s.substring(Math.max(16, s.length - 8));
                 };
                 
                 // Build HWID list HTML for existing HWIDs - with Device, Profile, Owner only
