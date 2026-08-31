@@ -1176,35 +1176,34 @@ class DeviceDatabase {
 
   async removeHwidFromCode(code, hwid) {
     try {
-      await this.run(
+      const devDel = await this.run(
         'DELETE FROM devices WHERE code = $1 AND hwid = $2',
         [code, hwid]
       );
-
       const result = await this.run(
         'DELETE FROM code_hwids WHERE code = $1 AND hwid = $2',
         [code, hwid]
       );
+      const codeRow = await this.get('SELECT hwid FROM codes WHERE code = $1', [code]);
+      const wasPrimary = !!(codeRow && codeRow.hwid === hwid);
+      const deletedLink = (result && result.changes || 0) > 0;
+      const deletedDev = (devDel && devDel.changes || 0) > 0;
 
-      if (result.changes > 0) {
-        const remaining = await this.getCodeHwids(code);
+      if (deletedLink || wasPrimary) {
+        const remaining = await this.all(
+          'SELECT hwid FROM code_hwids WHERE code = $1 ORDER BY assigned_at DESC',
+          [code]
+        );
         if (remaining && remaining.length > 0) {
-          await this.run(
-            'UPDATE codes SET hwid = $1 WHERE code = $2',
-            [remaining[0].hwid, code]
-          );
+          await this.run('UPDATE codes SET hwid = $1 WHERE code = $2', [remaining[0].hwid, code]);
         } else {
-          await this.run(
-            'UPDATE codes SET hwid = NULL WHERE code = $1',
-            [code]
-          );
+          await this.run('UPDATE codes SET hwid = NULL WHERE code = $1', [code]);
         }
-        await this.refreshCache();
-        return { 
-          success: true, 
-          message: 'HWID removed successfully',
-          devices_deleted: result.changes 
-        };
+      }
+
+      await this.refreshCache();
+      if (deletedLink || wasPrimary || deletedDev) {
+        return { success: true, message: 'HWID removed successfully', devices_deleted: (devDel && devDel.changes) || 0 };
       }
       return { success: false, error: 'HWID not found' };
     } catch (error) {
