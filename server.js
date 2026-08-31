@@ -1151,9 +1151,9 @@ app.put('/api/code/:code/subscription', isApiAuthenticated, async (req, res) => 
     const { code } = req.params;
     const { subscriptionType } = req.body;
     
-    if (!subscriptionType || !['Lifetime', '3 Months', '6 Months', '9 Months', '12 Months'].includes(subscriptionType)) {
+    if (!subscriptionType || !['Lifetime', '1 Month', 'Per Month'].includes(subscriptionType)) {
         return res.status(400).json({ 
-            error: 'Subscription must be Lifetime, 3 Months, 6 Months, 9 Months, or 12 Months' 
+            error: 'Subscription must be Lifetime or 1 Month' 
         });
     }
     
