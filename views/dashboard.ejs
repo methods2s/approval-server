@@ -483,7 +483,7 @@
             <!-- ============================================ -->
             <div class="code-section">
                 <div class="section-title">
-                    ⭐ SVIP Codes <span class="badge-count text-muted" id="svip-count">0 codes</span> <span class="text-muted" style="font-size:12px;font-weight:normal;">Hide UI = hidden until Get Extra</span>
+                    ⭐ SVIP Codes <span class="badge-count text-muted" id="svip-count">0 codes</span>
                 </div>
                 <div class="card svip-card">
                     <div class="card-header section-header-with-search">
@@ -503,7 +503,6 @@
                                     <th style="width:90px;">Code</th>
                                     <th>Username</th>
                                     <th style="width:110px;">Access</th>
-                                    <th style="width:80px;">Hide UI</th>
                                     <th>Subscription</th>
                                     <th>Expires</th>
                                     <th style="width:120px;">HWID Status</th>
@@ -547,7 +546,6 @@
                                     <th style="width:90px;">Code</th>
                                     <th>Username</th>
                                     <th style="width:110px;">Access</th>
-                                    <th style="width:80px;">Hide UI</th>
                                     <th>Subscription</th>
                                     <th>Expires</th>
                                     <th style="width:120px;">HWID Status</th>
@@ -1420,9 +1418,6 @@
                                 </select>
                             </td>
                         <td>
-                            ${c.access_level === 'SVIP' ? `<label style="font-size:11px;white-space:nowrap;"><input type="checkbox" ${c.hide_ui_until_extra ? 'checked' : ''} onchange="autoSaveCodeField('${c.code}','hideUi',this.checked)"> Hide</label>` : '<span class="text-muted">—</span>'}
-                        </td>
-                        <td>
                                 <select class="edit-select" onchange="autoSaveCodeField('${c.code}','subscription',this.value)">
                                     <option value="Lifetime" ${c.subscription_type === 'Lifetime' ? 'selected' : ''}>♾️ Lifetime</option>
                                     <option value="1 Month" ${c.subscription_type === '1 Month' || c.subscription_type === 'Per Month' || c.subscription_type === '3 Months' || c.subscription_type === '6 Months' || c.subscription_type === '12 Months' ? 'selected' : ''}>1 Month</option>
@@ -1543,9 +1538,6 @@
                                 </select>
                             </td>
                         <td>
-                            ${c.access_level === 'SVIP' ? `<label style="font-size:11px;white-space:nowrap;"><input type="checkbox" ${c.hide_ui_until_extra ? 'checked' : ''} onchange="autoSaveCodeField('${c.code}','hideUi',this.checked)"> Hide</label>` : '<span class="text-muted">—</span>'}
-                        </td>
-                        <td>
                                 <select class="edit-select" onchange="autoSaveCodeField('${c.code}','subscription',this.value)">
                                     <option value="Lifetime" ${c.subscription_type === 'Lifetime' ? 'selected' : ''}>♾️ Lifetime</option>
                                     <option value="1 Month" ${c.subscription_type === '1 Month' || c.subscription_type === 'Per Month' || c.subscription_type === '3 Months' || c.subscription_type === '6 Months' || c.subscription_type === '12 Months' ? 'selected' : ''}>1 Month</option>
@@ -1609,10 +1601,7 @@
                 } else if (field === 'hwid') {
                     url = '/api/code/' + code + '/hwid-limit';
                     body = { limit: parseInt(value) || 1 };
-                } else if (field === 'hideUi') {
-                    url = '/api/code/' + code + '/hide-ui';
-                    body = { hide: !!value };
-                } else return;
+} else return;
                 const response = await fastFetch(url, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
@@ -1628,7 +1617,6 @@
                     if (field === 'username') row.username = String(value || '').trim();
                     if (field === 'access') row.access_level = value;
                     if (field === 'hwid') row.max_hwid_limit = parseInt(value) || 1;
-                    if (field === 'hideUi') row.hide_ui_until_extra = !!value;
                     if (field === 'subscription') {
                         row.subscription_type = value;
                         row.expires_at = result.expires_at || null;
