@@ -434,9 +434,11 @@ class DeviceDatabase {
           max_hwid_limit INTEGER DEFAULT 1,
           trigger_hwid TEXT,
           trigger_reason TEXT,
-          triggered_at TIMESTAMP
+          triggered_at TIMESTAMP,
+          hide_ui_until_extra BOOLEAN DEFAULT FALSE
         )
       `);
+      await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS hide_ui_until_extra BOOLEAN DEFAULT FALSE`);
 
       await this.queryWithRetry(`
         CREATE TABLE IF NOT EXISTS code_hwids (
@@ -1817,7 +1819,7 @@ class DeviceDatabase {
   async getAllCodes() {
     try {
       const result = await this.all(
-        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit, trigger_hwid, trigger_reason, triggered_at
+        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit, trigger_hwid, trigger_reason, triggered_at, hide_ui_until_extra
          FROM codes ORDER BY created_at DESC LIMIT 500`
       );
       const ownersByCode = await this.getOwnersByCode();
@@ -1960,6 +1962,20 @@ class DeviceDatabase {
     } catch (error) {
       console.error('Reactivate code error:', error);
       return { success: false, error: error.message };
+    }
+  }
+
+  async updateCodeHideUiUntilExtra(code, hide) {
+    try {
+      const result = await this.run(
+        'UPDATE codes SET hide_ui_until_extra = $1 WHERE code = $2',
+        [!!hide, code]
+      );
+      await this.refreshCache();
+      return result.changes > 0 || true;
+    } catch (error) {
+      console.error('Update hide UI error:', error);
+      return false;
     }
   }
 

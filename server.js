@@ -576,6 +576,7 @@ app.post('/api/register', async (req, res) => {
             code: code,
             username: updatedCodeInfo.username,
             access: updatedCodeInfo.access_level,
+            hide_ui_until_extra: !!(updatedCodeInfo.hide_ui_until_extra && String(updatedCodeInfo.access_level).toUpperCase() === 'SVIP'),
             subscription: updatedCodeInfo.subscription_type,
             subscription_started_at: updatedCodeInfo.subscription_started_at,
             subscription_expires_at: updatedCodeInfo.expires_at,
@@ -768,6 +769,7 @@ app.get('/api/status/:deviceId', async (req, res) => {
             code: device.code,
             username: codeInfo.username,
             access: codeInfo.access_level,
+            hide_ui_until_extra: !!(codeInfo.hide_ui_until_extra && String(codeInfo.access_level).toUpperCase() === 'SVIP'),
             subscription: codeInfo.subscription_type,
             subscription_started_at: codeInfo.subscription_started_at,
             subscription_expires_at: codeInfo.expires_at,
@@ -1114,6 +1116,23 @@ app.put('/api/code/:code/username', isApiAuthenticated, async (req, res) => {
     } catch (error) {
         console.error('Update username error:', error);
         res.status(500).json({ error: 'Failed to update username' });
+    }
+});
+
+app.put('/api/code/:code/hide-ui', isApiAuthenticated, async (req, res) => {
+    const { code } = req.params;
+    const hide = req.body.hide === true || req.body.hide === 'true';
+    try {
+        const info = await db.get('SELECT access_level FROM codes WHERE code = $1', [code]);
+        if (!info) return res.status(404).json({ error: 'Code not found' });
+        if (info.access_level !== 'SVIP') {
+            return res.status(400).json({ error: 'Hide UI is SVIP only' });
+        }
+        const success = await db.updateCodeHideUiUntilExtra(code, hide);
+        res.json({ success: !!success, hide_ui_until_extra: hide });
+    } catch (error) {
+        console.error('Update hide UI error:', error);
+        res.status(500).json({ error: 'Failed to update hide UI' });
     }
 });
 
