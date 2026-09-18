@@ -430,7 +430,6 @@
             <button class="tab-btn" onclick="switchTab('hwid')">🖥️ HWID Manager</button>
             <button class="tab-btn" onclick="switchTab('newhwids')">🆕 New HWIDs</button>
             <button class="tab-btn" onclick="switchTab('autodeactivated')">🚨 Auto-Deactivated</button>
-            <button class="tab-btn" onclick="switchTab('unusualurls')">🔗 Unusual URLs</button>
         </div>
 
         <!-- ============================================ -->
@@ -708,50 +707,6 @@
                             <tbody id="auto-deactivated-body">
                                 <tr><td colspan="7" style="text-align:center;color:#888;padding:30px;">
                                     <div class="loading-text"><span class="spinner"></span> Loading auto-deactivated codes...</div>
-                                </td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ============================================ -->
-        <!-- TAB: UNUSUAL URLS (affiliate / ppc paths) -->
-        <!-- ============================================ -->
-        <div class="tab-content" id="tab-unusualurls">
-            <div class="card">
-                <div class="card-header">
-                    <h3>🔗 Unusual URLs (PPC / Affiliate / Non-normal paths)</h3>
-                    <div>
-                        <span class="badge badge-new-count" id="unusual-urls-count">0</span>
-                        <button onclick="loadUnusualUrls()" class="btn-small btn-refresh" style="margin-left:10px;">🔄 Refresh</button>
-                    </div>
-                </div>
-                <div style="font-size:13px;color:#FF9800;margin-bottom:15px;padding:10px;background:rgba(255,152,0,0.1);border-radius:6px;">
-                    📌 Nandito ang lahat ng <strong>kakaibang URL</strong> na ginamit ng activated users
-                    (hal. <code>site.com/ppc.aff</code>, affiliate paths, tracking links) — hindi normal na homepage.
-                </div>
-                <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                    <input type="text" id="unusual-url-code-filter" placeholder="Filter by code..." style="padding:8px 12px;border-radius:6px;border:1px solid #555;background:#222;color:#fff;min-width:160px;">
-                    <button onclick="loadUnusualUrls()" class="btn-small">🔍 Filter</button>
-                </div>
-                <div class="card-body">
-                    <div class="scroll-table" style="max-height:800px;">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th style="width:140px;">Time</th>
-                                    <th style="width:90px;">Code</th>
-                                    <th style="width:120px;">Site</th>
-                                    <th style="min-width:280px;">URL / Path</th>
-                                    <th style="width:140px;">Device</th>
-                                    <th style="width:120px;">HWID</th>
-                                </tr>
-                            </thead>
-                            <tbody id="unusual-urls-body">
-                                <tr><td colspan="6" style="text-align:center;color:#888;padding:30px;">
-                                    Open this tab to load unusual URLs...
                                 </td></tr>
                             </tbody>
                         </table>
@@ -1120,8 +1075,6 @@
                 renderAutoDeactivatedCodes(autoDeactivatedCodes);
             } else if (tab === 'newhwids') {
                 loadNewHwids();
-            } else if (tab === 'unusualurls') {
-                loadUnusualUrls();
             } else {
                 renderCurrentTab();
             }
@@ -2107,52 +2060,6 @@
             if (!isBlankSpec(owner)) rows.push(`<div><span class="hwid-spec-detail owner">👔 Owner: ${owner}</span></div>`);
             if (!rows.length) return '<div style="color:#888;font-style:italic;">No hardware specs</div>';
             return rows.join('');
-        }
-
-        // ============================================
-        // UNUSUAL URLS TAB
-        // ============================================
-        async function loadUnusualUrls() {
-            const body = document.getElementById('unusual-urls-body');
-            const countEl = document.getElementById('unusual-urls-count');
-            if (body) {
-                body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:30px;"><div class="loading-text"><span class="spinner"></span> Loading unusual URLs...</div></td></tr>';
-            }
-            try {
-                const codeFilter = (document.getElementById('unusual-url-code-filter')?.value || '').trim();
-                let url = '/api/unusual-urls?limit=300';
-                if (codeFilter) url += '&code=' + encodeURIComponent(codeFilter.toUpperCase());
-                const res = await fetch(url, { credentials: 'same-origin' });
-                const data = await res.json();
-                const rows = (data && data.urls) ? data.urls : [];
-                if (countEl) countEl.textContent = rows.length + ' entries';
-                if (!body) return;
-                if (!rows.length) {
-                    body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;padding:30px;">No unusual URLs detected yet.</td></tr>';
-                    return;
-                }
-                body.innerHTML = rows.map(r => {
-                    const t = r.created_at ? new Date(r.created_at).toLocaleString() : '—';
-                    const code = r.code || '—';
-                    const site = r.site || '—';
-                    const path = r.path || '';
-                    const full = r.url || '';
-                    const display = path || full;
-                    const device = r.device_id ? String(r.device_id).slice(0, 12) + '…' : '—';
-                    const hwid = r.hwid ? String(r.hwid).slice(0, 10) + '…' : '—';
-                    return `<tr>
-                        <td style="font-size:11px;white-space:nowrap;">${t}</td>
-                        <td class="code-font">${code}</td>
-                        <td style="font-size:12px;">${site}</td>
-                        <td style="font-size:11px;word-break:break-all;"><code title="${full.replace(/"/g, '&quot;')}">${display}</code></td>
-                        <td style="font-size:10px;" title="${r.device_id || ''}">${device}</td>
-                        <td style="font-size:10px;" title="${r.hwid || ''}">${hwid}</td>
-                    </tr>`;
-                }).join('');
-            } catch (e) {
-                console.error('loadUnusualUrls', e);
-                if (body) body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#f44336;padding:30px;">Failed to load unusual URLs</td></tr>';
-            }
         }
 
         // ============================================

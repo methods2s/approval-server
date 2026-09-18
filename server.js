@@ -932,44 +932,6 @@ app.post('/api/log-usage', async (req, res) => {
 });
 
 // ============================================
-// UNUSUAL URL (affiliate / ppc paths from activated clients)
-// ============================================
-
-app.post('/api/unusual-url', async (req, res) => {
-    try {
-        const { deviceId, code, hwid, site, url, path } = req.body || {};
-        if (!url || String(url).length < 8) {
-            return res.status(400).json({ success: false, error: 'url required' });
-        }
-        const result = await db.logUnusualUrl({
-            deviceId: deviceId || null,
-            code: code ? String(code).toUpperCase() : null,
-            hwid: hwid || null,
-            site: site || null,
-            url: String(url),
-            path: path || null
-        });
-        res.json(result);
-    } catch (error) {
-        console.error('Unusual URL log error:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-app.get('/api/unusual-urls', isApiAuthenticated, async (req, res) => {
-    try {
-        const rows = await db.getUnusualUrls({
-            code: req.query.code || null,
-            limit: req.query.limit || 200
-        });
-        res.json({ success: true, urls: rows || [], count: (rows || []).length });
-    } catch (error) {
-        console.error('Get unusual URLs error:', error);
-        res.status(500).json({ success: false, error: error.message, urls: [], count: 0 });
-    }
-});
-
-// ============================================
 // VALIDATE CODE
 // ============================================
 
