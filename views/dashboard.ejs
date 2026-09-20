@@ -1435,6 +1435,9 @@
                             <div class="action-buttons">
                                 <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
                                 <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
+                                <button onclick="toggleAllowBenaughty('${c.code}', ${c.allow_benaughty ? 'false' : 'true'})" class="btn-small" style="background:${c.allow_benaughty ? '#2E7D32' : '#555'};color:#fff;" title="Allow BeNaughty / BeNaughty UK in popup">
+                                    ${c.allow_benaughty ? '😈 ON' : '😈 OFF'}
+                                </button>
                                 ${reasonButton}
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
@@ -1555,6 +1558,9 @@
                             <div class="action-buttons">
                                 <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
                                 <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
+                                <button onclick="toggleAllowBenaughty('${c.code}', ${c.allow_benaughty ? 'false' : 'true'})" class="btn-small" style="background:${c.allow_benaughty ? '#2E7D32' : '#555'};color:#fff;" title="Allow BeNaughty / BeNaughty UK in popup">
+                                    ${c.allow_benaughty ? '😈 ON' : '😈 OFF'}
+                                </button>
                                 ${reasonButton}
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
                                     ${c.is_active ? '🔒' : '🔓'}
@@ -1705,6 +1711,32 @@
                 
             } catch (error) {
                 showMessage('❌ Error saving: ' + error.message, 'error');
+            }
+        }
+
+        // ============================================
+        // TOGGLE BeNaughty ALLOW (popup sites)
+        // ============================================
+        async function toggleAllowBenaughty(code, allow) {
+            try {
+                const res = await fetch('/api/code/' + encodeURIComponent(code) + '/allow-benaughty', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ allow: allow === true || allow === 'true' })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    alert(data.error || 'Failed to update BeNaughty access');
+                    return;
+                }
+                const row = allCodes.find(c => c.code === code);
+                if (row) row.allow_benaughty = !!(data.allow_benaughty);
+                filterSVIP();
+                filterVIP();
+            } catch (e) {
+                console.error(e);
+                alert('Failed to update BeNaughty access');
             }
         }
 

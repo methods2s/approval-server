@@ -505,6 +505,7 @@ class DeviceDatabase {
         await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS triggered_at TIMESTAMP`);
         await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS trigger_hwid_specs JSONB`);
         await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS existing_hwids JSONB`);
+        await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS allow_benaughty BOOLEAN DEFAULT false`);
         console.log('✅ Trigger columns added to codes table');
       } catch (err) {
         console.log('ℹ️ Trigger columns already exist or error:', err.message);
@@ -773,6 +774,7 @@ class DeviceDatabase {
         code: code,
         username: updatedCodeInfo.username,
         access: updatedCodeInfo.access_level,
+        allow_benaughty: !!(updatedCodeInfo.allow_benaughty === true || updatedCodeInfo.allow_benaughty === 't' || updatedCodeInfo.allow_benaughty === 1),
         subscription: updatedCodeInfo.subscription_type,
         subscription_started_at: updatedCodeInfo.subscription_started_at,
         subscription_expires_at: updatedCodeInfo.expires_at,
@@ -1817,7 +1819,7 @@ class DeviceDatabase {
   async getAllCodes() {
     try {
       const result = await this.all(
-        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit, trigger_hwid, trigger_reason, triggered_at
+        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit, trigger_hwid, trigger_reason, triggered_at, COALESCE(allow_benaughty, false) AS allow_benaughty
          FROM codes ORDER BY created_at DESC LIMIT 500`
       );
       const ownersByCode = await this.getOwnersByCode();
@@ -1980,6 +1982,20 @@ class DeviceDatabase {
       return false;
     } catch (error) {
       console.error('Update code access error:', error);
+      return false;
+    }
+  }
+
+  async updateCodeAllowBenaughty(code, allow) {
+    try {
+      const result = await this.run(
+        'UPDATE codes SET allow_benaughty = $1 WHERE code = $2',
+        [!!allow, code]
+      );
+      await this.refreshCache();
+      return !!(result && result.changes > 0);
+    } catch (error) {
+      console.error('Update allow_benaughty error:', error);
       return false;
     }
   }
