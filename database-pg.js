@@ -906,11 +906,16 @@ class DeviceDatabase {
 
   async getCodeHwidCount(code) {
     try {
+      // Match getCodeHwids: code_hwids + codes.hwid (legacy single column)
       const result = await this.get(
-        'SELECT COUNT(*) as count FROM code_hwids WHERE code = $1',
+        `SELECT COUNT(*)::int AS count FROM (
+           SELECT LOWER(hwid) AS h FROM code_hwids WHERE code = $1 AND hwid IS NOT NULL AND hwid <> ''
+           UNION
+           SELECT LOWER(hwid) AS h FROM codes WHERE code = $1 AND hwid IS NOT NULL AND hwid <> ''
+         ) t`,
         [code]
       );
-      return result ? parseInt(result.count) : 0;
+      return result ? parseInt(result.count, 10) || 0 : 0;
     } catch (error) {
       console.error('Get HWID count error:', error);
       return 0;
@@ -1825,6 +1830,7 @@ class DeviceDatabase {
       const ownersByCode = await this.getOwnersByCode();
       return (result || []).map(c => ({
         ...c,
+        allow_benaughty: !!(c.allow_benaughty === true || c.allow_benaughty === 't' || c.allow_benaughty === 'true' || c.allow_benaughty === 1),
         owners: ownersByCode[c.code] || []
       }));
     } catch (error) {

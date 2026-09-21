@@ -1302,30 +1302,45 @@
         // ============================================
         async function loadHwidStatusForCodes() {
             codeHwidsMap = {};
-            
-            const codes = allCodes.slice(0, 30);
-            if (codes.length === 0) return;
-            
-            const promises = codes.map(async (code) => {
-                try {
-                    const response = await fastFetch(`/api/code/${code.code}/hwid-limit`);
-                    const data = await response.json();
-                    return { code: code.code, data: data };
-                } catch (error) {
-                    return { code: code.code, data: { current_hwid_count: 0, max_hwid_limit: 1 } };
-                }
-            });
-            
-            const results = await Promise.all(promises);
-            results.forEach(result => {
-                codeHwidsMap[result.code] = {
-                    count: result.data.current_hwid_count || 0,
-                    limit: result.data.max_hwid_limit || 1
-                };
-            });
+            if (!allCodes || allCodes.length === 0) return;
+
+            // Load ALL codes in batches (was only first 30 → false 0/0)
+            const batchSize = 25;
+            for (let i = 0; i < allCodes.length; i += batchSize) {
+                const batch = allCodes.slice(i, i + batchSize);
+                const promises = batch.map(async (code) => {
+                    try {
+                        const response = await fastFetch(`/api/code/${code.code}/hwid-limit`);
+                        const data = await response.json();
+                        return { code: code.code, data: data || {} };
+                    } catch (error) {
+                        return {
+                            code: code.code,
+                            data: {
+                                current_hwid_count: 0,
+                                max_hwid_limit: code.max_hwid_limit || 1
+                            }
+                        };
+                    }
+                });
+                const results = await Promise.all(promises);
+                results.forEach(result => {
+                    const lim = result.data.max_hwid_limit || 1;
+                    const cnt = parseInt(result.data.current_hwid_count, 10);
+                    codeHwidsMap[result.code] = {
+                        count: isNaN(cnt) ? 0 : cnt,
+                        limit: lim
+                    };
+                });
+            }
             
             filterSVIP();
             filterVIP();
+        }
+
+        function isAllowBenaughtyOn(c) {
+            const v = c && c.allow_benaughty;
+            return v === true || v === 'true' || v === 't' || v === 1 || v === '1';
         }
 
         // ============================================
@@ -1347,10 +1362,12 @@
                 const owners = getOwnersForCode(c.code);
                 const isAutoDeactivatedFlag = isAutoDeactivated(c.status);
                 
-                const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
-                const hasHwid = hwidInfo.count > 0;
-                const isFull = hwidInfo.count >= hwidInfo.limit;
-                const hwidDisplay = `${hwidInfo.count}/${hwidInfo.limit}`;
+                const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: (c.max_hwid_limit || 1) };
+                const hwidCount = hwidInfo.count || 0;
+                const hwidLimit = hwidInfo.limit || c.max_hwid_limit || 1;
+                const hasHwid = hwidCount > 0 || !!(c.hwid && String(c.hwid).length > 10);
+                const isFull = hwidCount >= hwidLimit;
+                const hwidDisplay = `${hwidCount}/${hwidLimit}`;
                 
                 const deactivationDisplay = !c.is_active ? 
                     `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
@@ -1359,14 +1376,10 @@
                 const codeHwid = c.hwid || null;
                 const hasHwidAssigned = codeHwid && codeHwid.length === 64;
                 
-                let hwidStatusHtml = `<span class="hwid-status-badge-sm no-hwid">0/0</span>`;
-                if (hasHwidAssigned) {
-                    let statusClass = 'has-hwid';
-                    if (isFull) statusClass = 'full';
-                    hwidStatusHtml = `<span class="hwid-status-badge-sm ${statusClass}">${hwidDisplay}</span>`;
-                } else if (hasHwid) {
-                    hwidStatusHtml = `<span class="hwid-status-badge-sm has-hwid">${hwidDisplay}</span>`;
-                }
+                let statusClass = (hasHwid || hasHwidAssigned) ? 'has-hwid' : 'no-hwid';
+                if (isFull && hwidCount > 0) statusClass = 'full';
+                let hwidStatusHtml = `<span class="hwid-status-badge-sm ${statusClass}">${hwidDisplay}</span>`;
+                const benaughtyOn = isAllowBenaughtyOn(c);
                 
                 const ownersHtml = renderOwnersList(owners);
                 
@@ -1435,8 +1448,8 @@
                             <div class="action-buttons">
                                 <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
                                 <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
-                                <button onclick="toggleAllowBenaughty('${c.code}', ${c.allow_benaughty ? 'false' : 'true'})" class="btn-small" style="background:${c.allow_benaughty ? '#2E7D32' : '#555'};color:#fff;" title="Allow BeNaughty / BeNaughty UK in popup">
-                                    ${c.allow_benaughty ? '😈 ON' : '😈 OFF'}
+                                <button onclick="toggleAllowBenaughty('${c.code}', ${benaughtyOn ? 'false' : 'true'})" class="btn-small" style="background:${benaughtyOn ? '#2E7D32' : '#555'};color:#fff;" title="Allow BeNaughty / BeNaughty UK in popup">
+                                    ${benaughtyOn ? '😈 ON' : '😈 OFF'}
                                 </button>
                                 ${reasonButton}
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
@@ -1470,10 +1483,12 @@
                 const owners = getOwnersForCode(c.code);
                 const isAutoDeactivatedFlag = isAutoDeactivated(c.status);
                 
-                const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: 1 };
-                const hasHwid = hwidInfo.count > 0;
-                const isFull = hwidInfo.count >= hwidInfo.limit;
-                const hwidDisplay = `${hwidInfo.count}/${hwidInfo.limit}`;
+                const hwidInfo = codeHwidsMap[c.code] || { count: 0, limit: (c.max_hwid_limit || 1) };
+                const hwidCount = hwidInfo.count || 0;
+                const hwidLimit = hwidInfo.limit || c.max_hwid_limit || 1;
+                const hasHwid = hwidCount > 0 || !!(c.hwid && String(c.hwid).length > 10);
+                const isFull = hwidCount >= hwidLimit;
+                const hwidDisplay = `${hwidCount}/${hwidLimit}`;
                 
                 const deactivationDisplay = !c.is_active ? 
                     `<span style="font-size:11px;color:#f44336;">${deactivationReason}</span>` : 
@@ -1482,14 +1497,10 @@
                 const codeHwid = c.hwid || null;
                 const hasHwidAssigned = codeHwid && codeHwid.length === 64;
                 
-                let hwidStatusHtml = `<span class="hwid-status-badge-sm no-hwid">0/0</span>`;
-                if (hasHwidAssigned) {
-                    let statusClass = 'has-hwid';
-                    if (isFull) statusClass = 'full';
-                    hwidStatusHtml = `<span class="hwid-status-badge-sm ${statusClass}">${hwidDisplay}</span>`;
-                } else if (hasHwid) {
-                    hwidStatusHtml = `<span class="hwid-status-badge-sm has-hwid">${hwidDisplay}</span>`;
-                }
+                let statusClass = (hasHwid || hasHwidAssigned) ? 'has-hwid' : 'no-hwid';
+                if (isFull && hwidCount > 0) statusClass = 'full';
+                let hwidStatusHtml = `<span class="hwid-status-badge-sm ${statusClass}">${hwidDisplay}</span>`;
+                const benaughtyOn = isAllowBenaughtyOn(c);
                 
                 const ownersHtml = renderOwnersList(owners);
                 
@@ -1558,8 +1569,8 @@
                             <div class="action-buttons">
                                 <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
                                 <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
-                                <button onclick="toggleAllowBenaughty('${c.code}', ${c.allow_benaughty ? 'false' : 'true'})" class="btn-small" style="background:${c.allow_benaughty ? '#2E7D32' : '#555'};color:#fff;" title="Allow BeNaughty / BeNaughty UK in popup">
-                                    ${c.allow_benaughty ? '😈 ON' : '😈 OFF'}
+                                <button onclick="toggleAllowBenaughty('${c.code}', ${benaughtyOn ? 'false' : 'true'})" class="btn-small" style="background:${benaughtyOn ? '#2E7D32' : '#555'};color:#fff;" title="Allow BeNaughty / BeNaughty UK in popup">
+                                    ${benaughtyOn ? '😈 ON' : '😈 OFF'}
                                 </button>
                                 ${reasonButton}
                                 <button onclick="toggleStatus('${c.code}')" class="btn-small ${c.is_active ? 'btn-warning' : 'btn-success'}">
@@ -1719,11 +1730,12 @@
         // ============================================
         async function toggleAllowBenaughty(code, allow) {
             try {
+                const wantOn = allow === true || allow === 'true';
                 const res = await fetch('/api/code/' + encodeURIComponent(code) + '/allow-benaughty', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     credentials: 'same-origin',
-                    body: JSON.stringify({ allow: allow === true || allow === 'true' })
+                    body: JSON.stringify({ allow: wantOn })
                 });
                 const data = await res.json();
                 if (!data.success) {
@@ -1731,7 +1743,9 @@
                     return;
                 }
                 const row = allCodes.find(c => c.code === code);
-                if (row) row.allow_benaughty = !!(data.allow_benaughty);
+                if (row) {
+                    row.allow_benaughty = !!(data.allow_benaughty === true || data.allow_benaughty === 'true' || data.allow_benaughty === 't' || data.allow_benaughty === 1);
+                }
                 filterSVIP();
                 filterVIP();
             } catch (e) {
