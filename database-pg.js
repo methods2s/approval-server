@@ -591,6 +591,21 @@ class DeviceDatabase {
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_new_hwids_hwid ON new_hwids(hwid)`);
       await this.queryWithRetry(`CREATE INDEX IF NOT EXISTS idx_new_hwids_code ON new_hwids(code)`);
 
+      // Supabase linter: enable RLS on public tables (blocks PostgREST anon access).
+      // App uses server connection (postgres/service role) which bypasses RLS.
+      const rlsTables = [
+        'requests', 'usage_logs', 'admins', 'code_hwids', 'codes', 'devices',
+        'hwid_logs', 'new_hwid_registry', 'new_hwids', 'user_sessions', 'group_chat'
+      ];
+      for (const t of rlsTables) {
+        try {
+          await this.queryWithRetry(`ALTER TABLE IF EXISTS public.${t} ENABLE ROW LEVEL SECURITY`);
+        } catch (e) {
+          // table may not exist yet — ignore
+        }
+      }
+      console.log('✅ RLS enabled on public tables (PostgREST locked down)');
+
       console.log('✅ Tables created/verified with all indexes (No Wallpaper, No HWID Logs)');
       await this.refreshCache();
       
