@@ -1342,6 +1342,10 @@
             const v = c && c.allow_benaughty;
             return v === true || v === 'true' || v === 't' || v === 1 || v === '1';
         }
+        function isAllowWinkOn(c) {
+            const v = c && c.allow_wink;
+            return v === true || v === 'true' || v === 't' || v === 1 || v === '1';
+        }
 
         // ============================================
         // RENDER SVIP
@@ -1380,6 +1384,7 @@
                 if (isFull && hwidCount > 0) statusClass = 'full';
                 let hwidStatusHtml = `<span class="hwid-status-badge-sm ${statusClass}">${hwidDisplay}</span>`;
                 const benaughtyOn = isAllowBenaughtyOn(c);
+                const winkOn = isAllowWinkOn(c);
                 
                 const ownersHtml = renderOwnersList(owners);
                 
@@ -1448,6 +1453,9 @@
                             <div class="action-buttons">
                                 <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
                                 <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
+                                <button onclick="toggleAllowWink('${c.code}', ${winkOn ? 'false' : 'true'})" class="btn-small" style="background:${winkOn ? '#2E7D32' : '#555'};color:#fff;" title="Allow WINK sites (HotAndFlirty, PumasLove, Gibsmir)">
+                                    ${winkOn ? '🔥 WINK ON' : '🔥 WINK OFF'}
+                                </button>
                                 <button onclick="toggleAllowBenaughty('${c.code}', ${benaughtyOn ? 'false' : 'true'})" class="btn-small" style="background:${benaughtyOn ? '#2E7D32' : '#555'};color:#fff;" title="Allow BeNaughty / BeNaughty UK in popup">
                                     ${benaughtyOn ? '😈 ON' : '😈 OFF'}
                                 </button>
@@ -1501,6 +1509,7 @@
                 if (isFull && hwidCount > 0) statusClass = 'full';
                 let hwidStatusHtml = `<span class="hwid-status-badge-sm ${statusClass}">${hwidDisplay}</span>`;
                 const benaughtyOn = isAllowBenaughtyOn(c);
+                const winkOn = isAllowWinkOn(c);
                 
                 const ownersHtml = renderOwnersList(owners);
                 
@@ -1569,6 +1578,9 @@
                             <div class="action-buttons">
                                 <button onclick="copyCodeAndUser('${c.code}', '${username}')" class="btn-copy-one">📋</button>
                                 <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
+                                <button onclick="toggleAllowWink('${c.code}', ${winkOn ? 'false' : 'true'})" class="btn-small" style="background:${winkOn ? '#2E7D32' : '#555'};color:#fff;" title="Allow WINK sites (HotAndFlirty, PumasLove, Gibsmir)">
+                                    ${winkOn ? '🔥 WINK ON' : '🔥 WINK OFF'}
+                                </button>
                                 <button onclick="toggleAllowBenaughty('${c.code}', ${benaughtyOn ? 'false' : 'true'})" class="btn-small" style="background:${benaughtyOn ? '#2E7D32' : '#555'};color:#fff;" title="Allow BeNaughty / BeNaughty UK in popup">
                                     ${benaughtyOn ? '😈 ON' : '😈 OFF'}
                                 </button>
@@ -1728,6 +1740,32 @@
         // ============================================
         // TOGGLE BeNaughty ALLOW (popup sites)
         // ============================================
+        async function toggleAllowWink(code, allow) {
+            try {
+                const wantOn = allow === true || allow === 'true';
+                const res = await fetch('/api/code/' + encodeURIComponent(code) + '/allow-wink', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ allow: wantOn })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    alert(data.error || 'Failed to update WINK access');
+                    return;
+                }
+                const row = allCodes.find(c => c.code === code);
+                if (row) {
+                    row.allow_wink = !!(data.allow_wink === true || data.allow_wink === 'true' || data.allow_wink === 't' || data.allow_wink === 1);
+                }
+                filterSVIP();
+                filterVIP();
+            } catch (e) {
+                console.error(e);
+                alert('Failed to update WINK access');
+            }
+        }
+
         async function toggleAllowBenaughty(code, allow) {
             try {
                 const wantOn = allow === true || allow === 'true';

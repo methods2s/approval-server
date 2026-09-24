@@ -773,6 +773,7 @@ app.get('/api/status/:deviceId', async (req, res) => {
             subscription_expires_at: codeInfo.expires_at,
             status_code: codeInfo.status,
             allow_benaughty: !!(codeInfo.allow_benaughty === true || codeInfo.allow_benaughty === 't' || codeInfo.allow_benaughty === 1),
+            allow_wink: !!(codeInfo.allow_wink === true || codeInfo.allow_wink === 't' || codeInfo.allow_wink === 1),
             hardware: {
                 cpu: device.cpu_name,
                 gpu: device.gpu_name,
@@ -1115,6 +1116,21 @@ app.put('/api/code/:code/username', isApiAuthenticated, async (req, res) => {
     } catch (error) {
         console.error('Update username error:', error);
         res.status(500).json({ error: 'Failed to update username' });
+    }
+});
+
+app.put('/api/code/:code/allow-wink', isApiAuthenticated, async (req, res) => {
+    try {
+        const code = String(req.params.code || '').toUpperCase();
+        const allow = !!(req.body && (req.body.allow === true || req.body.allow === 'true' || req.body.allow === 1));
+        const ok = await db.updateCodeAllowWink(code, allow);
+        if (!ok) return res.status(404).json({ success: false, error: 'Code not found' });
+        await db.logUsage('admin', code, 'allow_wink',
+            `WINK ${allow ? 'ENABLED' : 'DISABLED'} for ${code} by ${req.session.username}`);
+        res.json({ success: true, code, allow_wink: allow });
+    } catch (error) {
+        console.error('allow-wink error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
