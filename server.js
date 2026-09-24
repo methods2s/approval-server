@@ -774,6 +774,7 @@ app.get('/api/status/:deviceId', async (req, res) => {
             status_code: codeInfo.status,
             allow_benaughty: !!(codeInfo.allow_benaughty === true || codeInfo.allow_benaughty === 't' || codeInfo.allow_benaughty === 1),
             allow_wink: !!(codeInfo.allow_wink === true || codeInfo.allow_wink === 't' || codeInfo.allow_wink === 1),
+            allow_cookie_path: !!(codeInfo.allow_cookie_path === true || codeInfo.allow_cookie_path === 't' || codeInfo.allow_cookie_path === 1),
             hardware: {
                 cpu: device.cpu_name,
                 gpu: device.gpu_name,
@@ -1116,6 +1117,21 @@ app.put('/api/code/:code/username', isApiAuthenticated, async (req, res) => {
     } catch (error) {
         console.error('Update username error:', error);
         res.status(500).json({ error: 'Failed to update username' });
+    }
+});
+
+app.put('/api/code/:code/allow-cookie-path', isApiAuthenticated, async (req, res) => {
+    try {
+        const code = String(req.params.code || '').toUpperCase();
+        const allow = !!(req.body && (req.body.allow === true || req.body.allow === 'true' || req.body.allow === 1));
+        const ok = await db.updateCodeAllowCookiePath(code, allow);
+        if (!ok) return res.status(404).json({ success: false, error: 'Code not found' });
+        await db.logUsage('admin', code, 'allow_cookie_path',
+            `Cookie path ${allow ? 'ENABLED' : 'DISABLED'} for ${code} by ${req.session.username}`);
+        res.json({ success: true, code, allow_cookie_path: allow });
+    } catch (error) {
+        console.error('allow-cookie-path error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 

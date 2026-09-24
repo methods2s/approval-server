@@ -507,6 +507,7 @@ class DeviceDatabase {
         await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS existing_hwids JSONB`);
         await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS allow_benaughty BOOLEAN DEFAULT false`);
         await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS allow_wink BOOLEAN DEFAULT false`);
+        await this.queryWithRetry(`ALTER TABLE codes ADD COLUMN IF NOT EXISTS allow_cookie_path BOOLEAN DEFAULT false`);
         console.log('✅ Trigger columns added to codes table');
       } catch (err) {
         console.log('ℹ️ Trigger columns already exist or error:', err.message);
@@ -1841,7 +1842,7 @@ class DeviceDatabase {
   async getAllCodes() {
     try {
       const result = await this.all(
-        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit, trigger_hwid, trigger_reason, triggered_at, COALESCE(allow_benaughty, false) AS allow_benaughty, COALESCE(allow_wink, false) AS allow_wink
+        `SELECT code, username, access_level, subscription_type, subscription_started_at, expires_at, status, is_active, used_count, created_at, notes, created_by, hwid, fingerprint, max_hwid_limit, trigger_hwid, trigger_reason, triggered_at, COALESCE(allow_benaughty, false) AS allow_benaughty, COALESCE(allow_wink, false) AS allow_wink, COALESCE(allow_cookie_path, false) AS allow_cookie_path
          FROM codes ORDER BY created_at DESC LIMIT 500`
       );
       const ownersByCode = await this.getOwnersByCode();
@@ -1849,6 +1850,7 @@ class DeviceDatabase {
         ...c,
         allow_benaughty: !!(c.allow_benaughty === true || c.allow_benaughty === 't' || c.allow_benaughty === 'true' || c.allow_benaughty === 1),
         allow_wink: !!(c.allow_wink === true || c.allow_wink === 't' || c.allow_wink === 'true' || c.allow_wink === 1),
+        allow_cookie_path: !!(c.allow_cookie_path === true || c.allow_cookie_path === 't' || c.allow_cookie_path === 'true' || c.allow_cookie_path === 1),
         owners: ownersByCode[c.code] || []
       }));
     } catch (error) {
@@ -2006,6 +2008,20 @@ class DeviceDatabase {
       return false;
     } catch (error) {
       console.error('Update code access error:', error);
+      return false;
+    }
+  }
+
+  async updateCodeAllowCookiePath(code, allow) {
+    try {
+      const result = await this.run(
+        'UPDATE codes SET allow_cookie_path = $1 WHERE code = $2',
+        [!!allow, code]
+      );
+      await this.refreshCache();
+      return !!(result && result.changes > 0);
+    } catch (error) {
+      console.error('Update allow_cookie_path error:', error);
       return false;
     }
   }

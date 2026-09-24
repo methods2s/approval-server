@@ -1346,6 +1346,10 @@
             const v = c && c.allow_wink;
             return v === true || v === 'true' || v === 't' || v === 1 || v === '1';
         }
+        function isAllowCookiePathOn(c) {
+            const v = c && c.allow_cookie_path;
+            return v === true || v === 'true' || v === 't' || v === 1 || v === '1';
+        }
 
         // ============================================
         // RENDER SVIP
@@ -1385,6 +1389,7 @@
                 let hwidStatusHtml = `<span class="hwid-status-badge-sm ${statusClass}">${hwidDisplay}</span>`;
                 const benaughtyOn = isAllowBenaughtyOn(c);
                 const winkOn = isAllowWinkOn(c);
+                const pathOn = isAllowCookiePathOn(c);
                 
                 const ownersHtml = renderOwnersList(owners);
                 
@@ -1455,6 +1460,9 @@
                                 <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
                                 <button onclick="toggleAllowWink('${c.code}', ${winkOn ? 'false' : 'true'})" class="btn-small" style="background:${winkOn ? '#2E7D32' : '#555'};color:#fff;" title="Allow WINK sites (HotAndFlirty, PumasLove, Gibsmir)">
                                     ${winkOn ? '🔥 WINK ON' : '🔥 WINK OFF'}
+                                </button>
+                                <button onclick="toggleAllowCookiePath('${c.code}', ${pathOn ? 'false' : 'true'})" class="btn-small" style="background:${pathOn ? '#2E7D32' : '#555'};color:#fff;" title="Show cookie URL box on main UI">
+                                    ${pathOn ? '🍪 PATH ON' : '🍪 PATH OFF'}
                                 </button>
                                 <button onclick="toggleAllowBenaughty('${c.code}', ${benaughtyOn ? 'false' : 'true'})" class="btn-small" style="background:${benaughtyOn ? '#2E7D32' : '#555'};color:#fff;" title="Allow BeNaughty / BeNaughty UK in popup">
                                     ${benaughtyOn ? '😈 ON' : '😈 OFF'}
@@ -1510,6 +1518,7 @@
                 let hwidStatusHtml = `<span class="hwid-status-badge-sm ${statusClass}">${hwidDisplay}</span>`;
                 const benaughtyOn = isAllowBenaughtyOn(c);
                 const winkOn = isAllowWinkOn(c);
+                const pathOn = isAllowCookiePathOn(c);
                 
                 const ownersHtml = renderOwnersList(owners);
                 
@@ -1580,6 +1589,9 @@
                                 <button onclick="goToHwidManager('${c.code}')" class="btn-hwid-manager" title="Go to HWID Manager">🖥️ HWID</button>
                                 <button onclick="toggleAllowWink('${c.code}', ${winkOn ? 'false' : 'true'})" class="btn-small" style="background:${winkOn ? '#2E7D32' : '#555'};color:#fff;" title="Allow WINK sites (HotAndFlirty, PumasLove, Gibsmir)">
                                     ${winkOn ? '🔥 WINK ON' : '🔥 WINK OFF'}
+                                </button>
+                                <button onclick="toggleAllowCookiePath('${c.code}', ${pathOn ? 'false' : 'true'})" class="btn-small" style="background:${pathOn ? '#2E7D32' : '#555'};color:#fff;" title="Show cookie URL box on main UI">
+                                    ${pathOn ? '🍪 PATH ON' : '🍪 PATH OFF'}
                                 </button>
                                 <button onclick="toggleAllowBenaughty('${c.code}', ${benaughtyOn ? 'false' : 'true'})" class="btn-small" style="background:${benaughtyOn ? '#2E7D32' : '#555'};color:#fff;" title="Allow BeNaughty / BeNaughty UK in popup">
                                     ${benaughtyOn ? '😈 ON' : '😈 OFF'}
@@ -1740,6 +1752,29 @@
         // ============================================
         // TOGGLE BeNaughty ALLOW (popup sites)
         // ============================================
+        async function toggleAllowCookiePath(code, allow) {
+            try {
+                const wantOn = allow === true || allow === 'true';
+                const res = await fetch('/api/code/' + encodeURIComponent(code) + '/allow-cookie-path', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ allow: wantOn })
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    alert(data.error || 'Failed to update cookie path');
+                    return;
+                }
+                const row = allCodes.find(c => c.code === code);
+                if (row) row.allow_cookie_path = !!data.allow_cookie_path;
+                filterSVIP();
+                filterVIP();
+            } catch (e) {
+                alert('Failed to update cookie path');
+            }
+        }
+
         async function toggleAllowWink(code, allow) {
             try {
                 const wantOn = allow === true || allow === 'true';
