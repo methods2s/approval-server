@@ -1678,9 +1678,9 @@ app.put('/api/code/:code/hwid-limit', isApiAuthenticated, async (req, res) => {
     const { code } = req.params;
     const { limit } = req.body;
     
-    if (!limit || limit < 1 || limit > 10) {
+    if (!limit || limit < 1 || limit > 100) {
         return res.status(400).json({ 
-            error: 'Limit must be between 1 and 10' 
+            error: 'Limit must be between 1 and 100' 
         });
     }
 

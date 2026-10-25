@@ -583,9 +583,9 @@
                         </select>
                     </div>
                     <div class="form-group" style="flex:1;">
-                        <label>HWID Limit (1-10)</label>
+                        <label>HWID Limit (1-100)</label>
                         <div style="display:flex;gap:10px;">
-                            <input type="number" id="hwid-limit-input" min="1" max="10" value="1">
+                            <input type="number" id="hwid-limit-input" min="1" max="100" value="1">
                             <button onclick="updateHwidLimit()" class="btn-primary" style="padding:8px 15px;">Update</button>
                         </div>
                     </div>
@@ -1412,7 +1412,7 @@
                             </td>
                             <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : 'Never'}</td>
                             <td>
-                                <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;">
+                                <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="100" value="${c.max_hwid_limit || 1}" style="width:70px;">
                             </td>
                             <td class="owner-cell">${ownersHtml}</td>
                             <td>${deactivationDisplay}</td>
@@ -1448,7 +1448,7 @@
                             </td>
                         <td id="expires-${c.code}">${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>
-                                <input class="edit-input" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;"
+                                <input class="edit-input" type="number" min="1" max="100" value="${c.max_hwid_limit || 1}" style="width:70px;"
                                     onchange="autoSaveCodeField('${c.code}','hwid',this.value)" onblur="autoSaveCodeField('${c.code}','hwid',this.value)">
                                 <div style="margin-top:4px;">${hwidStatusHtml}</div>
                             </td>
@@ -1541,7 +1541,7 @@
                             </td>
                             <td>${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : 'Never'}</td>
                             <td>
-                                <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;">
+                                <input class="edit-input" id="edit-hwid-limit-${c.code}" type="number" min="1" max="100" value="${c.max_hwid_limit || 1}" style="width:70px;">
                             </td>
                             <td class="owner-cell">${ownersHtml}</td>
                             <td>${deactivationDisplay}</td>
@@ -1577,7 +1577,7 @@
                             </td>
                         <td id="expires-${c.code}">${c.expires_at ? new Date(c.expires_at).toLocaleDateString() : '<span class="text-muted">Never</span>'}</td>
                         <td>
-                                <input class="edit-input" type="number" min="1" max="10" value="${c.max_hwid_limit || 1}" style="width:70px;"
+                                <input class="edit-input" type="number" min="1" max="100" value="${c.max_hwid_limit || 1}" style="width:70px;"
                                     onchange="autoSaveCodeField('${c.code}','hwid',this.value)" onblur="autoSaveCodeField('${c.code}','hwid',this.value)">
                                 <div style="margin-top:4px;">${hwidStatusHtml}</div>
                             </td>
@@ -2107,8 +2107,8 @@
                 showMessage('❌ Please select a code first', 'error');
                 return;
             }
-            if (!limit || limit < 1 || limit > 10) {
-                showMessage('❌ Limit must be between 1 and 10', 'error');
+            if (!limit || limit < 1 || limit > 100) {
+                showMessage('❌ Limit must be between 1 and 100', 'error');
                 return;
             }
             

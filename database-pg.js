@@ -861,7 +861,7 @@ class DeviceDatabase {
   async updateCodeHwidLimit(code, limit) {
     try {
       if (limit < 1) limit = 1;
-      if (limit > 10) limit = 10;
+      if (limit > 100) limit = 100;
       
       const result = await this.run(
         'UPDATE codes SET max_hwid_limit = $1 WHERE code = $2',
